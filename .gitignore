@@ -1,0 +1,32 @@
+# Dependencies
+node_modules
+out
+dist
+release
+
+# Build cache
+*.tsbuildinfo
+
+# Local database (dev)
+*.db
+*.db-journal
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / debug
+*.log
+stderr.txt
+stdout.bin
+
+# Editor
+.vscode
+.idea
+
+# GitHub Pages signing token (never commit)
+docs/sign/config.js
