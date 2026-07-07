@@ -16,7 +16,6 @@ import {
   FLOOR_CONDITION,
   FRAME_MATERIALS,
   GAS_OPTIONS,
-  GENERAL_ELECTRICAL_DISCLAIMERS,
   HOT_WATER_TYPES,
   INACCESSIBLE_AREA_PRESETS,
   INTERIOR_OBSTRUCTIONS,
@@ -51,6 +50,13 @@ import {
   WALL_MATERIALS,
   WATER_SUPPLY_OPTIONS,
   DEFORMATION_ITEMS,
+  NO_ISSUES_OBSERVED_COMMENT,
+  SUBFLOOR_PRESENT_OPTIONS,
+  accessibilityAreasWithoutSubfloor,
+  inaccessibleAreasWithoutSubfloor,
+  isSubfloorApplicable,
+  normalizeCheckboxField,
+  resolveSubfloorPresent,
   type BuildingExtensionSections,
   type CheckboxFieldState,
   type InspectionFormDataV2,
@@ -66,7 +72,29 @@ import { InspectorSignatureField } from './InspectorSignatureField';
 import { JobInformationSection } from './JobInformationSection';
 import { InspectionFormProvider, InspectionSubPanel } from './InspectionFormUi';
 import { buildInspectionSectionStatuses } from './section-completion';
+import { buildInspectionRouteIds } from './inspection-route';
 import { InspectionRoomSections } from './InspectionRoomSections';
+import { SectionQuickActions } from './SectionQuickActions';
+
+const SUBFLOOR_INACCESSIBLE = new Set(['Unsafe subfloor access', 'Subfloor access obstructed']);
+
+function stripSubfloorFromAccessibility(
+  accessibility: SharedInspectionSections['accessibilityObstructions'],
+): Partial<SharedInspectionSections['accessibilityObstructions']> {
+  const areas = normalizeCheckboxField(accessibility.accessibilityAreas);
+  const inaccessible = normalizeCheckboxField(accessibility.inaccessibleAreas);
+  return {
+    accessibilityAreas: {
+      selected: areas.selected.filter((item) => item !== 'Subfloor'),
+      custom: areas.custom.filter((item) => item !== 'Subfloor'),
+    },
+    subfloorObstructions: { selected: [], custom: [] },
+    inaccessibleAreas: {
+      selected: inaccessible.selected.filter((item) => !SUBFLOOR_INACCESSIBLE.has(item)),
+      custom: inaccessible.custom.filter((item) => !SUBFLOOR_INACCESSIBLE.has(item)),
+    },
+  };
+}
 
 function splitManualRecommendations(items: string[]): CheckboxFieldState {
   const presetSet = new Set<string>(RECOMMENDATION_PRESETS);
@@ -107,6 +135,24 @@ export function BuildingInspectionForm({
   const building = formData.building;
   const showShared = mode === 'full' || mode === 'shared-only';
   const showBuilding = (mode === 'full' || mode === 'building-only') && building;
+
+  const p = formData.shared.propertyDescription;
+  const a = formData.shared.accessibilityObstructions;
+  const subfloorPresent = resolveSubfloorPresent(p, building?.subfloor, a);
+  const subfloorApplicable = isSubfloorApplicable(subfloorPresent);
+
+  const statuses = useMemo(() => buildInspectionSectionStatuses(formData, rooms), [formData, rooms]);
+
+  const routeIds = useMemo(
+    () =>
+      buildInspectionRouteIds({
+        formKind: 'BUILDING',
+        mode,
+        subfloorApplicable,
+        rooms,
+      }),
+    [mode, subfloorApplicable, rooms],
+  );
 
   if (!showShared && !showBuilding) return null;
 
@@ -169,13 +215,20 @@ export function BuildingInspectionForm({
 
   const j = formData.shared.jobInformation;
   const s = formData.shared.services;
-  const p = formData.shared.propertyDescription;
-  const a = formData.shared.accessibilityObstructions;
+  const accessibilityAreaOptions = subfloorApplicable ? ACCESSIBILITY_AREAS : accessibilityAreasWithoutSubfloor(ACCESSIBILITY_AREAS);
+  const inaccessibleAreaOptions = subfloorApplicable
+    ? INACCESSIBLE_AREA_PRESETS
+    : inaccessibleAreasWithoutSubfloor(INACCESSIBLE_AREA_PRESETS);
+
+  const handleSubfloorPresentChange = (value: string) => {
+    patchShared('propertyDescription', { subfloorPresent: value });
+    if (value === 'No') {
+      patchShared('accessibilityObstructions', stripSubfloorFromAccessibility(a));
+    }
+  };
   const manualRecommendations = building
     ? splitManualRecommendations(building.recommendations.manualRecommendations)
     : { selected: [] as string[], custom: [] as string[] };
-
-  const statuses = useMemo(() => buildInspectionSectionStatuses(formData, rooms), [formData, rooms]);
 
   const roomContent =
     rooms.length > 0 && onRoomDataChange && onRoomPatch ? (
@@ -233,11 +286,24 @@ export function BuildingInspectionForm({
             <YesNoSelect label="Operating?" value={s.airConOperating} onChange={(v) => patchShared('services', { airConOperating: v })} includeNa />
           </div>
         </InspectionSubPanel>
-        <SectionComments disabled={disabled} comments={s.comments} photos={s.photos} onCommentsChange={(v) => patchShared('services', { comments: v })} onPhotosChange={(v) => patchShared('services', { photos: v })} />
+        <SectionComments sectionId="services" disabled={disabled} comments={s.comments} photos={s.photos} onCommentsChange={(v) => patchShared('services', { comments: v })} onPhotosChange={(v) => patchShared('services', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="property-description" title="Property Description" status={statuses['property-description']}>
         <div className="grid gap-4 md:grid-cols-2">
+          <Select
+            label="Subfloor Space Present?"
+            placeholder="Select..."
+            value={p.subfloorPresent}
+            onChange={(e) => handleSubfloorPresentChange(e.target.value)}
+            options={SUBFLOOR_PRESENT_OPTIONS.map((v) => ({ value: v, label: v }))}
+            className="md:col-span-2"
+          />
+          {!subfloorApplicable ? (
+            <p className="md:col-span-2 rounded-lg border border-secondary/25 bg-secondary/[0.06] px-3 py-2 text-sm text-secondary">
+              No subfloor space — subfloor inspection sections are hidden for this property. Existing subfloor data is kept if you change this later.
+            </p>
+          ) : null}
           <Select
             label="Property Type"
             placeholder="Select property type"
@@ -295,57 +361,110 @@ export function BuildingInspectionForm({
         <p className="text-sm text-text-muted">
           Record obstructions and inaccessible areas first. Undetected Structural Damage Risk defaults to Moderate and increases automatically when limitations are present — for example a dog, locked rooms, stored goods, or unsafe access.
         </p>
-        <CheckboxGroupField disabled={disabled} label="Accessibility Areas" options={ACCESSIBILITY_AREAS} value={a.accessibilityAreas} onChange={(v) => patchShared('accessibilityObstructions', { accessibilityAreas: v })} />
+        <CheckboxGroupField disabled={disabled} label="Accessibility Areas" options={accessibilityAreaOptions} value={a.accessibilityAreas} onChange={(v) => patchShared('accessibilityObstructions', { accessibilityAreas: v })} />
         <CheckboxGroupField disabled={disabled} label="A - Building Interior Obstructions" options={INTERIOR_OBSTRUCTIONS} value={a.interiorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { interiorObstructions: v })} />
         <CheckboxGroupField disabled={disabled} label="B - Building Exterior Obstructions" options={EXTERIOR_OBSTRUCTIONS} value={a.exteriorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { exteriorObstructions: v })} />
         <CheckboxGroupField disabled={disabled} label="C - Roof Space Obstructions" options={ROOF_SPACE_OBSTRUCTIONS} value={a.roofSpaceObstructions} onChange={(v) => patchShared('accessibilityObstructions', { roofSpaceObstructions: v })} />
-        <CheckboxGroupField disabled={disabled} label="D - Subfloor Space Obstructions" options={SUBFLOOR_OBSTRUCTIONS} value={a.subfloorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { subfloorObstructions: v })} />
-        <CheckboxGroupField disabled={disabled} label="Inaccessible Areas" options={INACCESSIBLE_AREA_PRESETS} value={a.inaccessibleAreas} onChange={(v) => patchShared('accessibilityObstructions', { inaccessibleAreas: v })} />
-        <div className="grid gap-4 md:grid-cols-1">
-          {(a.inaccessibleCustomLines ?? ['', '', '']).slice(0, 3).map((line, index) => (
-            <Input
-              key={`inaccessible-note-${index}`}
-              label={index === 0 ? 'Inaccessible Area Notes' : `Inaccessible Area Note ${index + 1}`}
-              value={line}
-              onChange={(e) => {
-                const lines = [...(a.inaccessibleCustomLines ?? ['', '', ''])];
-                while (lines.length < 3) lines.push('');
-                lines[index] = e.target.value;
-                patchShared('accessibilityObstructions', { inaccessibleCustomLines: lines.slice(0, 3) });
-              }}
-            />
-          ))}
-        </div>
+        {subfloorApplicable ? (
+          <CheckboxGroupField disabled={disabled} label="D - Subfloor Space Obstructions" options={SUBFLOOR_OBSTRUCTIONS} value={a.subfloorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { subfloorObstructions: v })} />
+        ) : null}
+        <CheckboxGroupField disabled={disabled} label="Inaccessible Areas" options={inaccessibleAreaOptions} value={a.inaccessibleAreas} onChange={(v) => patchShared('accessibilityObstructions', { inaccessibleAreas: v })} />
+        <Input
+          label="Inaccessible Area Notes"
+          value={(a.inaccessibleCustomLines ?? [''])[0] ?? ''}
+          onChange={(e) => patchShared('accessibilityObstructions', { inaccessibleCustomLines: [e.target.value] })}
+        />
         <RatingSelect label="Undetected Structural Damage Risk" value={a.undetectedStructuralRisk} onChange={(v) => patchShared('accessibilityObstructions', { undetectedStructuralRisk: v })} options={RISK_LEVELS} />
         <Textarea label="Risk Explanation (auto-generated, editable)" value={a.riskExplanation} onChange={(e) => patchShared('accessibilityObstructions', { riskExplanation: e.target.value })} rows={5} />
-        <SectionComments disabled={disabled} comments={a.comments} photos={a.photos} onCommentsChange={(v) => patchShared('accessibilityObstructions', { comments: v })} onPhotosChange={(v) => patchShared('accessibilityObstructions', { photos: v })} />
+        <SectionComments sectionId="accessibility" disabled={disabled} comments={a.comments} photos={a.photos} onCommentsChange={(v) => patchShared('accessibilityObstructions', { comments: v })} onPhotosChange={(v) => patchShared('accessibilityObstructions', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="site-conditions" title="Site Conditions" status={statuses['site-conditions']}>
+        <SectionQuickActions
+          disabled={disabled}
+          onNoIssues={() =>
+            patchShared('siteConditions', {
+              landSlope: 'Generally Level',
+              surfaceDrainage: 'Adequate',
+              evidenceOfWaterPooling: 'No',
+              comments: NO_ISSUES_OBSERVED_COMMENT,
+            })
+          }
+        />
         <div className="grid gap-4 md:grid-cols-3">
           <RatingSelect label="Land Slope" value={formData.shared.siteConditions.landSlope} onChange={(v) => patchShared('siteConditions', { landSlope: v })} options={LAND_SLOPE} />
           <RatingSelect label="Surface Drainage" value={formData.shared.siteConditions.surfaceDrainage} onChange={(v) => patchShared('siteConditions', { surfaceDrainage: v })} options={DRAINAGE_RATING} />
           <YesNoSelect label="Evidence Of Water Pooling" value={formData.shared.siteConditions.evidenceOfWaterPooling} onChange={(v) => patchShared('siteConditions', { evidenceOfWaterPooling: v })} />
         </div>
         <CheckboxGroupField disabled={disabled} label="Site Drainage Concerns" options={SITE_DRAINAGE_CONCERNS} value={formData.shared.siteConditions.siteDrainageConcerns} onChange={(v) => patchShared('siteConditions', { siteDrainageConcerns: v })} />
-        <SectionComments disabled={disabled} comments={formData.shared.siteConditions.comments} photos={formData.shared.siteConditions.photos} onCommentsChange={(v) => patchShared('siteConditions', { comments: v })} onPhotosChange={(v) => patchShared('siteConditions', { photos: v })} />
+        <SectionComments sectionId="site-conditions" disabled={disabled} comments={formData.shared.siteConditions.comments} photos={formData.shared.siteConditions.photos} onCommentsChange={(v) => patchShared('siteConditions', { comments: v })} onPhotosChange={(v) => patchShared('siteConditions', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="external" title="External" status={statuses.external}>
+        <SectionQuickActions
+          disabled={disabled}
+          onNoIssues={() => patchShared('external', { comments: NO_ISSUES_OBSERVED_COMMENT })}
+        />
         <CheckboxGroupField disabled={disabled} label="External Defects" options={EXTERNAL_DEFECTS} value={formData.shared.external.externalDefects} onChange={(v) => patchShared('external', { externalDefects: v })} />
         <CheckboxGroupField disabled={disabled} label="Damage Observed" options={DAMAGE_OBSERVED} value={formData.shared.external.damageObserved} onChange={(v) => patchShared('external', { damageObserved: v })} />
-        <SectionComments disabled={disabled} comments={formData.shared.external.comments} photos={formData.shared.external.photos} onCommentsChange={(v) => patchShared('external', { comments: v })} onPhotosChange={(v) => patchShared('external', { photos: v })} />
+        <SectionComments sectionId="external" disabled={disabled} comments={formData.shared.external.comments} photos={formData.shared.external.photos} onCommentsChange={(v) => patchShared('external', { comments: v })} onPhotosChange={(v) => patchShared('external', { photos: v })} />
       </InspectionAccordionSection>
 
+      {building ? (
+        <>
+          {subfloorApplicable ? (
+            <InspectionAccordionSection id="subfloor" title="Subfloor" status={statuses.subfloor ?? 'not_started'}>
+              <SectionQuickActions
+                disabled={disabled}
+                onNoIssues={() => patchBuilding('subfloor', { comments: NO_ISSUES_OBSERVED_COMMENT })}
+              />
+              <CheckboxGroupField disabled={disabled} label="Elements" options={SUBFLOOR_ELEMENTS} value={building.subfloor.elements} onChange={(v) => patchBuilding('subfloor', { elements: v })} />
+              <SectionComments sectionId="subfloor" disabled={disabled} comments={building.subfloor.comments} photos={building.subfloor.photos} onCommentsChange={(v) => patchBuilding('subfloor', { comments: v })} onPhotosChange={(v) => patchBuilding('subfloor', { photos: v })} />
+            </InspectionAccordionSection>
+          ) : null}
+
+          <InspectionAccordionSection id="fencing" title="Fencing" status={statuses.fencing ?? 'not_started'}>
+            <SectionQuickActions
+              disabled={disabled}
+              onNoIssues={() => patchBuilding('fencing', { comments: NO_ISSUES_OBSERVED_COMMENT })}
+            />
+            <CheckboxGroupField disabled={disabled} label="Materials" options={FENCING_MATERIALS} value={building.fencing.materials} onChange={(v) => patchBuilding('fencing', { materials: v })} />
+            <SectionComments sectionId="fencing" disabled={disabled} comments={building.fencing.comments} photos={building.fencing.photos} onCommentsChange={(v) => patchBuilding('fencing', { comments: v })} onPhotosChange={(v) => patchBuilding('fencing', { photos: v })} />
+          </InspectionAccordionSection>
+
+          <InspectionAccordionSection id="outbuildings" title="Outbuildings" status={statuses.outbuildings ?? 'not_started'}>
+            <SectionQuickActions
+              disabled={disabled}
+              onNoIssues={() =>
+                patchBuilding('outbuildings', { condition: 'Good', comments: NO_ISSUES_OBSERVED_COMMENT })
+              }
+            />
+            <CheckboxGroupField disabled={disabled} label="Types" options={OUTBUILDING_TYPES} value={building.outbuildings.types} onChange={(v) => patchBuilding('outbuildings', { types: v })} />
+            <RatingSelect label="Condition" value={building.outbuildings.condition} onChange={(v) => patchBuilding('outbuildings', { condition: v })} options={['Good', 'Fair', 'Poor']} />
+            <SectionComments sectionId="outbuildings" disabled={disabled} comments={building.outbuildings.comments} photos={building.outbuildings.photos} onCommentsChange={(v) => patchBuilding('outbuildings', { comments: v })} onPhotosChange={(v) => patchBuilding('outbuildings', { photos: v })} />
+          </InspectionAccordionSection>
+        </>
+      ) : null}
+
       <InspectionAccordionSection id="roof-exterior" title="Roof Exterior" status={statuses['roof-exterior']}>
+        <SectionQuickActions
+          disabled={disabled}
+          onNoIssues={() =>
+            patchShared('roofExterior', { condition: 'Good', comments: NO_ISSUES_OBSERVED_COMMENT })
+          }
+        />
         <CheckboxGroupField disabled={disabled} label="Defects" options={ROOF_EXTERIOR_DEFECTS} value={formData.shared.roofExterior.defects} onChange={(v) => patchShared('roofExterior', { defects: v })} />
         <RatingSelect label="Condition" value={formData.shared.roofExterior.condition} onChange={(v) => patchShared('roofExterior', { condition: v })} options={['Good', 'Fair', 'Poor']} />
-        <SectionComments disabled={disabled} comments={formData.shared.roofExterior.comments} photos={formData.shared.roofExterior.photos} onCommentsChange={(v) => patchShared('roofExterior', { comments: v })} onPhotosChange={(v) => patchShared('roofExterior', { photos: v })} />
+        <SectionComments sectionId="roof-exterior" disabled={disabled} comments={formData.shared.roofExterior.comments} photos={formData.shared.roofExterior.photos} onCommentsChange={(v) => patchShared('roofExterior', { comments: v })} onPhotosChange={(v) => patchShared('roofExterior', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="roof-space" title="Roof Space" status={statuses['roof-space']}>
+        <SectionQuickActions
+          disabled={disabled}
+          onNoIssues={() => patchShared('roofSpace', { comments: NO_ISSUES_OBSERVED_COMMENT })}
+        />
         <CheckboxGroupField disabled={disabled} label="Defects" options={ROOF_SPACE_DEFECTS} value={formData.shared.roofSpace.defects} onChange={(v) => patchShared('roofSpace', { defects: v })} />
-        <SectionComments disabled={disabled} comments={formData.shared.roofSpace.comments} photos={formData.shared.roofSpace.photos} onCommentsChange={(v) => patchShared('roofSpace', { comments: v })} onPhotosChange={(v) => patchShared('roofSpace', { photos: v })} />
+        <SectionComments sectionId="roof-space" disabled={disabled} comments={formData.shared.roofSpace.comments} photos={formData.shared.roofSpace.photos} onCommentsChange={(v) => patchShared('roofSpace', { comments: v })} onPhotosChange={(v) => patchShared('roofSpace', { photos: v })} />
       </InspectionAccordionSection>
         </>
       )}
@@ -406,7 +525,7 @@ export function BuildingInspectionForm({
             <p key={statement}>{statement}</p>
           ))}
         </div>
-        <SectionComments disabled={disabled} comments={building.kitchen.comments} photos={building.kitchen.photos} onCommentsChange={(v) => patchBuilding('kitchen', { comments: v })} onPhotosChange={(v) => patchBuilding('kitchen', { photos: v })} />
+        <SectionComments sectionId="kitchen" disabled={disabled} comments={building.kitchen.comments} photos={building.kitchen.photos} onCommentsChange={(v) => patchBuilding('kitchen', { comments: v })} onPhotosChange={(v) => patchBuilding('kitchen', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="laundry" title="Laundry" status={statuses.laundry ?? 'not_started'}>
@@ -487,47 +606,23 @@ export function BuildingInspectionForm({
             <p key={statement}>{statement}</p>
           ))}
         </div>
-        <SectionComments disabled={disabled} comments={building.laundry.comments} photos={building.laundry.photos} onCommentsChange={(v) => patchBuilding('laundry', { comments: v })} onPhotosChange={(v) => patchBuilding('laundry', { photos: v })} />
-      </InspectionAccordionSection>
-
-      <InspectionAccordionSection id="electrical-general" title="General Electrical Disclaimer" status={statuses['electrical-general'] ?? 'not_started'}>
-        <div className="inspection-note-panel">
-          {GENERAL_ELECTRICAL_DISCLAIMERS.map((statement) => (
-            <p key={statement}>{statement}</p>
-          ))}
-        </div>
-        <p className="text-xs text-text-muted">
-          These standard disclaimer statements are included automatically on every building report.
-        </p>
-        <SectionComments disabled={disabled} comments={building.electricalGeneral.comments} photos={building.electricalGeneral.photos} onCommentsChange={(v) => patchBuilding('electricalGeneral', { comments: v })} onPhotosChange={(v) => patchBuilding('electricalGeneral', { photos: v })} />
+        <SectionComments sectionId="laundry" disabled={disabled} comments={building.laundry.comments} photos={building.laundry.photos} onCommentsChange={(v) => patchBuilding('laundry', { comments: v })} onPhotosChange={(v) => patchBuilding('laundry', { photos: v })} />
       </InspectionAccordionSection>
 
       {roomContent}
 
-      <InspectionAccordionSection id="subfloor" title="Subfloor" status={statuses.subfloor ?? 'not_started'}>
-        <CheckboxGroupField disabled={disabled} label="Elements" options={SUBFLOOR_ELEMENTS} value={building.subfloor.elements} onChange={(v) => patchBuilding('subfloor', { elements: v })} />
-        <SectionComments disabled={disabled} comments={building.subfloor.comments} photos={building.subfloor.photos} onCommentsChange={(v) => patchBuilding('subfloor', { comments: v })} onPhotosChange={(v) => patchBuilding('subfloor', { photos: v })} />
-      </InspectionAccordionSection>
-
-      <InspectionAccordionSection id="fencing" title="Fencing" status={statuses.fencing ?? 'not_started'}>
-        <CheckboxGroupField disabled={disabled} label="Materials" options={FENCING_MATERIALS} value={building.fencing.materials} onChange={(v) => patchBuilding('fencing', { materials: v })} />
-        <SectionComments disabled={disabled} comments={building.fencing.comments} photos={building.fencing.photos} onCommentsChange={(v) => patchBuilding('fencing', { comments: v })} onPhotosChange={(v) => patchBuilding('fencing', { photos: v })} />
-      </InspectionAccordionSection>
-
-      <InspectionAccordionSection id="outbuildings" title="Outbuildings" status={statuses.outbuildings ?? 'not_started'}>
-        <CheckboxGroupField disabled={disabled} label="Types" options={OUTBUILDING_TYPES} value={building.outbuildings.types} onChange={(v) => patchBuilding('outbuildings', { types: v })} />
-        <RatingSelect label="Condition" value={building.outbuildings.condition} onChange={(v) => patchBuilding('outbuildings', { condition: v })} options={['Good', 'Fair', 'Poor']} />
-        <SectionComments disabled={disabled} comments={building.outbuildings.comments} photos={building.outbuildings.photos} onCommentsChange={(v) => patchBuilding('outbuildings', { comments: v })} onPhotosChange={(v) => patchBuilding('outbuildings', { photos: v })} />
-      </InspectionAccordionSection>
-
       <InspectionAccordionSection id="corrosion" title="Corrosion" status={statuses.corrosion ?? 'not_started'}>
+        <SectionQuickActions
+          disabled={disabled}
+          onNoIssues={() => patchBuilding('corrosion', { comments: NO_ISSUES_OBSERVED_COMMENT })}
+        />
         <CheckboxGroupField disabled={disabled} label="Items" options={CORROSION_ITEMS} value={building.corrosion.items} onChange={(v) => patchBuilding('corrosion', { items: v })} />
-        <SectionComments disabled={disabled} comments={building.corrosion.comments} photos={building.corrosion.photos} onCommentsChange={(v) => patchBuilding('corrosion', { comments: v })} onPhotosChange={(v) => patchBuilding('corrosion', { photos: v })} />
+        <SectionComments sectionId="corrosion" disabled={disabled} comments={building.corrosion.comments} photos={building.corrosion.photos} onCommentsChange={(v) => patchBuilding('corrosion', { comments: v })} onPhotosChange={(v) => patchBuilding('corrosion', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="minor-defects" title="Minor Defects" status={statuses['minor-defects'] ?? 'not_started'}>
         <CheckboxGroupField disabled={disabled} label="Checklist" options={MINOR_DEFECT_PRESETS} value={building.minorDefects.checklist} onChange={(v) => patchBuilding('minorDefects', { checklist: v })} />
-        <SectionComments disabled={disabled} comments={building.minorDefects.comments} photos={building.minorDefects.photos} onCommentsChange={(v) => patchBuilding('minorDefects', { comments: v })} onPhotosChange={(v) => patchBuilding('minorDefects', { photos: v })} />
+        <SectionComments sectionId="minor-defects" disabled={disabled} comments={building.minorDefects.comments} photos={building.minorDefects.photos} onCommentsChange={(v) => patchBuilding('minorDefects', { comments: v })} onPhotosChange={(v) => patchBuilding('minorDefects', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="major-defects" title="Major Defects" status={statuses['major-defects'] ?? 'not_started'}>
@@ -535,11 +630,11 @@ export function BuildingInspectionForm({
         <YesNoSelect label="Engineering Inspection Required" value={building.majorDefects.structuralEngineeringRequired} onChange={(v) => patchBuilding('majorDefects', { structuralEngineeringRequired: v })} />
         <CheckboxGroupField disabled={disabled} label="Deformation / Sagging" options={DEFORMATION_ITEMS} value={building.majorDefects.deformation} onChange={(v) => patchBuilding('majorDefects', { deformation: v })} />
         <CheckboxGroupField disabled={disabled} label="Source of Moisture" options={MOISTURE_SOURCES} value={building.majorDefects.moistureSources} onChange={(v) => patchBuilding('majorDefects', { moistureSources: v })} />
-        <SectionComments disabled={disabled} comments={building.majorDefects.comments} photos={building.majorDefects.photos} onCommentsChange={(v) => patchBuilding('majorDefects', { comments: v })} onPhotosChange={(v) => patchBuilding('majorDefects', { photos: v })} />
+        <SectionComments sectionId="major-defects" disabled={disabled} comments={building.majorDefects.comments} photos={building.majorDefects.photos} onCommentsChange={(v) => patchBuilding('majorDefects', { comments: v })} onPhotosChange={(v) => patchBuilding('majorDefects', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="thermal-imaging" title="Thermal Imaging" status={statuses['thermal-imaging'] ?? 'not_started'}>
-        <SectionComments disabled={disabled} comments={building.thermalImaging.comments} photos={building.thermalImaging.photos} onCommentsChange={(v) => patchBuilding('thermalImaging', { comments: v })} onPhotosChange={(v) => patchBuilding('thermalImaging', { photos: v })} />
+        <SectionComments sectionId="thermal-imaging" disabled={disabled} comments={building.thermalImaging.comments} photos={building.thermalImaging.photos} onCommentsChange={(v) => patchBuilding('thermalImaging', { comments: v })} onPhotosChange={(v) => patchBuilding('thermalImaging', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="moisture-testing" title="Moisture Testing" status={statuses['moisture-testing'] ?? 'not_started'}>
@@ -548,7 +643,7 @@ export function BuildingInspectionForm({
         <YesNoSelect label="Excessive Moisture Evidence" value={building.moistureTesting.excessiveMoistureEvidence} onChange={(v) => patchBuilding('moistureTesting', { excessiveMoistureEvidence: v })} />
         <PhotoField disabled={disabled} label="Moisture Meter Photos" photos={building.moistureTesting.moistureMeterPhotos} onChange={(v) => patchBuilding('moistureTesting', { moistureMeterPhotos: v })} />
         <PhotoField disabled={disabled} label="Thermal Images" photos={building.moistureTesting.thermalImages} onChange={(v) => patchBuilding('moistureTesting', { thermalImages: v })} />
-        <SectionComments disabled={disabled} comments={building.moistureTesting.comments} photos={building.moistureTesting.photos} onCommentsChange={(v) => patchBuilding('moistureTesting', { comments: v })} onPhotosChange={(v) => patchBuilding('moistureTesting', { photos: v })} />
+        <SectionComments sectionId="moisture-testing" disabled={disabled} comments={building.moistureTesting.comments} photos={building.moistureTesting.photos} onCommentsChange={(v) => patchBuilding('moistureTesting', { comments: v })} onPhotosChange={(v) => patchBuilding('moistureTesting', { photos: v })} />
       </InspectionAccordionSection>
 
       <InspectionAccordionSection id="conclusion" title="Conclusion" status={statuses.conclusion ?? 'not_started'}>
@@ -612,7 +707,9 @@ export function BuildingInspectionForm({
 
   return (
     <InspectionFormProvider>
-      <InspectionAccordion defaultOpenId="inspector-hazard">{sections}</InspectionAccordion>
+      <InspectionAccordion defaultOpenId="inspector-hazard" routeIds={routeIds}>
+        {sections}
+      </InspectionAccordion>
     </InspectionFormProvider>
   );
 }

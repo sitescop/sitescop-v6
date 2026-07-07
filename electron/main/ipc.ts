@@ -22,6 +22,7 @@ import type {
   UpdateInspectionSectionInput,
 } from '../../shared/inspection-types.js';
 import { captureCurrentPosition } from './geolocation.service.js';
+import { cancelSpeechDictation, checkSpeechEngine, dictateComment, transcribeWavBase64 } from './speech.service.js';
 import { getSigningPortalBaseUrl } from './signing-server.js';
 import {
   getActiveSigningUrl,
@@ -576,4 +577,20 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('geo:captureCurrentPosition', async () => captureCurrentPosition());
+
+  ipcMain.handle('speech:check', async () => checkSpeechEngine());
+
+  ipcMain.handle('speech:dictate', async (event) =>
+    dictateComment((phase) => {
+      if (phase === 'ready') {
+        event.sender.send('speech:phase', { phase: 'ready' });
+      }
+    }),
+  );
+
+  ipcMain.handle('speech:cancel', async () => {
+    cancelSpeechDictation();
+  });
+
+  ipcMain.handle('speech:transcribeAudio', async (_event, base64Wav: string) => transcribeWavBase64(base64Wav));
 }

@@ -5,6 +5,8 @@ import {
   type InspectionFormDataV2,
   type PestInspectionSections,
   type SharedInspectionSections,
+  isSubfloorApplicable,
+  resolveSubfloorPresent,
 } from '@sitescop/room-engine-core';
 import type { InspectionRoomDetail } from '@shared/inspection-types';
 import { InspectionRoomType } from '@shared/inspection-types';
@@ -93,7 +95,8 @@ export function getPropertyDescriptionStatus(section: SharedInspectionSections['
     hasText(section.propertyType) &&
     hasText(section.storeys) &&
     hasText(section.orientation) &&
-    hasText(section.positionOnBlock);
+    hasText(section.positionOnBlock) &&
+    hasText(section.subfloorPresent);
   const materials =
     hasCheckboxes(section.walls) ||
     hasCheckboxes(section.roof) ||
@@ -105,13 +108,18 @@ export function getPropertyDescriptionStatus(section: SharedInspectionSections['
   return 'not_started';
 }
 
-export function getAccessibilityStatus(section: SharedInspectionSections['accessibilityObstructions']): SectionCompletionStatus {
+export function getAccessibilityStatus(
+  section: SharedInspectionSections['accessibilityObstructions'],
+  subfloorApplicable = true,
+): SectionCompletionStatus {
   const activity =
     sectionActivity(section) ||
     hasCheckboxes(section.accessibilityAreas) ||
     hasCheckboxes(section.interiorObstructions) ||
     hasCheckboxes(section.exteriorObstructions) ||
-    hasCheckboxes(section.inaccessibleAreas);
+    hasCheckboxes(section.inaccessibleAreas) ||
+    (subfloorApplicable && hasCheckboxes(section.subfloorObstructions)) ||
+    hasCheckboxes(section.roofSpaceObstructions);
   const complete = hasText(section.undetectedStructuralRisk) && hasText(section.riskExplanation);
   return resolveStatus(activity, complete);
 }
@@ -212,7 +220,10 @@ export function getRoomSectionStatus(rooms: InspectionRoomDetail[], roomType: In
   return 'not_started';
 }
 
-export function buildPestSectionStatuses(pest: PestInspectionSections): Record<string, SectionCompletionStatus> {
+export function buildPestSectionStatuses(
+  pest: PestInspectionSections,
+  subfloorApplicable = true,
+): Record<string, SectionCompletionStatus> {
   const statuses: Record<string, SectionCompletionStatus> = {
     'pest-risk': getPestSectionStatus('undetectedTimberPestRisk', pest.undetectedTimberPestRisk),
     'pest-conclusion': getPestSectionStatus('pestConclusion', pest.pestConclusion),
@@ -233,7 +244,10 @@ export function buildPestSectionStatuses(pest: PestInspectionSections): Record<s
     'd13ConduciveConditions',
     'd14MajorSafetyHazards',
   ] as const) {
-    statuses[`pest-${key}`] = getPestSectionStatus(key, pest[key]);
+    statuses[`pest-${key}`] =
+      key === 'd9SubfloorVentilation' && !subfloorApplicable
+        ? 'completed'
+        : getPestSectionStatus(key, pest[key]);
   }
 
   return statuses;
@@ -246,13 +260,19 @@ export function buildInspectionSectionStatuses(
   const shared = formData.shared;
   const building = formData.building;
   const pest = formData.pest;
+  const subfloorPresent = resolveSubfloorPresent(
+    shared.propertyDescription,
+    building?.subfloor,
+    shared.accessibilityObstructions,
+  );
+  const subfloorApplicable = isSubfloorApplicable(subfloorPresent);
 
   const statuses: Record<string, SectionCompletionStatus> = {
     'inspector-hazard': getInspectorHazardStatus(shared.inspectorHazardAssessment),
     'job-information': getJobInformationStatus(shared.jobInformation),
     services: getServicesStatus(shared.services),
     'property-description': getPropertyDescriptionStatus(shared.propertyDescription),
-    accessibility: getAccessibilityStatus(shared.accessibilityObstructions),
+    accessibility: getAccessibilityStatus(shared.accessibilityObstructions, subfloorApplicable),
     'site-conditions': getSiteConditionsStatus(shared.siteConditions),
     external: checklistStatus(shared.external),
     'roof-exterior': checklistStatus(shared.roofExterior),
@@ -266,8 +286,7 @@ export function buildInspectionSectionStatuses(
   if (building) {
     statuses.kitchen = getKitchenStatus(building.kitchen);
     statuses.laundry = getLaundryStatus(building.laundry);
-    statuses['electrical-general'] = checklistStatus(building.electricalGeneral);
-    statuses.subfloor = checklistStatus(building.subfloor);
+    statuses.subfloor = subfloorApplicable ? checklistStatus(building.subfloor) : 'completed';
     statuses.fencing = checklistStatus(building.fencing);
     statuses.outbuildings = checklistStatus(building.outbuildings);
     statuses.corrosion = checklistStatus(building.corrosion);
@@ -301,7 +320,10 @@ export function buildInspectionSectionStatuses(
       'd13ConduciveConditions',
       'd14MajorSafetyHazards',
     ] as const) {
-      statuses[`pest-${key}`] = getPestSectionStatus(key, pest[key]);
+      statuses[`pest-${key}`] =
+        key === 'd9SubfloorVentilation' && !subfloorApplicable
+          ? 'completed'
+          : getPestSectionStatus(key, pest[key]);
     }
     statuses['pest-conclusion'] = getPestSectionStatus('pestConclusion', pest.pestConclusion);
   }

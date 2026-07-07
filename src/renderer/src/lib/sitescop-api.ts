@@ -1,6 +1,6 @@
 import type { SitescopApi } from '@shared/api-types';
 
-export const CURRENT_BRIDGE_VERSION = 2;
+export const CURRENT_BRIDGE_VERSION = 3;
 
 /** True when running inside the Electron desktop window (not Chrome/Edge). */
 export function isDesktopApp(): boolean {
@@ -84,6 +84,34 @@ export function hasClientsApi(): boolean {
   return Boolean(window.sitescop?.clients?.list);
 }
 
+export function hasSpeechApi(): boolean {
+  return Boolean(window.sitescop?.speech?.transcribeAudio || window.sitescop?.speech?.dictate);
+}
+
+export function hasDictationApi(): boolean {
+  return Boolean(window.sitescop?.speech?.transcribeAudio);
+}
+
+/** Wait for the speech IPC bridge (preload must expose window.sitescop.speech). */
+export async function waitForSpeechApi(maxMs = 8000): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    if (hasSpeechApi()) return true;
+    await sleep(100);
+  }
+  return hasSpeechApi();
+}
+
+/** Wait until offline dictation (record + transcribe) is available. */
+export async function waitForDictationApi(maxMs = 8000): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    if (hasDictationApi()) return true;
+    await sleep(100);
+  }
+  return hasDictationApi();
+}
+
 export function getClientsApi(): SitescopApi['clients'] {
   const api = requireDesktopBridge();
   if (!api.clients?.list) {
@@ -96,7 +124,12 @@ export function getClientsApi(): SitescopApi['clients'] {
 
 export function isBridgeUpToDate(): boolean {
   const version = window.sitescop?.meta?.bridgeVersion ?? 1;
-  return version >= CURRENT_BRIDGE_VERSION && hasRecycleBinApi() && hasClientsApi();
+  return (
+    version >= CURRENT_BRIDGE_VERSION &&
+    hasRecycleBinApi() &&
+    hasClientsApi() &&
+    hasSpeechApi()
+  );
 }
 
 export function getStaleBridgeFeatures(): string[] {
@@ -104,5 +137,6 @@ export function getStaleBridgeFeatures(): string[] {
   if (!hasRecycleBinApi()) missing.push('Recycle Bin');
   if (!hasClientsApi()) missing.push('Clients');
   if (!window.sitescop?.settings?.getProfile) missing.push('Settings');
+  if (!window.sitescop?.speech?.transcribeAudio && !window.sitescop?.speech?.dictate) missing.push('Dictation');
   return missing;
 }

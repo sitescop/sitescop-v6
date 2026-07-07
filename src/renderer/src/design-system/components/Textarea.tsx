@@ -1,5 +1,8 @@
 import { useContext } from 'react';
+import { appendInspectionComment } from '@sitescop/room-engine-core';
 import { cn } from '@/lib/cn';
+import { CommentDictationButton } from '@/modules/inspections/components/CommentDictationButton';
+import { CommentWritingAssist } from '@/modules/inspections/components/CommentWritingAssist';
 import {
   InspectionFormContext,
   INSPECTION_COMMENTS_TEXTAREA_CLASS,
@@ -12,13 +15,63 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
   error?: string;
   /** Wide rectangular layout for inspection comment fields. */
   commentsField?: boolean;
+  /** Section id for speech-to-text report phrasing (e.g. fencing, external). */
+  dictationSectionId?: string;
+  /** Direct callback when dictation text is ready (preferred for comment fields). */
+  onDictationAppend?: (text: string) => void;
+  /** Called when writing assist applies a new comment value. */
+  onWritingApply?: (text: string) => void;
 }
 
-export function Textarea({ label, error, className, id, commentsField, ...props }: TextareaProps) {
+export function Textarea({
+  label,
+  error,
+  className,
+  id,
+  commentsField,
+  dictationSectionId,
+  onDictationAppend,
+  onWritingApply,
+  spellCheck,
+  onChange,
+  value,
+  readOnly,
+  disabled,
+  ...props
+}: TextareaProps) {
   const inInspectionForm = useContext(InspectionFormContext);
   const isCommentsField =
     commentsField ?? (inInspectionForm && (label === 'Comments' || label === 'Comment'));
   const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
+  const enableSpellCheck = spellCheck ?? (isCommentsField && !readOnly);
+  const enableDictation = isCommentsField && !readOnly && !disabled;
+
+  const handleDictation = (transcript: string) => {
+    if (onDictationAppend) {
+      onDictationAppend(transcript);
+      return;
+    }
+    const current = String(value ?? '');
+    const next = appendInspectionComment(current, transcript);
+    onChange?.({
+      target: { value: next },
+      currentTarget: { value: next },
+    } as React.ChangeEvent<HTMLTextAreaElement>);
+  };
+
+  const enableWritingAssist = isCommentsField && !readOnly && !disabled && (onWritingApply || onChange);
+
+  const handleWritingApply = (next: string) => {
+    if (onWritingApply) {
+      onWritingApply(next);
+      return;
+    }
+    onChange?.({
+      target: { value: next },
+      currentTarget: { value: next },
+    } as React.ChangeEvent<HTMLTextAreaElement>);
+  };
+
   return (
     <div className={isCommentsField ? 'w-full' : undefined}>
       {label && (
@@ -40,8 +93,14 @@ export function Textarea({ label, error, className, id, commentsField, ...props 
           )}
         </label>
       )}
+      {enableDictation ? (
+        <div className="mb-2 w-full">
+          <CommentDictationButton disabled={disabled} sectionId={dictationSectionId} onTranscript={handleDictation} />
+        </div>
+      ) : null}
       <textarea
         id={inputId}
+        lang="en-AU"
         className={cn(
           inInspectionForm
             ? isCommentsField
@@ -51,8 +110,16 @@ export function Textarea({ label, error, className, id, commentsField, ...props 
           error && 'border-danger',
           className,
         )}
+        spellCheck={enableSpellCheck}
+        value={value}
+        readOnly={readOnly}
+        disabled={disabled}
+        onChange={onChange}
         {...props}
       />
+      {enableWritingAssist ? (
+        <CommentWritingAssist text={String(value ?? '')} disabled={disabled} onApplyText={handleWritingApply} />
+      ) : null}
       {error && <p className="mt-1 text-sm text-danger">{error}</p>}
     </div>
   );

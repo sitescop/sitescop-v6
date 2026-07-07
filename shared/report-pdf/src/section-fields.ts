@@ -40,6 +40,7 @@ const FIELD_LABEL_OVERRIDES: Record<string, string> = {
   weatherConditions: 'Weather Conditions',
   occupancyStatus: 'Occupancy Status',
   incompleteConstruction: 'Incomplete Construction',
+  subfloorPresent: 'Subfloor Space Present',
   incompleteConstructionPhotos: 'Incomplete Construction Photos',
   gpsLatitude: 'GPS Latitude',
   gpsLongitude: 'GPS Longitude',

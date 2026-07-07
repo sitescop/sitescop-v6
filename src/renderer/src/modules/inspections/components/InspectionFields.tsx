@@ -1,6 +1,8 @@
 import { memo, useCallback, useContext, useRef, useState, type ElementType, type ReactNode } from 'react';
 import { Camera, ChevronLeft, ChevronRight, ImagePlus, Plus, Trash2, X } from 'lucide-react';
 import {
+  appendInspectionComment,
+  getCommentSuggestions,
   normalizeCheckboxField,
   type CheckboxFieldState,
   type InspectionPhotoRef,
@@ -315,6 +317,14 @@ interface SectionCommentsProps {
   onCommentsChange: (value: string) => void;
   onPhotosChange: (photos: InspectionPhotoRef[]) => void;
   disabled?: boolean;
+  /** Loads one-click comment suggestions for this section. */
+  sectionId?: string;
+  suggestions?: readonly string[];
+}
+
+function suggestionButtonLabel(text: string): string {
+  if (text.length <= 52) return text;
+  return `${text.slice(0, 49)}…`;
 }
 
 export function SectionComments({
@@ -323,12 +333,42 @@ export function SectionComments({
   onCommentsChange,
   onPhotosChange,
   disabled = false,
+  sectionId,
+  suggestions,
 }: SectionCommentsProps) {
+  const quickComments = suggestions ?? (sectionId ? getCommentSuggestions(sectionId) : []);
+  const commentsRef = useRef(comments);
+  commentsRef.current = comments;
+
   return (
     <div className="inspection-section-comments mt-1 w-full space-y-4">
       <InspectionSubsectionHeading>Comments</InspectionSubsectionHeading>
+      {quickComments.length > 0 && !disabled ? (
+        <div className="space-y-2 rounded-lg border border-primary/10 bg-secondary/[0.04] px-3 py-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Quick comments</p>
+          <div className="flex flex-wrap gap-1.5">
+            {quickComments.map((snippet) => (
+              <Button
+                key={snippet}
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-auto max-w-full whitespace-normal px-2.5 py-1.5 text-left text-xs leading-snug"
+                title={snippet}
+                onClick={() => onCommentsChange(appendInspectionComment(comments ?? '', snippet))}
+              >
+                {suggestionButtonLabel(snippet)}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <Textarea
         commentsField
+        dictationSectionId={sectionId}
+        onDictationAppend={(text) =>
+          onCommentsChange(appendInspectionComment(commentsRef.current ?? '', text))
+        }
         value={comments ?? ''}
         disabled={disabled}
         onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => onCommentsChange(e.target.value)}

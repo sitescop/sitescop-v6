@@ -84,7 +84,7 @@ export function LivingRoomForm({ data, onChange, disabled = false }: LivingRoomF
       <CheckboxGroupField disabled={disabled} label="Ceiling" options={WALL_DEFECTS} value={data.ceiling} onChange={(v) => set('ceiling', v)} />
       <CheckboxGroupField disabled={disabled} label="Damage Observed" options={['Cracking', 'Moisture Damage', 'Other']} value={data.damageObserved} onChange={(v) => set('damageObserved', v)} />
 
-      <SectionComments disabled={disabled}
+      <SectionComments sectionId="living-areas" disabled={disabled}
         comments={data.comments}
         photos={data.photos}
         onCommentsChange={(v) => set('comments', v)}

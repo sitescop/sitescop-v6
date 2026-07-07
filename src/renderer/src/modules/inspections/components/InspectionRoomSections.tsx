@@ -103,7 +103,7 @@ export function InspectionRoomSections({
                   value={garageData.damageObserved}
                   onChange={(damageObserved) => onRoomPatch(room.id, { damageObserved })}
                 />
-                <SectionComments disabled={disabled}
+                <SectionComments sectionId="garage" disabled={disabled}
                   comments={garageData.comments}
                   photos={garageData.photos}
                   onCommentsChange={(comments) => onRoomPatch(room.id, { comments })}

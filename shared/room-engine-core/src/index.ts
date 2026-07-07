@@ -1,3 +1,6 @@
+export * from './property-profile.js';
+export * from './comment-suggestions.js';
+export * from './dictation-format.js';
 export * from './types.js';
 export * from './options.js';
 export * from './defaults.js';

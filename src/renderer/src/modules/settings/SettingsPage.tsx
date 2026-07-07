@@ -6,6 +6,7 @@ import {
   Cloud,
   ImageIcon,
   Lock,
+  Mic,
   Recycle,
   Settings as SettingsIcon,
   User,
@@ -20,12 +21,14 @@ import type {
 } from '@shared/api-types';
 import { getSettingsApi } from '@/lib/sitescop-api';
 import { useAuthStore } from '@/modules/auth/auth-store';
+import { VoiceDictationSettingsCard } from '@/modules/settings/VoiceDictationSettingsCard';
 import { Button, Card, Input } from '@/design-system/components';
 
-type SettingsTab = 'inspector' | 'company' | 'reports' | 'security' | 'github';
+type SettingsTab = 'inspector' | 'voice' | 'company' | 'reports' | 'security' | 'github';
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
   { id: 'inspector', label: 'Inspector', icon: User },
+  { id: 'voice', label: 'Voice', icon: Mic },
   { id: 'company', label: 'Company & Logo', icon: Building2 },
   { id: 'reports', label: 'Reports & PDF', icon: ImageIcon },
   { id: 'security', label: 'Login & Password', icon: Lock },
@@ -254,7 +257,7 @@ export function SettingsPage() {
           <div>
             <h2 className="text-2xl font-bold text-text">Settings</h2>
             <p className="text-sm text-text-light">
-              Inspector profile, company details, reports, login, and GitHub signing
+              Inspector profile, voice dictation, company details, reports, login, and GitHub signing
             </p>
           </div>
         </div>
@@ -304,6 +307,8 @@ export function SettingsPage() {
           </Button>
         </Card>
       )}
+
+      {tab === 'voice' && <VoiceDictationSettingsCard />}
 
       {tab === 'company' && (
         <Card className="space-y-5 p-6">

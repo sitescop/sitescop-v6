@@ -1,6 +1,7 @@
 import {
   BUILDING_EXTENSION_SECTION_KEYS,
   BUILDING_EXTENSION_SECTION_LABELS,
+  GENERAL_ELECTRICAL_DISCLAIMERS,
   SHARED_INSPECTION_SECTION_KEYS,
   SHARED_INSPECTION_SECTION_LABELS,
   type InspectionPhotoRef,
@@ -123,6 +124,19 @@ const BUILDING_FIELD_LABEL_OVERRIDES: Record<string, Record<string, string>> = {
   conclusion: { autoConclusion: 'Conclusion' },
 };
 
+function renderBuildingElectricalDisclaimerLegalHtml(): string {
+  const items = GENERAL_ELECTRICAL_DISCLAIMERS.map(
+    (statement) => `<li>${escapeHtml(statement)}</li>`,
+  ).join('');
+  return `<div class="legal-doc"><h2>General Electrical Disclaimer</h2><ul class="report-list">${items}</ul></div>`;
+}
+
+function loadBuildingLegalScheduleHtml(): string {
+  const schedule = loadLegalScheduleHtml('building');
+  const electrical = renderBuildingElectricalDisclaimerLegalHtml();
+  return schedule.replace('</section>', `${electrical}\n</section>`);
+}
+
 function wrapDocument(ctx: ReportRenderContext, body: string, title: string): string {
   const { company, settings } = ctx;
   const footerText = settings.pdfFooterText?.trim() || SITESCOP_PDF_FOOTER_TEXT;
@@ -151,7 +165,7 @@ function wrapDocument(ctx: ReportRenderContext, body: string, title: string): st
   </div>
 </div>
 ${body}
-${loadLegalScheduleHtml('building')}
+${loadBuildingLegalScheduleHtml()}
 <div class="page-footer">${escapeHtml(footerText)}</div>
 </body>
 </html>`;
@@ -178,6 +192,7 @@ export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
     const hazardLowNote = renderInspectorHazardLowConclusionNote(hazard);
 
     for (const key of BUILDING_EXTENSION_SECTION_KEYS) {
+      if (key === 'electricalGeneral') continue;
       if (key === 'conclusion') {
         const hazardBlock = renderInspectorHazardAssessmentBlock(hazard);
         if (hazardBlock) sections.push(hazardBlock);

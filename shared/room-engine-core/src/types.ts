@@ -71,6 +71,7 @@ export interface PropertyDescriptionSection extends SectionBase {
   bathroomCount: number;
   livingAreaCount: number;
   garageCount: number;
+  subfloorPresent: string;
   walls: CheckboxFieldState;
   frame: CheckboxFieldState;
   roof: CheckboxFieldState;

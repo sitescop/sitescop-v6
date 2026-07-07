@@ -40,7 +40,7 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   '/recycle-bin': { title: 'Recycle Bin', subtitle: 'Restore or permanently delete removed jobs and agreements' },
   '/clients': { title: 'Clients', subtitle: 'Client contacts from your jobs and agreements' },
   '/invoices/outstanding': { title: 'Outstanding Invoices', subtitle: 'Jobs flagged for invoicing' },
-  '/settings': { title: 'Settings', subtitle: 'Inspector, company, reports, login, and GitHub signing' },
+  '/settings': { title: 'Settings', subtitle: 'Inspector, voice dictation, company, reports, login, and GitHub signing' },
   '/jobs/:jobId/inspection': { title: 'Inspection workspace', subtitle: 'Building & pest inspection form' },
 };
 

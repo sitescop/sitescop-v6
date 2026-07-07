@@ -370,6 +370,7 @@ export function BathroomRoomForm({ data, onPatch, disabled = false }: BathroomRo
       )}
 
       <SectionComments
+        sectionId="bathrooms"
         disabled={disabled}
         comments={data.comments}
         photos={data.photos}

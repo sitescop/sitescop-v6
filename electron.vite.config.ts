@@ -1,10 +1,25 @@
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 
+function copySpeechScriptsPlugin() {
+  const speechFiles = ['speech-dictate.ps1', 'speech-dictate-check.ps1'] as const;
+  return {
+    name: 'copy-speech-scripts',
+    closeBundle() {
+      const outDir = resolve(__dirname, 'out/main');
+      if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+      for (const file of speechFiles) {
+        copyFileSync(resolve(__dirname, 'electron/main', file), resolve(outDir, file));
+      }
+    },
+  };
+}
+
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), copySpeechScriptsPlugin()],
     build: {
       rollupOptions: {
         input: resolve(__dirname, 'electron/main/index.ts'),

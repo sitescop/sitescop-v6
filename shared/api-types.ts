@@ -341,6 +341,15 @@ export type GeoCaptureResult =
   | { ok: true; latitude: number; longitude: number; accuracy?: number }
   | { ok: false; message: string };
 
+export type SpeechDictateResult =
+  | { ok: true; text: string }
+  | { ok: false; message: string };
+
+export interface SpeechCheckResult {
+  available: boolean;
+  message: string;
+}
+
 export interface SitescopApi {
   meta: {
     isDesktop: true;
@@ -423,6 +432,13 @@ export interface SitescopApi {
   };
   geo: {
     captureCurrentPosition: () => Promise<GeoCaptureResult>;
+  };
+  speech: {
+    check: () => Promise<SpeechCheckResult>;
+    dictate: () => Promise<SpeechDictateResult>;
+    cancel: () => Promise<void>;
+    transcribeAudio: (base64Wav: string) => Promise<SpeechDictateResult>;
+    onPhase?: (listener: (phase: 'ready') => void) => () => void;
   };
   settings: {
     getProfile: () => Promise<SessionUser>;

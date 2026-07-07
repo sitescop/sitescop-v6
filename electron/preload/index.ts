@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { SitescopApi } from '../../shared/api-types.js';
 
-const BRIDGE_VERSION = 2;
+const BRIDGE_VERSION = 3;
 
 const api: SitescopApi = {
   meta: {
@@ -78,6 +78,21 @@ const api: SitescopApi = {
   },
   geo: {
     captureCurrentPosition: () => ipcRenderer.invoke('geo:captureCurrentPosition'),
+  },
+  speech: {
+    check: () => ipcRenderer.invoke('speech:check'),
+    dictate: () => ipcRenderer.invoke('speech:dictate'),
+    cancel: () => ipcRenderer.invoke('speech:cancel'),
+    transcribeAudio: (base64Wav: string) => ipcRenderer.invoke('speech:transcribeAudio', base64Wav),
+    onPhase: (listener: (phase: 'ready') => void) => {
+      const wrapper = (_event: Electron.IpcRendererEvent, payload: { phase?: string }) => {
+        if (payload?.phase === 'ready') listener('ready');
+      };
+      ipcRenderer.on('speech:phase', wrapper);
+      return () => {
+        ipcRenderer.removeListener('speech:phase', wrapper);
+      };
+    },
   },
   settings: {
     getProfile: () => ipcRenderer.invoke('settings:getProfile'),

@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useId,
   useMemo,
   useState,
@@ -9,12 +10,16 @@ import {
 } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { getAdjacentRouteSection } from './inspection-route';
+import { InspectionSectionNav } from './InspectionSectionNav';
 import type { SectionCompletionStatus } from './section-completion';
 
 interface InspectionAccordionContextValue {
   openId: string | null;
   setOpenId: (id: string | null) => void;
   toggle: (id: string) => void;
+  routeIds: string[];
+  goToAdjacent: (currentId: string, direction: 'next' | 'previous') => string | null;
 }
 
 const InspectionAccordionContext = createContext<InspectionAccordionContextValue | null>(null);
@@ -23,10 +28,12 @@ export function InspectionAccordion({
   children,
   defaultOpenId,
   className,
+  routeIds = [],
 }: {
   children: ReactNode;
   defaultOpenId?: string;
   className?: string;
+  routeIds?: string[];
 }) {
   const [openId, setOpenId] = useState<string | null>(defaultOpenId ?? null);
 
@@ -34,7 +41,23 @@ export function InspectionAccordion({
     setOpenId((current) => (current === id ? null : id));
   }, []);
 
-  const value = useMemo(() => ({ openId, setOpenId, toggle }), [openId, toggle]);
+  const goToAdjacent = useCallback(
+    (currentId: string, direction: 'next' | 'previous') =>
+      getAdjacentRouteSection(routeIds, currentId, direction),
+    [routeIds],
+  );
+
+  useEffect(() => {
+    if (!openId) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById(`inspection-section-${openId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [openId]);
+
+  const value = useMemo(
+    () => ({ openId, setOpenId, toggle, routeIds, goToAdjacent }),
+    [openId, toggle, routeIds, goToAdjacent],
+  );
 
   return (
     <InspectionAccordionContext.Provider value={value}>
@@ -87,6 +110,7 @@ export function InspectionAccordionSection({
 
   return (
     <section
+      id={`inspection-section-${sectionId}`}
       className={cn(
         'inspection-accordion-section overflow-hidden rounded-lg border shadow-card transition-colors duration-200',
         status === 'completed'
@@ -146,7 +170,10 @@ export function InspectionAccordionSection({
         )}
       >
         <div className="overflow-hidden">
-          <div className="inspection-accordion-panel space-y-3 p-4 md:space-y-4 md:p-5">{children}</div>
+          <div className="inspection-accordion-panel space-y-3 p-4 md:space-y-4 md:p-5">
+            {children}
+            <InspectionSectionNav sectionId={sectionId} />
+          </div>
         </div>
       </div>
     </section>

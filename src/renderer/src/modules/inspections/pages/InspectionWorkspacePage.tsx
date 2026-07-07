@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, CheckCircle2, FileText, FolderOpen, Mail } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { jobTypeToFormKind } from '@sitescop/room-engine-core';
+import { jobTypeToFormKind, isSubfloorApplicable, resolveSubfloorPresent } from '@sitescop/room-engine-core';
 import type { InspectionReportRow } from '@shared/api-types';
 import { INSPECTION_TYPE_LABELS } from '@shared/inspection-types';
 import { getSitescopApi } from '@/lib/sitescop-api';
@@ -10,6 +10,7 @@ import { Button, Card, LoadingOverlay, PageHeader } from '@/design-system/compon
 import { BuildingInspectionForm } from '@/modules/inspections/components/BuildingInspectionForm';
 import { CombinedInspectionForm } from '@/modules/inspections/components/CombinedInspectionForm';
 import { InspectionAccordion } from '@/modules/inspections/components/InspectionAccordion';
+import { buildInspectionRouteIds } from '@/modules/inspections/components/inspection-route';
 import { InspectionFormProvider } from '@/modules/inspections/components/InspectionFormUi';
 import { PestInspectionForm } from '@/modules/inspections/components/PestInspectionForm';
 import { useInspectionEditor } from '@/modules/inspections/hooks/useInspectionEditor';
@@ -50,6 +51,27 @@ export function InspectionWorkspacePage() {
     inspection ?? undefined,
     inspection?.id,
     false,
+  );
+
+  const subfloorApplicable = useMemo(() => {
+    if (!formData) return true;
+    return isSubfloorApplicable(
+      resolveSubfloorPresent(
+        formData.shared.propertyDescription,
+        formData.building?.subfloor,
+        formData.shared.accessibilityObstructions,
+      ),
+    );
+  }, [formData]);
+
+  const pestRouteIds = useMemo(
+    () =>
+      buildInspectionRouteIds({
+        formKind: 'PEST',
+        subfloorApplicable,
+        rooms,
+      }),
+    [subfloorApplicable, rooms],
   );
 
   const completeMutation = useMutation({
@@ -152,7 +174,7 @@ export function InspectionWorkspacePage() {
       )
     ) : formKind === 'PEST' && formData.pest ? (
       <InspectionFormProvider>
-        <InspectionAccordion defaultOpenId="inspector-hazard">
+        <InspectionAccordion defaultOpenId="inspector-hazard" routeIds={pestRouteIds}>
           <BuildingInspectionForm
             formData={formData}
             onSectionChange={patchSection}
@@ -160,7 +182,13 @@ export function InspectionWorkspacePage() {
             embedded
             mode="shared-only"
           />
-          <PestInspectionForm pest={formData.pest} onSectionChange={patchSection} readOnly={false} embedded />
+          <PestInspectionForm
+            pest={formData.pest}
+            onSectionChange={patchSection}
+            readOnly={false}
+            embedded
+            subfloorApplicable={subfloorApplicable}
+          />
         </InspectionAccordion>
       </InspectionFormProvider>
     ) : (

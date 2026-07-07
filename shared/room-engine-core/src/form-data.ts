@@ -458,8 +458,8 @@ function applyBuildingElectricalDefaults(building: BuildingExtensionSections): B
 
 export function enrichSharedSections(shared: SharedInspectionSections): SharedInspectionSections {
   const accessibility = { ...shared.accessibilityObstructions };
-  const noteLines = [...(accessibility.inaccessibleCustomLines ?? ['', '', ''])];
-  while (noteLines.length < 3) noteLines.push('');
+  const noteLines = [...(accessibility.inaccessibleCustomLines ?? [''])];
+  while (noteLines.length < 1) noteLines.push('');
 
   for (const custom of accessibility.inaccessibleAreas?.custom ?? []) {
     const text = custom.trim();
@@ -473,7 +473,7 @@ export function enrichSharedSections(shared: SharedInspectionSections): SharedIn
     ...shared,
     accessibilityObstructions: applyAccessibilityRiskAssessment({
       ...accessibility,
-      inaccessibleCustomLines: noteLines.slice(0, 3),
+      inaccessibleCustomLines: noteLines.slice(0, 1),
       accessibilityAreas: normalizeAccessibilityAreas(accessibility.accessibilityAreas),
     }),
     inspectorHazardAssessment: applyInspectorHazardAssessment(

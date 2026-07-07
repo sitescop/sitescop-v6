@@ -96,12 +96,19 @@ function buildAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-function configureGeolocationPermissions() {
+function configureSpellCheck() {
+  const ses = session.defaultSession;
+  ses.setSpellCheckerLanguages(['en-AU', 'en-GB', 'en-US']);
+}
+
+function configureAppPermissions() {
   const ses = session.defaultSession;
   ses.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === 'geolocation');
+    callback(permission === 'geolocation' || permission === 'media');
   });
-  ses.setPermissionCheckHandler((_webContents, permission) => permission === 'geolocation');
+  ses.setPermissionCheckHandler(
+    (_webContents, permission) => permission === 'geolocation' || permission === 'media',
+  );
 }
 
 function createWindow() {
@@ -130,6 +137,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
       devTools: true,
+      spellcheck: true,
     },
   });
 
@@ -160,14 +168,34 @@ function createWindow() {
   });
 
   mainWindow.webContents.on('context-menu', (_event, params) => {
-    const menu = Menu.buildFromTemplate([
+    const template: Electron.MenuItemConstructorOptions[] = [];
+
+    if (params.misspelledWord && params.dictionarySuggestions.length > 0) {
+      for (const suggestion of params.dictionarySuggestions.slice(0, 6)) {
+        template.push({
+          label: suggestion,
+          click: () => mainWindow?.webContents.replaceMisspelling(suggestion),
+        });
+      }
+      template.push({ type: 'separator' });
+      template.push({
+        label: `Add "${params.misspelledWord}" to dictionary`,
+        click: () => {
+          mainWindow?.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord);
+        },
+      });
+      template.push({ type: 'separator' });
+    }
+
+    template.push(
       { role: 'cut', enabled: params.editFlags.canCut },
       { role: 'copy', enabled: params.editFlags.canCopy },
       { role: 'paste', enabled: params.editFlags.canPaste },
       { type: 'separator' },
       { role: 'selectAll', enabled: params.editFlags.canSelectAll },
-    ]);
-    menu.popup({ window: mainWindow! });
+    );
+
+    Menu.buildFromTemplate(template).popup({ window: mainWindow! });
   });
 
   mainWindow.on('closed', () => {
@@ -197,7 +225,8 @@ if (!gotLock) {
     }
 
     buildAppMenu();
-    configureGeolocationPermissions();
+    configureSpellCheck();
+    configureAppPermissions();
 
     try {
       registerIpcHandlers();
