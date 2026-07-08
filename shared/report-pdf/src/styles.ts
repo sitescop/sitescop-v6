@@ -443,6 +443,26 @@ h3 {
   vertical-align: top;
 }
 
+.building-inspection-summary .building-summary-disclaimer {
+  margin: 0 0 14px;
+  font-size: 10pt;
+  color: #444;
+}
+
+.building-inspection-summary .building-summary-note {
+  margin: 12px 0 0;
+  font-size: 10pt;
+  line-height: 1.5;
+}
+
+.building-inspection-summary .building-summary-recommendations {
+  margin-top: 16px;
+}
+
+.building-summary-table th {
+  vertical-align: top;
+}
+
 .conclusion-section {
   page-break-before: always;
 }
