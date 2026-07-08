@@ -217,6 +217,7 @@ function ensureJobColumns(db: SqlDatabase) {
     ['deleted_at', 'TEXT'],
     ['cancel_reason', 'TEXT'],
     ['cancel_notes', 'TEXT'],
+    ['invoice_path', 'TEXT'],
   ];
   for (const [name, type] of alters) {
     if (!columnExists(db, 'jobs', name)) {

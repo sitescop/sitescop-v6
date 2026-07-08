@@ -175,10 +175,6 @@ export function renderInspectionFindingsSummaryBlock(ctx: ReportRenderContext): 
       'Major safety hazards',
       observedItemsAnswer(checkboxItems(majorDefects?.safetyHazards), MAJOR_DEFECTS_SECTION_NAME),
     ),
-    renderSummaryRow(
-      'Areas not fully inspected',
-      observedItemsAnswer(checkboxItems(majorDefects?.areasNotInspected), MAJOR_DEFECTS_SECTION_NAME),
-    ),
     renderSummaryRow('Minor defects / maintenance items', minorDefectsSummaryAnswer(minorDefects)),
     renderSummaryRow('Moisture testing findings', moistureEvidenceAnswer(moistureTesting)),
     renderSummaryRow('Structural engineering recommended', engineeringRecommendedAnswer(majorDefects)),

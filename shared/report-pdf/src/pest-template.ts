@@ -84,17 +84,17 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
 
   const sections: string[] = [];
 
+  sections.push(
+    renderPdfLetterPartHeading('Section A — Property & Engagement Information'),
+    renderPropertyReportDetailsBlock(ctx),
+  );
+
   if (ctx.formData.pest) {
     sections.push(
-      renderPdfLetterPartHeading('Section A — Results of Inspection (Summary)'),
+      renderPdfLetterPartHeading('Section B — Results of Inspection (Summary)'),
       renderPestInspectionSummaryBlock(ctx.formData.pest),
     );
   }
-
-  sections.push(
-    renderPdfLetterPartHeading('Section B — Property & Report Details'),
-    renderPropertyReportDetailsBlock(ctx),
-  );
 
   sections.push(renderPdfLetterPartHeading('Section C — Site & Property Assessment'));
   for (const key of SHARED_INSPECTION_SECTION_KEYS) {

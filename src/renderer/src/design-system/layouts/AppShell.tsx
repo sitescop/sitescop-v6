@@ -48,6 +48,9 @@ function resolveHeader(pathname: string) {
   if (pathname.includes('/inspection')) {
     return PAGE_TITLES['/jobs/:jobId/inspection'];
   }
+  if (pathname.startsWith('/clients/') && pathname !== '/clients') {
+    return { title: 'Client details', subtitle: 'Contact, jobs, agreements, and PDF reports' };
+  }
   if (pathname.startsWith('/agreements/') && pathname !== '/agreements/new') {
     if (pathname.includes('/edit')) {
       return { title: 'Edit Agreement', subtitle: 'Update agreement details' };

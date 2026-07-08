@@ -1,6 +1,6 @@
 import type { SitescopApi } from '@shared/api-types';
 
-export const CURRENT_BRIDGE_VERSION = 3;
+export const CURRENT_BRIDGE_VERSION = 5;
 
 /** True when running inside the Electron desktop window (not Chrome/Edge). */
 export function isDesktopApp(): boolean {
@@ -81,7 +81,15 @@ export function hasRecycleBinApi(): boolean {
 }
 
 export function hasClientsApi(): boolean {
-  return Boolean(window.sitescop?.clients?.list);
+  return Boolean(
+    window.sitescop?.clients?.list &&
+      window.sitescop?.clients?.get &&
+      window.sitescop?.clients?.openAgreementPdf &&
+      window.sitescop?.clients?.openInvoicePdf &&
+      window.sitescop?.clients?.copyAgreementPdf &&
+      window.sitescop?.clients?.copyInvoicePdf &&
+      window.sitescop?.clients?.copyAllJobDocuments,
+  );
 }
 
 export function hasSpeechApi(): boolean {

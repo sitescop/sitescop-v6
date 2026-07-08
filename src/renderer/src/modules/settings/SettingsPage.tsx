@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Building2,
   Cloud,
+  DollarSign,
   ImageIcon,
   Lock,
   Mic,
@@ -12,28 +13,49 @@ import {
   User,
 } from 'lucide-react';
 import type {
+  BillingSettingsInput,
   ChangePasswordInput,
   CompanySettingsInput,
   GitHubSettingsInput,
   GitHubTestConnectionResult,
   InspectorProfileInput,
+  InspectionType,
   ReportSettingsInput,
 } from '@shared/api-types';
 import { getSettingsApi } from '@/lib/sitescop-api';
 import { useAuthStore } from '@/modules/auth/auth-store';
 import { VoiceDictationSettingsCard } from '@/modules/settings/VoiceDictationSettingsCard';
-import { Button, Card, Input } from '@/design-system/components';
+import { Button, Card, Input, Textarea } from '@/design-system/components';
 
-type SettingsTab = 'inspector' | 'voice' | 'company' | 'reports' | 'security' | 'github';
+type SettingsTab = 'inspector' | 'voice' | 'company' | 'billing' | 'reports' | 'security' | 'github';
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
   { id: 'inspector', label: 'Inspector', icon: User },
   { id: 'voice', label: 'Voice', icon: Mic },
   { id: 'company', label: 'Company & Logo', icon: Building2 },
+  { id: 'billing', label: 'Billing & Invoices', icon: DollarSign },
   { id: 'reports', label: 'Reports & PDF', icon: ImageIcon },
   { id: 'security', label: 'Login & Password', icon: Lock },
   { id: 'github', label: 'GitHub Signing', icon: Cloud },
 ];
+
+function centsToPriceInput(cents: number): string {
+  return String(cents / 100);
+}
+
+function priceInputToCents(value: string, fallback: number): number {
+  const parsed = Math.round(Number.parseFloat(value) * 100);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function defaultPriceInputs(billing: BillingSettingsInput): Record<InspectionType, string> {
+  return {
+    BUILDING: centsToPriceInput(billing.buildingPriceCents),
+    PEST: centsToPriceInput(billing.pestPriceCents),
+    COMBINED: centsToPriceInput(billing.combinedPriceCents),
+  };
+}
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -84,6 +106,23 @@ export function SettingsPage() {
     reportFooter: '',
   });
 
+  const [billing, setBilling] = useState<BillingSettingsInput>({
+    buildingPriceCents: 55000,
+    pestPriceCents: 35000,
+    combinedPriceCents: 85000,
+    bankAccountName: '',
+    bankBsb: '',
+    bankAccountNumber: '',
+    invoicePaymentTerms: '',
+    invoicePaymentNotes: '',
+  });
+
+  const [priceInputs, setPriceInputs] = useState<Record<InspectionType, string>>({
+    BUILDING: '550',
+    PEST: '350',
+    COMBINED: '850',
+  });
+
   const [passwordForm, setPasswordForm] = useState<ChangePasswordInput>({
     currentPassword: '',
     newPassword: '',
@@ -121,6 +160,8 @@ export function SettingsPage() {
       reportHeader: appQuery.data.report.reportHeader ?? '',
       reportFooter: appQuery.data.report.reportFooter ?? '',
     });
+    setBilling(appQuery.data.billing);
+    setPriceInputs(defaultPriceInputs(appQuery.data.billing));
     setLogoPreview(appQuery.data.logoPreview);
   }, [appQuery.data]);
 
@@ -175,6 +216,28 @@ export function SettingsPage() {
       void queryClient.invalidateQueries({ queryKey: ['settings-app'] });
     },
     onError: (e) => setError(e instanceof Error ? e.message : 'Could not save report settings'),
+  });
+
+  const saveBillingMutation = useMutation({
+    mutationFn: () =>
+      getSettingsApi().saveBilling({
+        buildingPriceCents: priceInputToCents(priceInputs.BUILDING, billing.buildingPriceCents),
+        pestPriceCents: priceInputToCents(priceInputs.PEST, billing.pestPriceCents),
+        combinedPriceCents: priceInputToCents(priceInputs.COMBINED, billing.combinedPriceCents),
+        bankAccountName: billing.bankAccountName,
+        bankBsb: billing.bankBsb,
+        bankAccountNumber: billing.bankAccountNumber,
+        invoicePaymentTerms: billing.invoicePaymentTerms,
+        invoicePaymentNotes: billing.invoicePaymentNotes,
+      }),
+    onSuccess: (saved) => {
+      clearStatus();
+      setBilling(saved);
+      setPriceInputs(defaultPriceInputs(saved));
+      setMessage('Billing and invoice settings saved. New agreements and invoices will use these details.');
+      void queryClient.invalidateQueries({ queryKey: ['settings-app'] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not save billing settings'),
   });
 
   const passwordMutation = useMutation({
@@ -257,7 +320,7 @@ export function SettingsPage() {
           <div>
             <h2 className="text-2xl font-bold text-text">Settings</h2>
             <p className="text-sm text-text-light">
-              Inspector profile, voice dictation, company details, reports, login, and GitHub signing
+              Inspector profile, voice dictation, company details, billing, reports, login, and GitHub signing
             </p>
           </div>
         </div>
@@ -356,6 +419,94 @@ export function SettingsPage() {
 
           <Button onClick={() => saveCompanyMutation.mutate()} disabled={saveCompanyMutation.isPending}>
             {saveCompanyMutation.isPending ? 'Saving…' : 'Save company details'}
+          </Button>
+        </Card>
+      )}
+
+      {tab === 'billing' && (
+        <Card className="space-y-6 p-6">
+          <div>
+            <h3 className="font-bold text-text">Inspection prices</h3>
+            <p className="mt-1 text-sm text-text-light">
+              Default prices for new agreements (ex GST). GST is calculated automatically at 10%.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Input
+              label="Building inspection (AUD ex GST)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={priceInputs.BUILDING}
+              onChange={(e) => setPriceInputs((c) => ({ ...c, BUILDING: e.target.value }))}
+              placeholder="550"
+            />
+            <Input
+              label="Pest inspection (AUD ex GST)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={priceInputs.PEST}
+              onChange={(e) => setPriceInputs((c) => ({ ...c, PEST: e.target.value }))}
+              placeholder="350"
+            />
+            <Input
+              label="Combined inspection (AUD ex GST)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={priceInputs.COMBINED}
+              onChange={(e) => setPriceInputs((c) => ({ ...c, COMBINED: e.target.value }))}
+              placeholder="850"
+            />
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5">
+            <h3 className="font-bold text-amber-950">Invoice payment details</h3>
+            <p className="mt-1 text-sm text-amber-900/80">
+              Shown on tax invoice PDFs for bank transfer and payment instructions.
+            </p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Input
+                label="Account name"
+                value={billing.bankAccountName}
+                onChange={(e) => setBilling((c) => ({ ...c, bankAccountName: e.target.value }))}
+                placeholder="SiteScop Pty Ltd"
+              />
+              <Input
+                label="BSB"
+                value={billing.bankBsb}
+                onChange={(e) => setBilling((c) => ({ ...c, bankBsb: e.target.value }))}
+                placeholder="000-000"
+              />
+              <Input
+                label="Account number"
+                className="sm:col-span-2"
+                value={billing.bankAccountNumber}
+                onChange={(e) => setBilling((c) => ({ ...c, bankAccountNumber: e.target.value }))}
+                placeholder="12345678"
+              />
+              <Textarea
+                label="Payment terms"
+                className="sm:col-span-2"
+                rows={2}
+                value={billing.invoicePaymentTerms}
+                onChange={(e) => setBilling((c) => ({ ...c, invoicePaymentTerms: e.target.value }))}
+                placeholder="Payment is due within 7 days of the invoice date."
+              />
+              <Textarea
+                label="Payment notes & requirements"
+                className="sm:col-span-2"
+                rows={3}
+                value={billing.invoicePaymentNotes}
+                onChange={(e) => setBilling((c) => ({ ...c, invoicePaymentNotes: e.target.value }))}
+                placeholder="Please use the invoice number as your payment reference."
+              />
+            </div>
+          </div>
+
+          <Button onClick={() => saveBillingMutation.mutate()} disabled={saveBillingMutation.isPending}>
+            {saveBillingMutation.isPending ? 'Saving…' : 'Save billing & invoice settings'}
           </Button>
         </Card>
       )}

@@ -1,4 +1,5 @@
 import type { InspectorHazardAssessmentSection, PestInspectionSections } from '../../room-engine-core/src/index.js';
+import { formatPestFutureInspectionFrequency } from '../../room-engine-core/src/index.js';
 import { escapeHtml, formatDate } from './html-utils.js';
 import { renderCertificationIntroHtml } from './certification-block.js';
 import { renderInspectorHazardLowConclusionNote } from './hazard-assessment-block.js';
@@ -26,6 +27,24 @@ function renderRecommendationsList(recommendations: string[]): string {
   return `<ul class="report-list">${recommendations.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
 }
 
+const NEXT_INSPECTION_PARAGRAPH =
+  /^The next inspection to help detect future termite activity is recommended in .+ \(see Item D5\)\.$/;
+
+function stripNextInspectionParagraph(text: string): string {
+  return text
+    .split(/\n\n+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !NEXT_INSPECTION_PARAGRAPH.test(part))
+    .join('\n\n');
+}
+
+function renderNextInspectionHighlight(pest: PestInspectionSections): string {
+  const nextInspection = formatPestFutureInspectionFrequency(pest.d5FutureInspection.frequency);
+  if (!nextInspection) return '';
+  const sentence = `The next inspection to help detect future termite activity is recommended in ${nextInspection} (see Item D5).`;
+  return `<p class="pest-next-inspection-highlight">${escapeHtml(sentence)}</p>`;
+}
+
 export function renderPestConclusionBlock(
   pest: PestInspectionSections,
   fallbackInspectorName?: string | null,
@@ -37,17 +56,19 @@ export function renderPestConclusionBlock(
   const declarationDate =
     conclusion.declarationDate?.trim() ||
     (fallbackDeclarationDate ? formatDate(fallbackDeclarationDate) : '—');
-  const conclusionText = conclusion.autoConclusion?.trim() || '';
+  const conclusionText = stripNextInspectionParagraph(conclusion.autoConclusion?.trim() || '');
   const recommendations = conclusion.autoRecommendations ?? [];
   const hazardLowNote = hazardAssessment ? renderInspectorHazardLowConclusionNote(hazardAssessment) : '';
+  const nextInspectionHighlight = renderNextInspectionHighlight(pest);
 
   return `
 ${renderPdfLetterPartHeading('Section E — Conclusion & Certification')}
 <section class="report-section conclusion-section">
   <div class="conclusion-narrative">
-    <h3 class="report-section-heading">Summary of Inspection Findings</h3>
-    ${hazardLowNote}
+    <h3 class="report-section-heading">Conclusion</h3>
     ${conclusionText ? renderConclusionParagraphs(conclusionText) : '<p>—</p>'}
+    ${nextInspectionHighlight}
+    ${hazardLowNote}
   </div>
   <div class="recommendations-block">
     <h3 class="report-section-heading">Recommendations</h3>

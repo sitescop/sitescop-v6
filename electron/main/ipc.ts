@@ -4,6 +4,7 @@ import type {
   AgreementStatus,
   ChangePasswordInput,
   CompanySettingsInput,
+  BillingSettingsInput,
   CreateAgreementInput,
   CreateJobInput,
   DeleteJobInput,
@@ -34,6 +35,8 @@ import {
   getGitHubSettingsPublic,
   getCompanySettings,
   getReportSettings,
+  getBillingSettings,
+  saveBillingSettings,
   getCompanyLogoDataUrl,
   getReportLogoPreviewDataUrl,
   hasCompanyLogo,
@@ -95,7 +98,9 @@ import {
 } from './recycle-bin.service.js';
 import { composeClientEmail, composeReportEmailToClient } from './email.service.js';
 import { listCalendarEvents, listUpcomingJobs, rescheduleJob } from './calendar.service.js';
-import { listClients } from './clients.service.js';
+import { listClients, getClientById } from './clients.service.js';
+import { generateInvoicePdfForJob } from './invoices.service.js';
+import { copyFilesToClipboard, copyPdfClipboardMessage } from './clipboard-files.service.js';
 import { localDateKey } from './database.js';
 import { changeInspectorPassword, updateInspectorProfile } from './user.service.js';
 
@@ -291,6 +296,26 @@ export function registerIpcHandlers() {
     if (result) throw new Error(result);
   });
 
+  ipcMain.handle('reports:copyPdf', async (_event, filePath: string) => {
+    try {
+      const count = await copyFilesToClipboard([filePath]);
+      return { count, message: copyPdfClipboardMessage(count) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to copy PDF';
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle('reports:copyPdfs', async (_event, filePaths: string[]) => {
+    try {
+      const count = await copyFilesToClipboard(filePaths);
+      return { count, message: copyPdfClipboardMessage(count) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to copy PDFs';
+      throw new Error(message);
+    }
+  });
+
   ipcMain.handle('reports:openFolder', async (_event, jobId: string) => {
     const folder = getReportsFolder(jobId);
     const result = await shell.openPath(folder);
@@ -441,6 +466,109 @@ export function registerIpcHandlers() {
     return listClients(db.db, search);
   });
 
+  ipcMain.handle('clients:get', async (_event, clientId: string) => {
+    const db = requireAuth();
+    const client = getClientById(db.db, clientId);
+    if (!client) throw new Error('Client not found');
+    return client;
+  });
+
+  ipcMain.handle('clients:openAgreementPdf', async (_event, agreementId: string) => {
+    const db = requireAuth();
+    try {
+      const filePath = await generateAgreementPdfForId(db.db, agreementId);
+      db.persist();
+      const result = await shell.openPath(filePath);
+      if (result) throw new Error(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to open agreement PDF';
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle('clients:openInvoicePdf', async (_event, jobId: string) => {
+    const db = requireAuth();
+    try {
+      const filePath = await generateInvoicePdfForJob(db.db, jobId);
+      db.persist();
+      const result = await shell.openPath(filePath);
+      if (result) throw new Error(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to open invoice PDF';
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle('clients:copyAgreementPdf', async (_event, agreementId: string) => {
+    const db = requireAuth();
+    try {
+      const filePath = await generateAgreementPdfForId(db.db, agreementId);
+      db.persist();
+      const count = await copyFilesToClipboard([filePath]);
+      return { count, message: copyPdfClipboardMessage(count) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to copy agreement PDF';
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle('clients:copyInvoicePdf', async (_event, jobId: string) => {
+    const db = requireAuth();
+    try {
+      const filePath = await generateInvoicePdfForJob(db.db, jobId);
+      db.persist();
+      const count = await copyFilesToClipboard([filePath]);
+      return { count, message: copyPdfClipboardMessage(count) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to copy invoice PDF';
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle('clients:copyAllJobDocuments', async (_event, jobId: string) => {
+    const db = requireAuth();
+    try {
+      const paths: string[] = [];
+      const reportStmt = db.db.prepare(
+        `SELECT file_path AS filePath FROM inspection_reports WHERE job_id = ? ORDER BY report_type`,
+      );
+      reportStmt.bind([jobId]);
+      while (reportStmt.step()) {
+        paths.push(String((reportStmt.getAsObject() as { filePath: string }).filePath));
+      }
+      reportStmt.free();
+
+      const agreementStmt = db.db.prepare(
+        `SELECT id FROM agreements
+         WHERE job_id = ?
+           AND status != 'CANCELLED'
+           AND IFNULL(deleted_at, '') = ''
+         ORDER BY
+           CASE status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
+           updated_at DESC
+         LIMIT 1`,
+      );
+      agreementStmt.bind([jobId]);
+      let agreementId: string | null = null;
+      if (agreementStmt.step()) {
+        agreementId = String((agreementStmt.getAsObject() as { id: string }).id);
+      }
+      agreementStmt.free();
+
+      if (agreementId) {
+        paths.push(await generateAgreementPdfForId(db.db, agreementId));
+        paths.push(await generateInvoicePdfForJob(db.db, jobId));
+      }
+
+      db.persist();
+      const count = await copyFilesToClipboard(paths);
+      return { count, message: copyPdfClipboardMessage(count) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to copy job documents';
+      throw new Error(message);
+    }
+  });
+
   ipcMain.handle('agreements:generatePdf', async (_event, agreementId: string) => {
     const db = requireAuth();
     try {
@@ -505,6 +633,16 @@ export function registerIpcHandlers() {
     await shell.openExternal(url);
   });
 
+  ipcMain.handle('shell:copyFilesToClipboard', async (_event, filePaths: string[]) => {
+    try {
+      const count = await copyFilesToClipboard(filePaths);
+      return { count, message: copyPdfClipboardMessage(count) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to copy files';
+      throw new Error(message);
+    }
+  });
+
   ipcMain.handle('settings:getProfile', async () => {
     const db = requireAuth();
     const user = getUserById(db.db, currentSession!.id);
@@ -529,6 +667,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:getApp', async () => ({
     company: getCompanySettings(),
     report: getReportSettings(),
+    billing: getBillingSettings(),
     hasLogo: hasCompanyLogo(),
     logoPreview: getReportLogoPreviewDataUrl(),
   }));
@@ -541,6 +680,11 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:saveReport', async (_event, input: ReportSettingsInput) => {
     requireAuth();
     return saveReportSettings(input);
+  });
+
+  ipcMain.handle('settings:saveBilling', async (_event, input: BillingSettingsInput) => {
+    requireAuth();
+    return saveBillingSettings(input);
   });
 
   ipcMain.handle('settings:selectLogo', async () => {

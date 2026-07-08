@@ -14,6 +14,7 @@ import { AgreementSignPage } from '@/modules/agreements/AgreementSignPage';
 import { CalendarPage } from '@/modules/calendar/CalendarPage';
 import { RecycleBinPage } from '@/modules/recycle-bin/RecycleBinPage';
 import { ClientsPage } from '@/modules/clients/ClientsPage';
+import { ClientDetailPage } from '@/modules/clients/ClientDetailPage';
 import { OutstandingInvoicesPage } from '@/modules/invoices/OutstandingInvoicesPage';
 import { SettingsPage } from '@/modules/settings/SettingsPage';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -52,6 +53,7 @@ export function AppRouter() {
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="recycle-bin" element={<RecycleBinPage />} />
         <Route path="clients" element={<ClientsPage />} />
+        <Route path="clients/:clientId" element={<ClientDetailPage />} />
         <Route path="invoices/outstanding" element={<OutstandingInvoicesPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

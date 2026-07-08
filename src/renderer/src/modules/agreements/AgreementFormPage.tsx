@@ -3,15 +3,27 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import type { InspectionType } from '@shared/api-types';
-import { getSitescopApi } from '@/lib/sitescop-api';
+import { getSettingsApi, getSitescopApi } from '@/lib/sitescop-api';
 import { Button, Card, Input, Select, Textarea } from '@/design-system/components';
 import { INSPECTION_TYPE_OPTIONS } from '@/modules/agreements/agreement-labels';
 
-const DEFAULT_PRICES: Record<InspectionType, string> = {
-  BUILDING: '550',
-  PEST: '350',
-  COMBINED: '850',
-};
+function priceFromBilling(
+  inspectionType: InspectionType,
+  billing?: { buildingPriceCents: number; pestPriceCents: number; combinedPriceCents: number },
+): string {
+  if (!billing) {
+    if (inspectionType === 'PEST') return '350';
+    if (inspectionType === 'COMBINED') return '850';
+    return '550';
+  }
+  const cents =
+    inspectionType === 'PEST'
+      ? billing.pestPriceCents
+      : inspectionType === 'COMBINED'
+        ? billing.combinedPriceCents
+        : billing.buildingPriceCents;
+  return String(cents / 100);
+}
 
 export function AgreementFormPage() {
   const { agreementId = '' } = useParams();
@@ -25,9 +37,14 @@ export function AgreementFormPage() {
   const [clientEmail, setClientEmail] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [propertyAddress, setPropertyAddress] = useState('');
-  const [price, setPrice] = useState(DEFAULT_PRICES.BUILDING);
+  const [price, setPrice] = useState('550');
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState('');
+
+  const billingQuery = useQuery({
+    queryKey: ['settings-app'],
+    queryFn: () => getSettingsApi().getApp(),
+  });
 
   const jobQuery = useQuery({
     queryKey: ['job', jobId],
@@ -49,10 +66,10 @@ export function AgreementFormPage() {
       setClientEmail(job.email || '');
       setClientPhone(job.mobile || '');
       setPropertyAddress(job.propertyAddress);
-      setPrice(DEFAULT_PRICES[job.inspectionType]);
+      setPrice(priceFromBilling(job.inspectionType, billingQuery.data?.billing));
       setNotes(job.notes || '');
     }
-  }, [jobQuery.data, isEdit]);
+  }, [jobQuery.data, isEdit, billingQuery.data?.billing]);
 
   useEffect(() => {
     if (agreementQuery.data && isEdit) {
@@ -127,7 +144,7 @@ export function AgreementFormPage() {
             onChange={(e) => {
               const next = e.target.value as InspectionType;
               setInspectionType(next);
-              if (!isEdit) setPrice(DEFAULT_PRICES[next]);
+              if (!isEdit) setPrice(priceFromBilling(next, billingQuery.data?.billing));
             }}
             options={INSPECTION_TYPE_OPTIONS}
           />

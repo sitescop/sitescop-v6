@@ -446,11 +446,29 @@ export const OVERALL_COMPARISON = [
 ] as const;
 
 export const BUILDING_REPORT_TYPES = [
-  'Pre-Purchase Building Report',
-  'Building Report',
+  'Pre-Purchase Building Inspection Report – Residential',
+  'Pre-Purchase Building Inspection Report – Commercial',
+  'Pre-Sale Building Inspection Report – Residential',
+  'Pre-Sale Building Inspection Report – Commercial',
+  'Building Inspection Report – Residential',
+  'Building Inspection Report – Commercial',
+  'Defect Inspection Report',
+  'Maintenance Building Inspection Report',
 ] as const;
 
 export const DEFAULT_BUILDING_REPORT_TYPE = BUILDING_REPORT_TYPES[0];
+
+export function buildingReportTypeSelectOptions(
+  currentValue?: string,
+): { value: string; label: string }[] {
+  const current = currentValue?.trim();
+  const known = new Set<string>(BUILDING_REPORT_TYPES);
+  const options = BUILDING_REPORT_TYPES.map((value) => ({ value, label: value }));
+  if (current && !known.has(current)) {
+    options.unshift({ value: current, label: current });
+  }
+  return options;
+}
 
 export const PEST_REPORT_TYPES = [
   'Timber and Pest Inspection',

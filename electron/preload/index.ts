@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { SitescopApi } from '../../shared/api-types.js';
 
-const BRIDGE_VERSION = 3;
+const BRIDGE_VERSION = 5;
 
 const api: SitescopApi = {
   meta: {
@@ -43,6 +43,8 @@ const api: SitescopApi = {
     listForJob: (jobId) => ipcRenderer.invoke('reports:listForJob', jobId),
     generateForJob: (jobId) => ipcRenderer.invoke('reports:generateForJob', jobId),
     openPdf: (filePath) => ipcRenderer.invoke('reports:openPdf', filePath),
+    copyPdf: (filePath) => ipcRenderer.invoke('reports:copyPdf', filePath),
+    copyPdfs: (filePaths) => ipcRenderer.invoke('reports:copyPdfs', filePaths),
     openFolder: (jobId) => ipcRenderer.invoke('reports:openFolder', jobId),
     emailToClient: (reportId) => ipcRenderer.invoke('reports:emailToClient', reportId),
   },
@@ -72,9 +74,16 @@ const api: SitescopApi = {
   },
   clients: {
     list: (search) => ipcRenderer.invoke('clients:list', search),
+    get: (clientId) => ipcRenderer.invoke('clients:get', clientId),
+    openAgreementPdf: (agreementId) => ipcRenderer.invoke('clients:openAgreementPdf', agreementId),
+    openInvoicePdf: (jobId) => ipcRenderer.invoke('clients:openInvoicePdf', jobId),
+    copyAgreementPdf: (agreementId) => ipcRenderer.invoke('clients:copyAgreementPdf', agreementId),
+    copyInvoicePdf: (jobId) => ipcRenderer.invoke('clients:copyInvoicePdf', jobId),
+    copyAllJobDocuments: (jobId) => ipcRenderer.invoke('clients:copyAllJobDocuments', jobId),
   },
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+    copyFilesToClipboard: (filePaths) => ipcRenderer.invoke('shell:copyFilesToClipboard', filePaths),
   },
   geo: {
     captureCurrentPosition: () => ipcRenderer.invoke('geo:captureCurrentPosition'),
@@ -101,6 +110,7 @@ const api: SitescopApi = {
     getApp: () => ipcRenderer.invoke('settings:getApp'),
     saveCompany: (input) => ipcRenderer.invoke('settings:saveCompany', input),
     saveReport: (input) => ipcRenderer.invoke('settings:saveReport', input),
+    saveBilling: (input) => ipcRenderer.invoke('settings:saveBilling', input),
     selectLogo: () => ipcRenderer.invoke('settings:selectLogo'),
     removeLogo: () => ipcRenderer.invoke('settings:removeLogo'),
     getGitHub: () => ipcRenderer.invoke('settings:getGitHub'),

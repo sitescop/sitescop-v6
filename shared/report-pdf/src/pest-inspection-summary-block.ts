@@ -62,7 +62,7 @@ function appendAccessibilityCrossReference(riskExplanation: string): string {
   return `${trimmed} See Section C — Site & Property Assessment (Accessibility & Obstructions) for detail.`;
 }
 
-/** Section A — early executive summary for timber and pest reports. */
+/** Section B — executive summary for timber and pest reports. */
 export function renderPestInspectionSummaryBlock(pest: PestInspectionSections): string {
   const nextInspection =
     formatPestFutureInspectionFrequency(pest.d5FutureInspection.frequency) || '—';

@@ -256,6 +256,7 @@ export async function generateReportsForJob(
   }
 
   db.run(`UPDATE jobs SET has_report = 1, updated_at = datetime('now') WHERE id = ?`, [jobId]);
+  await closePdfBrowser();
   return generated;
 }
 

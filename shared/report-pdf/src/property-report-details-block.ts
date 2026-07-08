@@ -2,6 +2,7 @@ import { formatDate, renderSectionBlock } from './html-utils.js';
 import { formatReportInspectionNumber } from './report-identifiers.js';
 import type { ReportPdfType, ReportRenderContext } from './types.js';
 import type { SectionFieldDef } from './section-fields.js';
+import { DEFAULT_BUILDING_REPORT_TYPE } from '../../room-engine-core/src/options.js';
 
 export const BUILDING_INSPECTION_TYPE_LABEL = 'Building Inspection Report';
 export const PEST_INSPECTION_TYPE_LABEL = 'Timber and Pest Inspection report';
@@ -10,15 +11,27 @@ export function resolveInspectionTypeLabel(reportType: ReportPdfType): string {
   return reportType === 'BUILDING' ? BUILDING_INSPECTION_TYPE_LABEL : PEST_INSPECTION_TYPE_LABEL;
 }
 
-export function resolveBuildingReportTitle(): string {
-  return BUILDING_INSPECTION_TYPE_LABEL;
+export function resolveBuildingReportTitle(ctx: ReportRenderContext): string {
+  return ctx.formData.shared.jobInformation.buildingReportType?.trim() || DEFAULT_BUILDING_REPORT_TYPE;
 }
 
 export function resolvePestReportTitle(): string {
   return PEST_INSPECTION_TYPE_LABEL;
 }
 
-/** Ordered fields for Section B — Property & Report Details (no Job Number, no report-type dropdowns). */
+function resolvePropertyReportDetailsTitle(reportType: ReportPdfType): string {
+  return reportType === 'PEST' ? 'Property & Engagement Information' : 'Property & Report Details';
+}
+
+function resolvePropertyInspectionTypeLabel(ctx: ReportRenderContext): string {
+  const jobInfo = ctx.formData.shared.jobInformation;
+  if (ctx.reportType === 'PEST') {
+    return jobInfo.pestReportType?.trim() || PEST_INSPECTION_TYPE_LABEL;
+  }
+  return jobInfo.buildingReportType?.trim() || DEFAULT_BUILDING_REPORT_TYPE;
+}
+
+/** Ordered fields for property / engagement details (no Job Number, no report-type dropdowns). */
 export const PROPERTY_REPORT_DETAILS_FIELDS: SectionFieldDef[] = [
   { key: 'inspectionType', label: 'Inspection Type' },
   { key: 'inspectionNumber', label: 'Inspection Number' },
@@ -63,7 +76,7 @@ export function buildPropertyReportDetailsData(ctx: ReportRenderContext): Record
     formatDate(ctx.inspection.completedAt ?? ctx.inspection.startedAt);
 
   const data: Record<string, unknown> = {
-    inspectionType: resolveInspectionTypeLabel(ctx.reportType),
+    inspectionType: resolvePropertyInspectionTypeLabel(ctx),
     inspectionNumber,
     agreementNumber: ctx.agreementNumber?.trim() || '—',
     inspector: ctx.inspector?.name?.trim() || '—',
@@ -107,7 +120,7 @@ export function renderPropertyReportDetailsBlock(ctx: ReportRenderContext): stri
   });
 
   return renderSectionBlock(
-    'Property & Report Details',
+    resolvePropertyReportDetailsTitle(ctx.reportType),
     data,
     new Set(['photos']),
     undefined,

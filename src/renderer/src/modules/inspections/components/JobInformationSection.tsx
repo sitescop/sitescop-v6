@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import {
   CLIENT_TYPES,
+  buildingReportTypeSelectOptions,
+  DEFAULT_BUILDING_REPORT_TYPE,
   DEFAULT_INCOMPLETE_CONSTRUCTION,
   DEFAULT_OCCUPANCY_STATUS,
   DEFAULT_WEATHER_CONDITIONS,
@@ -34,14 +36,7 @@ import {
   InspectionFieldLabel,
 } from './InspectionFormUi';
 
-const BUILDING_INSPECTION_TYPE = 'Building Inspection Report';
 const PEST_INSPECTION_TYPE = 'Timber and Pest Inspection report';
-
-function inspectionTypeLabels(formKind: InspectionRouteFormKind): string[] {
-  if (formKind === 'BUILDING') return [BUILDING_INSPECTION_TYPE];
-  if (formKind === 'PEST') return [PEST_INSPECTION_TYPE];
-  return [BUILDING_INSPECTION_TYPE, PEST_INSPECTION_TYPE];
-}
 
 interface JobInformationSectionProps {
   data: JobInformationData;
@@ -65,28 +60,47 @@ export function JobInformationSection({
   const incompleteConstruction =
     j.incompleteConstruction?.trim() || DEFAULT_INCOMPLETE_CONSTRUCTION;
   const showIncompleteConstructionDetails = incompleteConstruction !== DEFAULT_INCOMPLETE_CONSTRUCTION;
-  const inspectionTypes = inspectionTypeLabels(formKind);
+  const buildingReportType = j.buildingReportType?.trim() || DEFAULT_BUILDING_REPORT_TYPE;
+  const showBuildingInspectionType = formKind === 'BUILDING' || formKind === 'COMBINED';
+  const showPestInspectionType = formKind === 'PEST' || formKind === 'COMBINED';
 
   return (
     <>
       <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-        {inspectionTypes.map((label) => (
+        {showBuildingInspectionType ? (
           <InspectionField
-            key={label}
-            id={`job-inspection-type-${label}`}
-            label={inspectionTypes.length > 1 ? `Inspection Type (${label.includes('Building') ? 'building PDF' : 'pest PDF'})` : 'Inspection Type'}
+            id="job-building-report-type"
+            label={formKind === 'COMBINED' ? 'Inspection Type (building PDF)' : 'Inspection Type'}
             icon={FileText}
-            className={inspectionTypes.length === 1 ? undefined : 'md:col-span-2'}
+            className={formKind === 'COMBINED' ? 'md:col-span-2' : undefined}
+          >
+            <Select
+              id="job-building-report-type"
+              value={buildingReportType}
+              disabled={disabled}
+              onChange={(e) => onChange({ buildingReportType: e.target.value })}
+              options={buildingReportTypeSelectOptions(j.buildingReportType)}
+              className={INSPECTION_INPUT_CLASS}
+            />
+          </InspectionField>
+        ) : null}
+
+        {showPestInspectionType ? (
+          <InspectionField
+            id="job-pest-inspection-type"
+            label={formKind === 'COMBINED' ? 'Inspection Type (pest PDF)' : 'Inspection Type'}
+            icon={FileText}
+            className={formKind === 'COMBINED' ? 'md:col-span-2' : undefined}
           >
             <Input
-              id={`job-inspection-type-${label}`}
-              value={label}
+              id="job-pest-inspection-type"
+              value={PEST_INSPECTION_TYPE}
               readOnly
               disabled
               className={cn(INSPECTION_INPUT_CLASS, 'bg-surface-muted text-text-muted')}
             />
           </InspectionField>
-        ))}
+        ) : null}
 
         <InspectionField id="job-client-type" label="Client Type" icon={Briefcase}>
           <Select

@@ -179,7 +179,7 @@ ${loadBuildingLegalScheduleHtml()}
 export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
   const sections: string[] = [];
   const renderedParts = new Set<string>();
-  const reportTitle = resolveBuildingReportTitle();
+  const reportTitle = resolveBuildingReportTitle(ctx);
 
   maybeRenderPartHeading(sections, 'jobInformation', renderedParts);
   const propertyDetailsBlock = renderPropertyReportDetailsBlock(ctx);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Mail, Phone, Search, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ChevronRight, Mail, Phone, Search, Users } from 'lucide-react';
 import { getClientsApi, hasClientsApi } from '@/lib/sitescop-api';
 import { FeatureRestartNotice } from '@/components/FeatureRestartNotice';
 import { Button, Card, Input } from '@/design-system/components';
@@ -14,6 +15,7 @@ function formatDate(value: string | null): string {
 
 export function ClientsPage() {
   const apiReady = hasClientsApi();
+  const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
 
@@ -83,7 +85,19 @@ export function ClientsPage() {
       ) : (
         <div className="space-y-3">
           {clients.map((client) => (
-            <Card key={client.id} className="p-4">
+            <Card
+              key={client.id}
+              className="cursor-pointer p-4 transition-colors hover:border-primary/30 hover:bg-primary/[0.02]"
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate(`/clients/${client.id}`)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  navigate(`/clients/${client.id}`);
+                }
+              }}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-text">
@@ -104,11 +118,14 @@ export function ClientsPage() {
                     )}
                   </div>
                 </div>
-                <div className="text-right text-sm">
-                  <p className="font-medium text-text">
-                    {client.jobCount} job{client.jobCount === 1 ? '' : 's'}
-                  </p>
-                  <p className="text-text-light">Last inspection: {formatDate(client.lastJobDate)}</p>
+                <div className="flex items-center gap-3 text-right text-sm">
+                  <div>
+                    <p className="font-medium text-text">
+                      {client.jobCount} job{client.jobCount === 1 ? '' : 's'}
+                    </p>
+                    <p className="text-text-light">Last inspection: {formatDate(client.lastJobDate)}</p>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-text-muted" aria-hidden />
                 </div>
               </div>
             </Card>

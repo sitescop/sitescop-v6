@@ -41,11 +41,13 @@ body {
 }
 
 .cover-title {
-  font-size: 26pt;
+  font-size: 22pt;
   font-weight: 800;
   color: ${primaryColor};
   margin: 0 0 6px;
   letter-spacing: -0.02em;
+  line-height: 1.25;
+  max-width: 100%;
 }
 
 .cover-subtitle {
@@ -475,6 +477,25 @@ h3 {
   font-size: 14px;
   margin: 0 0 10px;
   color: ${primaryColor};
+}
+
+.pest-next-inspection-highlight {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 2px solid ${primaryColor};
+  border-radius: 6px;
+  background: ${primaryColor}14;
+  font-size: 11pt;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #1a1a1a;
+}
+
+.hazard-conclusion-note {
+  margin: 16px 0 0;
+  font-size: 10pt;
+  line-height: 1.5;
+  color: #444;
 }
 
 .finding-item {

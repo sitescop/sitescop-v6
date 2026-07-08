@@ -24,6 +24,11 @@ export interface InvoicePdfContext {
   paymentMethod?: string | null;
   paymentReference?: string | null;
   statusLabel: string;
+  bankAccountName?: string | null;
+  bankBsb?: string | null;
+  bankAccountNumber?: string | null;
+  paymentTerms?: string | null;
+  paymentNotes?: string | null;
   footerText: string;
   primaryColor: string;
   secondaryColor: string;
@@ -57,6 +62,32 @@ function renderCompanyHeader(ctx: InvoicePdfContext): string {
 </div>`;
 }
 
+function renderPaymentDetails(ctx: InvoicePdfContext): string {
+  const hasBankDetails = Boolean(ctx.bankAccountName || ctx.bankBsb || ctx.bankAccountNumber);
+  const hasTerms = Boolean(ctx.paymentTerms?.trim());
+  const hasNotes = Boolean(ctx.paymentNotes?.trim());
+  if (!hasBankDetails && !hasTerms && !hasNotes) return '';
+
+  const bankRows: string[] = [];
+  if (ctx.bankAccountName) {
+    bankRows.push(`<p><strong>Account name:</strong> ${escapeHtml(ctx.bankAccountName)}</p>`);
+  }
+  if (ctx.bankBsb) {
+    bankRows.push(`<p><strong>BSB:</strong> ${escapeHtml(ctx.bankBsb)}</p>`);
+  }
+  if (ctx.bankAccountNumber) {
+    bankRows.push(`<p><strong>Account number:</strong> ${escapeHtml(ctx.bankAccountNumber)}</p>`);
+  }
+
+  return `
+<div class="invoice-payment-box">
+  <h2>Payment details</h2>
+  ${hasBankDetails ? `<div class="invoice-payment-grid">${bankRows.join('\n')}</div>` : ''}
+  ${hasTerms ? `<p style="margin-top:12px"><strong>Payment terms:</strong> ${escapeHtml(ctx.paymentTerms!)}</p>` : ''}
+  ${hasNotes ? `<div class="invoice-payment-notes"><strong>Important:</strong> ${escapeHtml(ctx.paymentNotes!)}</div>` : ''}
+</div>`;
+}
+
 export function renderInvoiceHtml(ctx: InvoicePdfContext): string {
   const styles = reportPrintStyles(ctx.primaryColor, ctx.secondaryColor);
 
@@ -74,6 +105,35 @@ export function renderInvoiceHtml(ctx: InvoicePdfContext): string {
   .invoice-totals td { padding: 4px 0; }
   .invoice-totals td:last-child { text-align: right; }
   .cover-meta { margin-top: 20px; }
+  .invoice-payment-box {
+    margin-top: 28px;
+    padding: 16px 18px;
+    border-radius: 8px;
+    border: 1px solid ${ctx.primaryColor}33;
+    background: linear-gradient(135deg, ${ctx.primaryColor}12, ${ctx.secondaryColor}10);
+  }
+  .invoice-payment-box h2 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: ${ctx.primaryColor};
+  }
+  .invoice-payment-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 20px;
+    font-size: 13px;
+  }
+  .invoice-payment-grid p { margin: 0; }
+  .invoice-payment-notes {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid ${ctx.primaryColor}22;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #444;
+  }
   </style>
 </head>
 <body class="report-body">
@@ -111,6 +171,7 @@ export function renderInvoiceHtml(ctx: InvoicePdfContext): string {
     </div>`
         : ''
     }
+    ${renderPaymentDetails(ctx)}
   </div>
 </body>
 </html>`;

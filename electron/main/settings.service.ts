@@ -22,6 +22,9 @@ import type {
   CompanySettingsInput,
   GitHubSettingsInput,
   GitHubSettingsPublic,
+  BillingSettings,
+  BillingSettingsInput,
+  InspectionType,
   ReportSettings,
   ReportSettingsInput,
 } from '../../shared/api-types.js';
@@ -49,6 +52,7 @@ interface StoredSettingsFile {
   };
   company?: Partial<CompanySettings>;
   report?: Partial<ReportSettings>;
+  billing?: Partial<BillingSettings>;
   branding?: {
     logoFileName?: string;
   };
@@ -72,6 +76,23 @@ const DEFAULT_COMPANY: CompanySettings = {
   website: SITESCOP_COMPANY_WEBSITE,
   address: '',
 };
+
+export const DEFAULT_BILLING: BillingSettings = {
+  buildingPriceCents: 55000,
+  pestPriceCents: 35000,
+  combinedPriceCents: 85000,
+  bankAccountName: '',
+  bankBsb: '',
+  bankAccountNumber: '',
+  invoicePaymentTerms: 'Payment is due within 7 days of the invoice date.',
+  invoicePaymentNotes: 'Please use the invoice number as your payment reference.',
+};
+
+function normalizePriceCents(value: unknown, fallback: number): number {
+  const cents = Number(value);
+  if (!Number.isFinite(cents) || cents <= 0) return fallback;
+  return Math.round(cents);
+}
 
 function settingsPath(): string {
   return join(app.getPath('userData'), 'settings.json');
@@ -238,6 +259,44 @@ export function saveReportSettings(input: ReportSettingsInput): ReportSettings {
   raw.report = next;
   saveRaw(raw);
   return next;
+}
+
+export function getBillingSettings(): BillingSettings {
+  const raw = loadRaw().billing ?? {};
+  return {
+    buildingPriceCents: normalizePriceCents(raw.buildingPriceCents, DEFAULT_BILLING.buildingPriceCents),
+    pestPriceCents: normalizePriceCents(raw.pestPriceCents, DEFAULT_BILLING.pestPriceCents),
+    combinedPriceCents: normalizePriceCents(raw.combinedPriceCents, DEFAULT_BILLING.combinedPriceCents),
+    bankAccountName: raw.bankAccountName?.trim() ?? DEFAULT_BILLING.bankAccountName,
+    bankBsb: raw.bankBsb?.trim() ?? DEFAULT_BILLING.bankBsb,
+    bankAccountNumber: raw.bankAccountNumber?.trim() ?? DEFAULT_BILLING.bankAccountNumber,
+    invoicePaymentTerms: raw.invoicePaymentTerms?.trim() || DEFAULT_BILLING.invoicePaymentTerms,
+    invoicePaymentNotes: raw.invoicePaymentNotes?.trim() || DEFAULT_BILLING.invoicePaymentNotes,
+  };
+}
+
+export function saveBillingSettings(input: BillingSettingsInput): BillingSettings {
+  const next: BillingSettings = {
+    buildingPriceCents: normalizePriceCents(input.buildingPriceCents, DEFAULT_BILLING.buildingPriceCents),
+    pestPriceCents: normalizePriceCents(input.pestPriceCents, DEFAULT_BILLING.pestPriceCents),
+    combinedPriceCents: normalizePriceCents(input.combinedPriceCents, DEFAULT_BILLING.combinedPriceCents),
+    bankAccountName: input.bankAccountName.trim(),
+    bankBsb: input.bankBsb.trim(),
+    bankAccountNumber: input.bankAccountNumber.trim(),
+    invoicePaymentTerms: input.invoicePaymentTerms.trim() || DEFAULT_BILLING.invoicePaymentTerms,
+    invoicePaymentNotes: input.invoicePaymentNotes.trim() || DEFAULT_BILLING.invoicePaymentNotes,
+  };
+  const raw = loadRaw();
+  raw.billing = next;
+  saveRaw(raw);
+  return next;
+}
+
+export function getDefaultInspectionPriceCents(inspectionType: InspectionType): number {
+  const billing = getBillingSettings();
+  if (inspectionType === 'PEST') return billing.pestPriceCents;
+  if (inspectionType === 'COMBINED') return billing.combinedPriceCents;
+  return billing.buildingPriceCents;
 }
 
 export function getLogoFilePath(): string | null {

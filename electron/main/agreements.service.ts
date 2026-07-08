@@ -19,7 +19,7 @@ import {
   DEFAULT_REPORT_SETTINGS,
   SITESCOP_PDF_FOOTER_TEXT,
 } from '../../shared/company-branding.js';
-import { getResolvedCompanyBranding, getResolvedReportSettings } from './settings.service.js';
+import { getResolvedCompanyBranding, getResolvedReportSettings, getDefaultInspectionPriceCents } from './settings.service.js';
 import { generateAgreementPdf } from '../../shared/report-pdf/src/index.js';
 import {
   ensureAgreementLegalPath,
@@ -32,12 +32,6 @@ import { setLegalBasePath } from '../../shared/report-pdf/src/legal-loader.js';
 import { getJobDetail } from './jobs.service.js';
 
 const GST_RATE = 10;
-
-const DEFAULT_PRICES: Record<InspectionType, number> = {
-  BUILDING: 55000,
-  PEST: 35000,
-  COMBINED: 85000,
-};
 
 function calculatePricing(priceCents: number) {
   const gstCents = Math.round(priceCents * (GST_RATE / 100));
@@ -242,7 +236,7 @@ function findByToken(db: SqlDatabase, token: string): AgreementDetail | null {
 export function createAgreement(db: SqlDatabase, input: CreateAgreementInput): AgreementDetail {
   const id = randomUUID();
   const agreementNumber = nextAgreementNumber(db);
-  const priceCents = input.priceCents ?? DEFAULT_PRICES[input.inspectionType];
+  const priceCents = input.priceCents ?? getDefaultInspectionPriceCents(input.inspectionType);
   const { gstCents, totalCents } = calculatePricing(priceCents);
   const legalSections = loadLegalSectionsForType(input.inspectionType);
   const agreementDate = input.agreementDate ?? new Date().toISOString().slice(0, 10);
@@ -298,7 +292,7 @@ export function createAgreementFromJob(db: SqlDatabase, jobId: string): Agreemen
     clientEmail: job.email || `client+${job.jobNumber.toLowerCase()}@sitescop.local`,
     clientPhone: job.mobile || undefined,
     propertyAddress: job.propertyAddress,
-    priceCents: DEFAULT_PRICES[job.inspectionType],
+    priceCents: getDefaultInspectionPriceCents(job.inspectionType),
     notes: job.notes,
   });
 }
@@ -448,6 +442,15 @@ export async function signAgreement(
 
   const signed = getAgreement(db, agreement.id)!;
   await generateAgreementPdfFile(db, signed);
+
+  if (signed.jobId) {
+    const { generateInvoicePdfForJob } = await import('./invoices.service.js');
+    try {
+      await generateInvoicePdfForJob(db, signed.jobId);
+    } catch {
+      // Invoice can be generated later from the client or job screen
+    }
+  }
 
   return { agreementNumber: signed.agreementNumber, jobId: signed.jobId };
 }
@@ -622,5 +625,3 @@ export async function generateAgreementPdfForId(db: SqlDatabase, agreementId: st
   if (!agreement) throw new Error('Agreement not found.');
   return generateAgreementPdfFile(db, agreement);
 }
-
-export { DEFAULT_PRICES };

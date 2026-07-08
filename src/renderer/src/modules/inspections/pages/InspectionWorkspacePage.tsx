@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, FileText, FolderOpen, Mail } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Copy, FileText, FolderOpen, Mail } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { jobTypeToFormKind, isSubfloorApplicable, resolveSubfloorPresent } from '@sitescop/room-engine-core';
 import type { InspectionReportRow } from '@shared/api-types';
@@ -30,6 +30,9 @@ export function InspectionWorkspacePage() {
   const [emailFeedback, setEmailFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null,
   );
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [copyingReportId, setCopyingReportId] = useState<string | null>(null);
+  const [copyingAll, setCopyingAll] = useState(false);
 
   const {
     data: inspection,
@@ -106,6 +109,33 @@ export function InspectionWorkspacePage() {
 
   const reportLabel = (report: InspectionReportRow) =>
     report.reportType === 'BUILDING' ? 'Building report' : 'Pest report';
+
+  async function copyReportPdf(report: InspectionReportRow) {
+    setCopyFeedback(null);
+    setCopyingReportId(report.id);
+    try {
+      const result = await getSitescopApi().reports.copyPdf(report.filePath);
+      setCopyFeedback(result.message);
+    } catch (error) {
+      setCopyFeedback(error instanceof Error ? error.message : 'Could not copy PDF');
+    } finally {
+      setCopyingReportId(null);
+    }
+  }
+
+  async function copyAllReportPdfs() {
+    if (reports.length < 2) return;
+    setCopyFeedback(null);
+    setCopyingAll(true);
+    try {
+      const result = await getSitescopApi().reports.copyPdfs(reports.map((report) => report.filePath));
+      setCopyFeedback(result.message);
+    } catch (error) {
+      setCopyFeedback(error instanceof Error ? error.message : 'Could not copy PDFs');
+    } finally {
+      setCopyingAll(false);
+    }
+  }
 
   const emailReportMutation = useMutation({
     mutationFn: (reportId: string) => getSitescopApi().reports.emailToClient(reportId),
@@ -276,6 +306,7 @@ export function InspectionWorkspacePage() {
                   {emailFeedback.text}
                 </p>
               )}
+              {copyFeedback && <p className="mt-2 text-sm text-success">{copyFeedback}</p>}
               {inspection.clientEmail && (
                 <p className="mt-1 text-xs text-text-muted">
                   Client email: {inspection.clientEmail}
@@ -303,6 +334,12 @@ export function InspectionWorkspacePage() {
                   Open folder
                 </Button>
               )}
+              {formKind === 'COMBINED' && reports.length >= 2 && (
+                <Button variant="secondary" disabled={copyingAll} onClick={() => void copyAllReportPdfs()}>
+                  <Copy className="h-4 w-4" />
+                  {copyingAll ? 'Copying…' : 'Copy both reports'}
+                </Button>
+              )}
             </div>
           </div>
           {reports.length > 0 && (
@@ -322,6 +359,15 @@ export function InspectionWorkspacePage() {
                       onClick={() => void getSitescopApi().reports.openPdf(report.filePath)}
                     >
                       Open PDF
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={copyingReportId === report.id}
+                      onClick={() => void copyReportPdf(report)}
+                    >
+                      <Copy className="h-4 w-4" />
+                      {copyingReportId === report.id ? 'Copying…' : 'Copy'}
                     </Button>
                     <Button
                       size="sm"

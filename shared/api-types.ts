@@ -48,14 +48,31 @@ export interface ReportSettings {
 
 export type ReportSettingsInput = ReportSettings;
 
+export interface BillingSettings {
+  buildingPriceCents: number;
+  pestPriceCents: number;
+  combinedPriceCents: number;
+  bankAccountName: string;
+  bankBsb: string;
+  bankAccountNumber: string;
+  invoicePaymentTerms: string;
+  invoicePaymentNotes: string;
+}
+
+export type BillingSettingsInput = BillingSettings;
+
 export interface AppSettingsOverview {
   company: CompanySettings;
   report: ReportSettings;
+  billing: BillingSettings;
   hasLogo: boolean;
   logoPreview: string | null;
 }
 
-export interface LoginResult {
+export interface CopyPdfResult {
+  count: number;
+  message: string;
+}
   success: boolean;
   user?: SessionUser;
   error?: string;
@@ -331,6 +348,45 @@ export interface ClientRow {
   lastJobDate: string | null;
 }
 
+export interface ClientDetailJobReport {
+  id: string;
+  jobId: string;
+  inspectionId: string;
+  reportType: ReportType;
+  fileName: string;
+  filePath: string;
+  generatedAt: string;
+}
+
+export interface ClientDetailJob {
+  id: string;
+  jobNumber: string;
+  inspectionType: InspectionType;
+  propertyAddress: string;
+  status: JobStatus;
+  inspectionDate: string;
+  inspectionNumber: string | null;
+  agreementId: string | null;
+  agreementNumber: string | null;
+  agreementStatus: string | null;
+  agreementPdfPath: string | null;
+  invoicePdfPath: string | null;
+  hasInvoice: boolean;
+  reports: ClientDetailJobReport[];
+}
+
+export interface ClientDetail {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  mobile: string;
+  createdAt: string;
+  primaryPropertyAddress: string | null;
+  propertyAddresses: string[];
+  jobs: ClientDetailJob[];
+}
+
 export type {
   InspectionDetail,
   UpdateInspectionRoomInput,
@@ -397,6 +453,8 @@ export interface SitescopApi {
     listForJob: (jobId: string) => Promise<InspectionReportRow[]>;
     generateForJob: (jobId: string) => Promise<InspectionReportRow[]>;
     openPdf: (filePath: string) => Promise<void>;
+    copyPdf: (filePath: string) => Promise<CopyPdfResult>;
+    copyPdfs: (filePaths: string[]) => Promise<CopyPdfResult>;
     openFolder: (jobId: string) => Promise<void>;
     emailToClient: (reportId: string) => Promise<ComposeEmailResult>;
   };
@@ -426,9 +484,16 @@ export interface SitescopApi {
   };
   clients: {
     list: (search?: string) => Promise<ClientRow[]>;
+    get: (clientId: string) => Promise<ClientDetail>;
+    openAgreementPdf: (agreementId: string) => Promise<void>;
+    openInvoicePdf: (jobId: string) => Promise<void>;
+    copyAgreementPdf: (agreementId: string) => Promise<CopyPdfResult>;
+    copyInvoicePdf: (jobId: string) => Promise<CopyPdfResult>;
+    copyAllJobDocuments: (jobId: string) => Promise<CopyPdfResult>;
   };
   shell: {
     openExternal: (url: string) => Promise<void>;
+    copyFilesToClipboard: (filePaths: string[]) => Promise<CopyPdfResult>;
   };
   geo: {
     captureCurrentPosition: () => Promise<GeoCaptureResult>;
@@ -447,6 +512,7 @@ export interface SitescopApi {
     getApp: () => Promise<AppSettingsOverview>;
     saveCompany: (input: CompanySettingsInput) => Promise<CompanySettings>;
     saveReport: (input: ReportSettingsInput) => Promise<ReportSettings>;
+    saveBilling: (input: BillingSettingsInput) => Promise<BillingSettings>;
     selectLogo: () => Promise<{ saved: boolean; logoPreview: string | null }>;
     removeLogo: () => Promise<void>;
     getGitHub: () => Promise<GitHubSettingsPublic>;

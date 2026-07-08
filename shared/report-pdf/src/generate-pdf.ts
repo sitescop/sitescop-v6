@@ -16,16 +16,33 @@ function fileExists(filePath: string): boolean {
   }
 }
 
+const HIDDEN_BROWSER_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-gpu',
+  '--disable-dev-shm-usage',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-extensions',
+  '--window-position=-32000,-32000',
+  '--window-size=1280,720',
+];
+
+function bundledChromePath(): string | null {
+  try {
+    const bundled = puppeteer.executablePath();
+    return fileExists(bundled) ? bundled : null;
+  } catch {
+    return null;
+  }
+}
+
 function resolveChromeExecutable(): string {
   const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH?.trim();
   if (fromEnv && fileExists(fromEnv)) return fromEnv;
 
-  try {
-    const bundled = puppeteer.executablePath();
-    if (fileExists(bundled)) return bundled;
-  } catch {
-    // Puppeteer cache empty — try system browsers below.
-  }
+  const bundled = bundledChromePath();
+  if (bundled) return bundled;
 
   const candidates = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -51,13 +68,30 @@ function resolveChromeExecutable(): string {
   );
 }
 
+async function launchPdfBrowser() {
+  const bundled = bundledChromePath();
+  if (bundled) {
+    try {
+      return await puppeteer.launch({
+        headless: 'shell',
+        executablePath: bundled,
+        args: HIDDEN_BROWSER_ARGS,
+      });
+    } catch {
+      // Fall back to standard headless Chrome if headless shell is unavailable.
+    }
+  }
+
+  return puppeteer.launch({
+    headless: true,
+    executablePath: resolveChromeExecutable(),
+    args: HIDDEN_BROWSER_ARGS,
+  });
+}
+
 async function getBrowser() {
   if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      headless: true,
-      executablePath: resolveChromeExecutable(),
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    browserPromise = launchPdfBrowser();
   }
   return browserPromise;
 }

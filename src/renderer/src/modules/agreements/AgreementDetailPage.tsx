@@ -134,6 +134,20 @@ export function AgreementDetailPage() {
     },
   });
 
+  const copyPdfMutation = useMutation({
+    mutationFn: async () => {
+      const path =
+        agreement?.pdfPath ?? (await getSitescopApi().agreements.generatePdf(agreementId));
+      const result = await getSitescopApi().reports.copyPdf(path);
+      invalidate();
+      return result;
+    },
+    onSuccess: (result) => {
+      setCopyMessage(result.message);
+      setTimeout(() => setCopyMessage(''), 5000);
+    },
+  });
+
   async function copySigningLink() {
     let url = signingUrl;
     if (!url && agreement?.accessToken) {
@@ -233,6 +247,14 @@ export function AgreementDetailPage() {
           <Button variant="secondary" onClick={() => pdfMutation.mutate()} disabled={pdfMutation.isPending}>
             <Download className="h-4 w-4" />
             {pdfMutation.isPending ? 'Generating…' : 'Open PDF'}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => copyPdfMutation.mutate()}
+            disabled={copyPdfMutation.isPending}
+          >
+            <Copy className="h-4 w-4" />
+            {copyPdfMutation.isPending ? 'Copying…' : 'Copy PDF'}
           </Button>
           {agreement.jobId && (
             <Button variant="accent" onClick={() => navigate(`/jobs/${agreement.jobId}`)}>
