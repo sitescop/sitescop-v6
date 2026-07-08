@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SpellCheck } from 'lucide-react';
 import { Button } from '@/design-system/components';
+import { cn } from '@/lib/cn';
 import {
   applyLocalWritingFixes,
   applyWritingFix,
@@ -12,10 +13,12 @@ export function CommentWritingAssist({
   text,
   onApplyText,
   disabled,
+  variant = 'default',
 }: {
   text: string;
   onApplyText: (value: string) => void;
   disabled?: boolean;
+  variant?: 'default' | 'overlay';
 }) {
   const [checking, setChecking] = useState(false);
   const [issues, setIssues] = useState<WritingIssue[]>([]);
@@ -71,13 +74,22 @@ export function CommentWritingAssist({
     setNotice('Applied spacing and capitalisation fixes.');
   }
 
+  const isOverlay = variant === 'overlay';
+
   return (
-    <div className="mt-2 space-y-2 rounded-lg border border-border/80 bg-white px-3 py-2.5">
+    <div
+      className={cn(
+        'space-y-2 rounded-lg border',
+        isOverlay ? 'mt-1 border-white/20 bg-black/90 px-2 py-1.5 text-white' : 'mt-2 border-border/80 bg-white px-3 py-2.5',
+      )}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] text-text-muted">
-          Spelling while typing: right-click underlined words for suggestions.
-        </p>
-        <div className="flex flex-wrap gap-1.5">
+        {!isOverlay ? (
+          <p className="text-[11px] text-text-muted">
+            Spelling while typing: right-click underlined words for suggestions.
+          </p>
+        ) : null}
+        <div className={cn('flex flex-wrap gap-1.5', isOverlay && 'w-full justify-end')}>
           <Button
             type="button"
             variant="secondary"

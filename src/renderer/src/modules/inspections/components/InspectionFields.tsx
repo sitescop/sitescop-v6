@@ -1,5 +1,5 @@
 import { memo, useCallback, useContext, useRef, useState, type ElementType, type ReactNode } from 'react';
-import { Camera, ChevronLeft, ChevronRight, ImagePlus, Plus, Trash2, X } from 'lucide-react';
+import { Camera, ChevronLeft, ChevronRight, ImagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
 import {
   appendInspectionComment,
   getCommentSuggestions,
@@ -10,6 +10,7 @@ import {
 import { Button, Input, Modal, Textarea } from '@/design-system/components';
 import { cn } from '@/lib/cn';
 import { InspectionFormContext, INSPECTION_INPUT_CLASS } from './InspectionFormUi';
+import { PhotoAnnotationEditor } from './PhotoAnnotationEditor';
 
 export function InspectionSubsectionHeading({
   children,
@@ -173,6 +174,7 @@ export function PhotoField({
   const photosRef = useRef(safePhotos);
   photosRef.current = safePhotos;
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
 
   const appendPhotos = useCallback(
@@ -201,6 +203,17 @@ export function PhotoField({
   };
 
   const activePhoto = safePhotos[activeIndex];
+
+  const saveEditedPhoto = (nextDataUrl: string) => {
+    if (!activePhoto || disabled) return;
+    onChange(
+      safePhotos.map((photo) =>
+        photo.id === activePhoto.id ? { ...photo, dataUrl: nextDataUrl } : photo,
+      ),
+    );
+    setEditorOpen(false);
+    setViewerOpen(true);
+  };
 
   return (
     <div className={cn('inspection-photo-field space-y-3', className)}>
@@ -291,10 +304,24 @@ export function PhotoField({
                 </Button>
               </div>
               {!disabled && (
-                <Button type="button" variant="danger" size="sm" onClick={() => removePhoto(activePhoto.id)}>
-                  <Trash2 className="mr-1 h-4 w-4" />
-                  Delete Photo
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setViewerOpen(false);
+                      setEditorOpen(true);
+                    }}
+                  >
+                    <Pencil className="mr-1 h-4 w-4" />
+                    Edit photo
+                  </Button>
+                  <Button type="button" variant="danger" size="sm" onClick={() => removePhoto(activePhoto.id)}>
+                    <Trash2 className="mr-1 h-4 w-4" />
+                    Delete Photo
+                  </Button>
+                </div>
               )}
             </div>
           ) : null
@@ -302,11 +329,27 @@ export function PhotoField({
       >
         {activePhoto && (
           <div className="space-y-3">
-            <img src={activePhoto.dataUrl} alt="" className="max-h-[60vh] w-full rounded-sm object-contain" />
+            <img
+              key={activePhoto.dataUrl}
+              src={activePhoto.dataUrl}
+              alt=""
+              className="max-h-[60vh] w-full rounded-sm object-contain"
+            />
             {activePhoto.caption && <p className="text-sm text-text-muted">{activePhoto.caption}</p>}
           </div>
         )}
       </Modal>
+
+      <PhotoAnnotationEditor
+        open={editorOpen && Boolean(activePhoto)}
+        dataUrl={activePhoto?.dataUrl ?? ''}
+        title={`${label} — Edit photo ${safePhotos.length ? activeIndex + 1 : 0}`}
+        onClose={() => {
+          setEditorOpen(false);
+          setViewerOpen(true);
+        }}
+        onSave={saveEditedPhoto}
+      />
     </div>
   );
 }
