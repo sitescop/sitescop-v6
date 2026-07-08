@@ -1,4 +1,3 @@
-import type { LucideIcon } from 'lucide-react';
 import {
   Briefcase,
   Building2,
@@ -6,6 +5,7 @@ import {
   Camera,
   Clock,
   CloudSun,
+  FileText,
   HardHat,
   Home,
   Mail,
@@ -24,6 +24,7 @@ import {
   WEATHER_CONDITIONS_OPTIONS,
   type JobInformationSection as JobInformationData,
 } from '@sitescop/room-engine-core';
+import type { InspectionRouteFormKind } from './inspection-route';
 import { Button, Input, Select, Textarea } from '@/design-system/components';
 import { cn } from '@/lib/cn';
 import { PhotoField } from './InspectionFields';
@@ -33,11 +34,21 @@ import {
   InspectionFieldLabel,
 } from './InspectionFormUi';
 
+const BUILDING_INSPECTION_TYPE = 'Building Inspection Report';
+const PEST_INSPECTION_TYPE = 'Timber and Pest Inspection report';
+
+function inspectionTypeLabels(formKind: InspectionRouteFormKind): string[] {
+  if (formKind === 'BUILDING') return [BUILDING_INSPECTION_TYPE];
+  if (formKind === 'PEST') return [PEST_INSPECTION_TYPE];
+  return [BUILDING_INSPECTION_TYPE, PEST_INSPECTION_TYPE];
+}
+
 interface JobInformationSectionProps {
   data: JobInformationData;
   disabled: boolean;
   gpsCapturing: boolean;
   gpsStatus: string;
+  formKind: InspectionRouteFormKind;
   onChange: (partial: Partial<JobInformationData>) => void;
   onCaptureGps: () => void;
 }
@@ -47,16 +58,36 @@ export function JobInformationSection({
   disabled,
   gpsCapturing,
   gpsStatus,
+  formKind,
   onChange,
   onCaptureGps,
 }: JobInformationSectionProps) {
   const incompleteConstruction =
     j.incompleteConstruction?.trim() || DEFAULT_INCOMPLETE_CONSTRUCTION;
   const showIncompleteConstructionDetails = incompleteConstruction !== DEFAULT_INCOMPLETE_CONSTRUCTION;
+  const inspectionTypes = inspectionTypeLabels(formKind);
 
   return (
     <>
       <div className="grid gap-3 md:grid-cols-2 md:gap-4">
+        {inspectionTypes.map((label) => (
+          <InspectionField
+            key={label}
+            id={`job-inspection-type-${label}`}
+            label={inspectionTypes.length > 1 ? `Inspection Type (${label.includes('Building') ? 'building PDF' : 'pest PDF'})` : 'Inspection Type'}
+            icon={FileText}
+            className={inspectionTypes.length === 1 ? undefined : 'md:col-span-2'}
+          >
+            <Input
+              id={`job-inspection-type-${label}`}
+              value={label}
+              readOnly
+              disabled
+              className={cn(INSPECTION_INPUT_CLASS, 'bg-surface-muted text-text-muted')}
+            />
+          </InspectionField>
+        ))}
+
         <InspectionField id="job-client-type" label="Client Type" icon={Briefcase}>
           <Select
             id="job-client-type"
@@ -113,7 +144,7 @@ export function JobInformationSection({
             className={INSPECTION_INPUT_CLASS}
           />
         </InspectionField>
-        <InspectionField id="job-client-mobile" label="Mobile" icon={Phone}>
+        <InspectionField id="job-client-mobile" label="Client Mobile" icon={Phone}>
           <Input
             id="job-client-mobile"
             value={j.clientMobile}
@@ -121,7 +152,7 @@ export function JobInformationSection({
             className={INSPECTION_INPUT_CLASS}
           />
         </InspectionField>
-        <InspectionField id="job-client-email" label="Email" icon={Mail} className="md:col-span-2">
+        <InspectionField id="job-client-email" label="Client Email" icon={Mail} className="md:col-span-2">
           <Input
             id="job-client-email"
             type="email"
@@ -156,7 +187,7 @@ export function JobInformationSection({
             className={INSPECTION_INPUT_CLASS}
           />
         </InspectionField>
-        <InspectionField id="job-weather" label="Weather Conditions?" icon={CloudSun} className="md:col-span-2">
+        <InspectionField id="job-weather" label="Weather Conditions" icon={CloudSun} className="md:col-span-2">
           <Select
             id="job-weather"
             value={j.weatherConditions || DEFAULT_WEATHER_CONDITIONS}
@@ -165,7 +196,7 @@ export function JobInformationSection({
             className={INSPECTION_INPUT_CLASS}
           />
         </InspectionField>
-        <InspectionField id="job-occupancy" label="Occupancy Status?" icon={Home} className="md:col-span-2">
+        <InspectionField id="job-occupancy" label="Occupancy Status" icon={Home} className="md:col-span-2">
           <Select
             id="job-occupancy"
             value={j.occupancyStatus || DEFAULT_OCCUPANCY_STATUS}
@@ -174,7 +205,7 @@ export function JobInformationSection({
             className={INSPECTION_INPUT_CLASS}
           />
         </InspectionField>
-        <InspectionField id="job-incomplete-construction" label="Incomplete Construction?" icon={HardHat} className="md:col-span-2">
+        <InspectionField id="job-incomplete-construction" label="Incomplete Construction" icon={HardHat} className="md:col-span-2">
           <Select
             id="job-incomplete-construction"
             value={incompleteConstruction}

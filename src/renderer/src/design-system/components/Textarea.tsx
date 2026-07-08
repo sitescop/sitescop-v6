@@ -4,6 +4,10 @@ import { cn } from '@/lib/cn';
 import { CommentDictationButton } from '@/modules/inspections/components/CommentDictationButton';
 import { CommentWritingAssist } from '@/modules/inspections/components/CommentWritingAssist';
 import {
+  isInspectionCommentLabel,
+  isInspectionWritingLabel,
+} from '@/modules/inspections/components/inspection-writing-field';
+import {
   InspectionFormContext,
   INSPECTION_COMMENTS_TEXTAREA_CLASS,
   INSPECTION_INPUT_CLASS,
@@ -15,6 +19,8 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
   error?: string;
   /** Wide rectangular layout for inspection comment fields. */
   commentsField?: boolean;
+  /** Enable spell check and grammar assist (defaults on for inspection narrative fields). */
+  writingAssist?: boolean;
   /** Section id for speech-to-text report phrasing (e.g. fencing, external). */
   dictationSectionId?: string;
   /** Direct callback when dictation text is ready (preferred for comment fields). */
@@ -29,6 +35,7 @@ export function Textarea({
   className,
   id,
   commentsField,
+  writingAssist,
   dictationSectionId,
   onDictationAppend,
   onWritingApply,
@@ -41,9 +48,12 @@ export function Textarea({
 }: TextareaProps) {
   const inInspectionForm = useContext(InspectionFormContext);
   const isCommentsField =
-    commentsField ?? (inInspectionForm && (label === 'Comments' || label === 'Comment'));
+    commentsField ?? (inInspectionForm && isInspectionCommentLabel(label));
+  const enableWritingTools =
+    writingAssist ??
+    (inInspectionForm && !readOnly && !disabled && (isCommentsField || isInspectionWritingLabel(label)));
   const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
-  const enableSpellCheck = spellCheck ?? (isCommentsField && !readOnly);
+  const enableSpellCheck = spellCheck ?? (enableWritingTools && !readOnly);
   const enableDictation = isCommentsField && !readOnly && !disabled;
 
   const handleDictation = (transcript: string) => {
@@ -59,7 +69,7 @@ export function Textarea({
     } as React.ChangeEvent<HTMLTextAreaElement>);
   };
 
-  const enableWritingAssist = isCommentsField && !readOnly && !disabled && (onWritingApply || onChange);
+  const enableWritingAssist = enableWritingTools && (onWritingApply || onChange);
 
   const handleWritingApply = (next: string) => {
     if (onWritingApply) {

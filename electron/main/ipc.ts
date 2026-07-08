@@ -35,6 +35,7 @@ import {
   getCompanySettings,
   getReportSettings,
   getCompanyLogoDataUrl,
+  getReportLogoPreviewDataUrl,
   hasCompanyLogo,
   isGitHubSigningConfigured,
   removeCompanyLogo,
@@ -529,7 +530,7 @@ export function registerIpcHandlers() {
     company: getCompanySettings(),
     report: getReportSettings(),
     hasLogo: hasCompanyLogo(),
-    logoPreview: getCompanyLogoDataUrl(),
+    logoPreview: getReportLogoPreviewDataUrl(),
   }));
 
   ipcMain.handle('settings:saveCompany', async (_event, input: CompanySettingsInput) => {

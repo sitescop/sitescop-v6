@@ -1,5 +1,5 @@
 import type { BathroomRoomData, BedroomRoomData, GarageRoomData, LivingRoomData } from '@sitescop/room-engine-core';
-import { GARAGE_DEFECTS } from '@sitescop/room-engine-core';
+import { GARAGE_DEFECTS, NO_ISSUES_OBSERVED_COMMENT } from '@sitescop/room-engine-core';
 import { InspectionRoomType } from '@shared/inspection-types';
 import type { InspectionRoomDetail } from '@shared/inspection-types';
 import { BathroomRoomForm } from './BathroomRoomForm';
@@ -7,6 +7,7 @@ import { BedroomRoomForm } from './BedroomRoomForm';
 import { LivingRoomForm } from './LivingRoomForm';
 import { InspectionAccordionSection } from './InspectionAccordion';
 import { CheckboxGroupField, InspectionSubsectionHeading, SectionComments } from './InspectionFields';
+import { SectionQuickActions } from './SectionQuickActions';
 import type { SectionCompletionStatus } from './section-completion';
 
 interface InspectionRoomSectionsProps {
@@ -91,6 +92,16 @@ export function InspectionRoomSections({
             return (
               <div key={room.id} className="inspection-subpanel mb-3 space-y-3 last:mb-0">
                 <InspectionSubsectionHeading as="h4">{room.label}</InspectionSubsectionHeading>
+                <SectionQuickActions
+                  disabled={disabled}
+                  label="No damage observed"
+                  onNoIssues={() =>
+                    onRoomPatch(room.id, {
+                      comments: NO_ISSUES_OBSERVED_COMMENT,
+                      damageObserved: { selected: [], custom: [] },
+                    })
+                  }
+                />
                 <CheckboxGroupField disabled={disabled}
                   label="Defects"
                   options={GARAGE_DEFECTS}

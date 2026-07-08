@@ -81,6 +81,15 @@
     @apply mt-1 accent-primary;
   }
 
+  .inspection-accordion-header {
+    scroll-margin-top: 76px;
+    overflow-anchor: none;
+  }
+
+  .inspection-accordion-section {
+    overflow-anchor: none;
+  }
+
   .inspection-accordion-panel {
     @apply bg-[#E6EEF7]/90;
   }

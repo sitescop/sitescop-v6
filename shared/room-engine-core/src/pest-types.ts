@@ -151,5 +151,5 @@ export const PEST_INSPECTION_SECTION_LABELS: Record<PestInspectionSectionKey, st
   d11BarrierBridging: 'D11 Bridging of Termite Barriers',
   d13ConduciveConditions: 'D13 Other Conditions Conducive',
   d14MajorSafetyHazards: 'D14 Major Safety Hazards',
-  pestConclusion: 'Section E — Conclusion & Inspector Declaration',
+  pestConclusion: 'Section E — Conclusion & Certification',
 };

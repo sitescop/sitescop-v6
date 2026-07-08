@@ -1,4 +1,9 @@
-import type { BuildingInspectionFormData, ConclusionSection } from './types.js';
+import type { BuildingInspectionFormData, ConclusionSection, MajorDefectsSection } from './types.js';
+import {
+  generateMajorDefectAutoRecommendations,
+  generateMajorDefectConclusionAddendum,
+  suggestConclusionRatingsFromMajorDefects,
+} from './major-defects-conclusion.js';
 
 const CONCLUSION_TEMPLATES: Record<string, string> = {
   Average: `In conclusion, following the inspection of the readily accessible areas of the property, the overall condition of the building relative to similar buildings of approximately the same age that have been reasonably maintained was considered to be AVERAGE.
@@ -27,14 +32,10 @@ export function generateRiskExplanation(riskLevel: string): string {
 }
 
 export function generateAutoRecommendations(form: BuildingInspectionFormData): string[] {
-  const recommendations: string[] = [];
+  const recommendations: string[] = [
+    ...generateMajorDefectAutoRecommendations(form.majorDefects),
+  ];
 
-  if (form.majorDefects.structuralEngineeringRequired === 'Yes') {
-    recommendations.push('Structural Engineer Recommended');
-  }
-  if (form.majorDefects.deformationEngineeringRequired === 'Yes') {
-    recommendations.push('Structural Engineer Recommended');
-  }
   if (form.moistureTesting.excessiveMoistureEvidence === 'Yes') {
     recommendations.push('Waterproofing Contractor Recommended');
   }
@@ -44,22 +45,25 @@ export function generateAutoRecommendations(form: BuildingInspectionFormData): s
   if (form.services.hotWaterOperating === 'No') {
     recommendations.push('Licensed Plumber Recommended');
   }
-  if (form.kitchen.leakInsideCabinet === 'Yes' || form.laundry.activeLeak === 'Yes') {
-    recommendations.push('Licensed Plumber Recommended');
-  }
   if (form.kitchen.powerPoints.includes('Damaged') || form.laundry.powerPoints.includes('Damaged')) {
     recommendations.push('Licensed Electrician Recommended');
   }
-  if (form.roofExterior.condition === 'Poor') {
-    recommendations.push('Licensed Roof Plumber Recommended');
-  }
 
-  return [...new Set(recommendations)];
+  return [...new Set(recommendations.map((item) => item.trim()).filter(Boolean))];
 }
 
-export function applyConclusionUpdates(conclusion: ConclusionSection): ConclusionSection {
-  const autoConclusion = generateAutoConclusion(conclusion.overallComparison);
-  return { ...conclusion, autoConclusion };
+export function applyConclusionUpdates(
+  conclusion: ConclusionSection,
+  majorDefects?: MajorDefectsSection,
+): ConclusionSection {
+  const ratingSuggestions = majorDefects
+    ? suggestConclusionRatingsFromMajorDefects(majorDefects, conclusion)
+    : {};
+  const merged = { ...conclusion, ...ratingSuggestions };
+  const base = generateAutoConclusion(merged.overallComparison);
+  const addendum = majorDefects ? generateMajorDefectConclusionAddendum(majorDefects) : '';
+  const autoConclusion = [base, addendum].filter(Boolean).join('\n\n');
+  return { ...merged, autoConclusion };
 }
 
 export function calculateFormProgress(form: BuildingInspectionFormData): number {

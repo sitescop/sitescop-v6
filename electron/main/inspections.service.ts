@@ -17,6 +17,7 @@ import {
   normalizeInspectionFormData,
   patchSectionData,
 } from '../../shared/room-engine-core/src/form-data.js';
+import type { MajorDefectRollupRoom } from '../../shared/room-engine-core/src/major-defects-rollup.js';
 import { buildRoomsFromCounts, mergeRoomDataForReport } from '../../shared/room-engine-core/src/defaults.js';
 import type { PrefillJobContext, RoomEngineType } from '../../shared/room-engine-core/src/types.js';
 import { ROOM_ENGINE_TO_INSPECTION_ROOM } from '../../shared/inspection-types.js';
@@ -24,6 +25,15 @@ import { getJobDetail } from './jobs.service.js';
 
 function mapEngineToRoomType(type: RoomEngineType): InspectionRoomType {
   return ROOM_ENGINE_TO_INSPECTION_ROOM[type];
+}
+
+function roomsForMajorDefectRollup(rooms: InspectionRoomDetail[]): MajorDefectRollupRoom[] {
+  return rooms.map((room) => ({
+    id: room.id,
+    label: room.label,
+    roomType: room.roomType,
+    data: room.data,
+  }));
 }
 
 function nextInspectionNumber(db: SqlDatabase): string {
@@ -148,10 +158,15 @@ function mapDetail(
   const rawForm = inspectionRow.form_data
     ? (JSON.parse(String(inspectionRow.form_data)) as Record<string, unknown>)
     : {};
-  const formData = enrichInspectionFormData(normalizeInspectionFormData(rawForm, formKind));
+  const inspectionId = String(inspectionRow.id);
+  const rooms = loadRooms(db, inspectionId);
+  const formData = enrichInspectionFormData(
+    normalizeInspectionFormData(rawForm, formKind),
+    { rooms: roomsForMajorDefectRollup(rooms) },
+  );
 
   return {
-    id: String(inspectionRow.id),
+    id: inspectionId,
     inspectionNumber: String(inspectionRow.inspection_number ?? ''),
     status: inspectionRow.status as InspectionStatus,
     jobId: String(inspectionRow.job_id),
@@ -168,7 +183,7 @@ function mapDetail(
     createdAt: String(inspectionRow.created_at),
     updatedAt: String(inspectionRow.updated_at),
     formData,
-    rooms: loadRooms(db, String(inspectionRow.id)),
+    rooms,
   };
 }
 
@@ -289,17 +304,23 @@ export function updateInspectionSection(
 
   const jobType = row.inspection_type as InspectionType;
   const formKind = jobTypeToFormKind(jobType);
+  const rooms = loadRooms(db, inspectionId);
+  const enrichment = { rooms: roomsForMajorDefectRollup(rooms) };
   const current = enrichInspectionFormData(
     normalizeInspectionFormData(JSON.parse(String(row.form_data || '{}')), formKind),
+    enrichment,
   );
   const patched = enrichInspectionFormData(
     patchSectionData(current, input.realm, input.section, input.data),
+    enrichment,
   );
   const progressPercent = calculateInspectionProgress(patched);
+  const previousStatus = String(row.status ?? 'IN_PROGRESS');
+  const nextStatus = previousStatus === 'COMPLETED' ? 'COMPLETED' : 'IN_PROGRESS';
 
   db.run(
-    `UPDATE inspections SET form_data = ?, progress_percent = ?, status = 'IN_PROGRESS', updated_at = datetime('now') WHERE id = ?`,
-    [JSON.stringify(patched), progressPercent, inspectionId],
+    `UPDATE inspections SET form_data = ?, progress_percent = ?, status = ?, updated_at = datetime('now') WHERE id = ?`,
+    [JSON.stringify(patched), progressPercent, nextStatus, inspectionId],
   );
 
   if (input.realm === 'shared' && input.section === 'propertyDescription') {
@@ -349,7 +370,22 @@ export function updateInspectionRoom(
 
   const refreshed = getInspectionRow(db, jobId);
   if (!refreshed) throw new Error('Inspection not found after room update');
-  return mapDetail(db, refreshed, refreshed.inspection_type as InspectionType);
+
+  const jobType = refreshed.inspection_type as InspectionType;
+  const formKind = jobTypeToFormKind(jobType);
+  const rooms = loadRooms(db, inspectionId);
+  const enriched = enrichInspectionFormData(
+    normalizeInspectionFormData(JSON.parse(String(refreshed.form_data || '{}')), formKind),
+    { rooms: roomsForMajorDefectRollup(rooms) },
+  );
+  db.run(
+    `UPDATE inspections SET form_data = ?, progress_percent = ?, updated_at = datetime('now') WHERE id = ?`,
+    [JSON.stringify(enriched), calculateInspectionProgress(enriched), inspectionId],
+  );
+
+  const latest = getInspectionRow(db, jobId);
+  if (!latest) throw new Error('Inspection not found after room update');
+  return mapDetail(db, latest, jobType);
 }
 
 export function completeInspection(db: SqlDatabase, inspectionId: string): InspectionDetail {

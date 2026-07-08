@@ -1,8 +1,15 @@
+import {
+  PDF_MARGIN_BOTTOM,
+  PDF_MARGIN_LEFT,
+  PDF_MARGIN_RIGHT,
+  PDF_MARGIN_TOP,
+} from './pdf-layout.js';
+
 export function reportPrintStyles(primaryColor: string, secondaryColor: string): string {
   return `
 @page {
   size: A4;
-  margin: 18mm 15mm 22mm;
+  margin: ${PDF_MARGIN_TOP} ${PDF_MARGIN_RIGHT} ${PDF_MARGIN_BOTTOM} ${PDF_MARGIN_LEFT};
 }
 
 * { box-sizing: border-box; }
@@ -13,15 +20,41 @@ body {
   line-height: 1.45;
   color: #222;
   margin: 0;
+  max-width: 100%;
+}
+
+/*
+ * Printable content area per page (A4 minus margins). Footer is rendered by Puppeteer
+ * inside the bottom margin band — body content must not extend into that band.
+ */
+.report-body {
+  min-height: 0;
+  max-height: none;
 }
 
 .cover-page {
   page-break-after: always;
-  min-height: 250mm;
+  break-after: page;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  padding: 12mm 10mm 20mm;
+}
+
+.cover-title {
+  font-size: 26pt;
+  font-weight: 800;
+  color: ${primaryColor};
+  margin: 0 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.cover-subtitle {
+  font-size: 11pt;
+  color: ${secondaryColor};
+  font-weight: 600;
+  margin: 0 0 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .cover-header {
@@ -122,31 +155,118 @@ body {
   margin-bottom: 24px;
 }
 
-.cover-title {
-  font-size: 24pt;
-  color: ${primaryColor};
-  margin: 0 0 8px;
-}
-
-.cover-subtitle {
-  font-size: 12pt;
-  color: ${secondaryColor};
-  margin: 0 0 24px;
-}
-
 .cover-meta {
-  border-top: 3px solid ${primaryColor};
-  padding-top: 16px;
-  margin-top: 16px;
+  border-top: 1px solid #e5e7e6;
+  padding-top: 14px;
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 20px;
 }
 
 .cover-meta p {
-  margin: 6px 0;
+  margin: 4px 0;
+  font-size: 10pt;
+}
+
+.cover-reference-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 20px 0 8px;
+}
+
+.cover-reference-card {
+  background: ${primaryColor};
+  color: #fff;
+  border-radius: 8px;
+  padding: 14px 16px;
+  border-left: 5px solid ${secondaryColor};
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.cover-reference-card-accent {
+  background: linear-gradient(135deg, ${primaryColor} 0%, #2d6a4f 100%);
+}
+
+.cover-reference-label {
+  display: block;
+  font-size: 8.5pt;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.88;
+  margin-bottom: 6px;
+}
+
+.cover-reference-value {
+  display: block;
+  font-size: 13pt;
+  font-weight: 700;
+  font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+  letter-spacing: 0.02em;
+}
+
+.report-part-heading {
+  font-size: 13pt;
+  font-weight: 700;
+  color: ${primaryColor};
+  margin: 26px 0 14px;
+  padding: 0 0 6px;
+  border-bottom: 2px solid ${primaryColor};
+  page-break-after: avoid;
+}
+
+.report-part-heading-letter {
+  margin-top: 20px;
+}
+
+.report-part-num {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 8px;
+  padding: 1px 7px;
+  font-size: 11pt;
+  font-weight: 700;
+  color: #fff;
+  background: ${primaryColor};
+  border-radius: 2px;
+  text-align: center;
+}
+
+.report-section-heading {
+  color: ${primaryColor};
+  font-size: 11pt;
+  font-weight: 700;
+  border-left: 3px solid ${secondaryColor};
+  padding: 4px 0 4px 10px;
+  margin: 0 0 10px;
+  background: #f7faf8;
+}
+
+.report-section h2 {
+  color: ${primaryColor};
+  font-size: 13pt;
+  border-bottom: 2px solid ${primaryColor};
+  padding-bottom: 4px;
+  margin: 0 0 10px;
+}
+
+.report-section h3.report-section-heading {
+  border-bottom: 1px solid ${secondaryColor};
+  font-size: 12pt;
+}
+
+.certification-statement {
+  margin: 0 0 12px;
+  line-height: 1.5;
+  color: #333;
 }
 
 .report-section {
-  page-break-inside: avoid;
   margin-bottom: 18px;
+  page-break-inside: auto;
+  break-inside: auto;
 }
 
 .report-section h2 {
@@ -161,6 +281,13 @@ body {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 8px;
+  page-break-inside: auto;
+  break-inside: auto;
+}
+
+.field-table tr {
+  page-break-inside: avoid;
+  break-inside: avoid-page;
 }
 
 .field-table th,
@@ -173,8 +300,9 @@ body {
 
 .field-table th {
   width: 34%;
-  background: #f5f7f6;
-  font-weight: 600;
+  background: #eef4f1;
+  color: ${primaryColor};
+  font-weight: 700;
 }
 
 .comments {
@@ -194,6 +322,8 @@ body {
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
   margin-top: 10px;
+  page-break-inside: auto;
+  break-inside: auto;
 }
 
 .photo {
@@ -201,17 +331,22 @@ body {
   page-break-inside: avoid;
 }
 
+.field-table tr.field-photo-row td {
+  padding-top: 4px;
+  padding-bottom: 10px;
+  border-top: none;
+}
+
+.field-table tr.field-photo-row + tr th,
+.field-table tr.field-photo-row + tr td {
+  border-top: 1px solid #ddd;
+}
+
 .photo img {
   width: 100%;
   max-height: 180px;
   object-fit: cover;
   border: 1px solid #ccc;
-}
-
-.photo figcaption {
-  font-size: 9pt;
-  color: #555;
-  margin-top: 4px;
 }
 
 .photo-group {
@@ -230,6 +365,26 @@ body {
 
 .report-list li {
   margin-bottom: 4px;
+  page-break-inside: avoid;
+  break-inside: avoid-page;
+}
+
+.report-section-heading,
+.report-part-heading,
+h2,
+h3 {
+  break-after: avoid-page;
+  page-break-after: avoid;
+}
+
+.comments,
+.photo-group,
+.recommendations-block,
+.declaration-block,
+.hazard-assessment-section,
+.conclusion-narrative {
+  page-break-inside: avoid;
+  break-inside: avoid-page;
 }
 
 .recommendations-block {
@@ -257,6 +412,35 @@ body {
   display: block;
   margin-bottom: 8px;
   color: ${primaryColor};
+}
+
+.inspection-summary-ratings th {
+  width: 48%;
+  font-weight: 600;
+}
+
+.inspection-summary-ratings td {
+  font-weight: 400;
+}
+
+.pest-inspection-summary .pest-summary-disclaimer {
+  margin: 0 0 14px;
+  font-size: 10pt;
+  color: #444;
+}
+
+.pest-inspection-summary .pest-summary-note {
+  margin: 12px 0 0;
+  font-size: 10pt;
+  line-height: 1.5;
+}
+
+.pest-inspection-summary .pest-summary-risk {
+  margin-top: 14px;
+}
+
+.pest-summary-table th {
+  vertical-align: top;
 }
 
 .conclusion-section {
@@ -324,18 +508,6 @@ body {
   border-left: 5px solid #d4aa00;
   padding: 12px;
   margin: 14px 0;
-}
-
-.page-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  font-size: 8pt;
-  color: #666;
-  text-align: center;
-  padding: 4mm 15mm;
-  border-top: 1px solid #ddd;
 }
 `;
 }

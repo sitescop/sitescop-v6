@@ -1,4 +1,4 @@
-import type { AccessibilityObstructionsSection } from './types.js';
+import type { AccessibilityObstructionsSection, InspectionPhotoRef, ServicesSection } from './types.js';
 import type { PestInspectionSections } from './pest-types.js';
 import {
   ACTIVE_TERMITES_IMPORTANT_NOTE,
@@ -6,11 +6,15 @@ import {
   D10_EVIDENCE_REPORT_PREFIX,
   D10_STAINS_REPORT_PREFIX,
   D3_EVIDENCE_REPORT_PREFIX,
+  EVIDENCE_FOUND,
+  isPestEvidenceFound,
   MANAGEMENT_PROPOSAL_OPTIONS,
+  formatPestFutureInspectionFrequency,
   PEST_CONCLUSION_RECOMMENDATIONS,
   PLUMBING_MOISTURE_LOCATION_PRESETS,
   ROOF_MOISTURE_LOCATION_PRESETS,
 } from './pest-options.js';
+import { normalizeCheckboxField } from './defaults.js';
 import {
   collectAccessibilityRiskReasons,
   DEFAULT_TIMBER_PEST_UNDETECTED_RISK,
@@ -22,13 +26,11 @@ export interface PestConclusionEnrichmentOptions {
   building?: {
     inspectorDeclaration: {
       inspectorName: string;
-      licenceNumber: string;
       signatureData: string;
       declarationDate: string;
     };
   };
   inspectorName?: string;
-  inspectorLicence?: string;
 }
 
 export interface PestTradeBuildingContext {
@@ -80,10 +82,6 @@ export function enrichPestConclusion(
     conclusion.inspectorName =
       options?.inspectorName?.trim() || declaration?.inspectorName?.trim() || conclusion.inspectorName;
   }
-  if (!conclusion.licenceNumber?.trim()) {
-    conclusion.licenceNumber =
-      options?.inspectorLicence?.trim() || declaration?.licenceNumber?.trim() || conclusion.licenceNumber;
-  }
   if (!conclusion.signatureData?.trim() && declaration?.signatureData?.trim()) {
     conclusion.signatureData = declaration.signatureData;
   }
@@ -116,11 +114,11 @@ export function applyPestTimberRiskAssessment(
 }
 
 function hasActiveTermites(pest: PestInspectionSections): boolean {
-  return pest.d1ActiveTermites.evidenceAnswer === 'The following evidence was found';
+  return isPestEvidenceFound(pest.d1ActiveTermites.evidenceAnswer);
 }
 
 function hasTermiteWorkings(pest: PestInspectionSections): boolean {
-  return pest.d3TermiteWorkings.summaryAnswer === 'Evidence Found';
+  return isPestEvidenceFound(pest.d3TermiteWorkings.summaryAnswer);
 }
 
 function checkboxItems(state: { selected?: string[]; custom?: string[] } | undefined): string[] {
@@ -171,7 +169,7 @@ function appendMoistureTradeRecommendations(
   recs: string[],
   building?: PestTradeBuildingContext,
 ): void {
-  const d10Active = pest.d10ExcessiveMoisture.answer === 'The following evidence was found:';
+  const d10Active = isPestEvidenceFound(pest.d10ExcessiveMoisture.answer);
   const moistureItems = d10Active
     ? [
         ...checkboxItems(pest.d10ExcessiveMoisture.moistureLocations),
@@ -199,13 +197,13 @@ function appendMoistureTradeRecommendations(
   );
 
   const d11DownPipes =
-    pest.d11BarrierBridging.summaryAnswer === 'Evidence Found' &&
+    isPestEvidenceFound(pest.d11BarrierBridging.summaryAnswer) &&
     checkboxItems(pest.d11BarrierBridging.evidenceItems).some((item) =>
       textIncludesAny(item, ['down pipe', 'downpipe']),
     );
 
   const d6RoofTimbers =
-    pest.d6ChemicalDelignification.summaryAnswer === 'Evidence Found' &&
+    isPestEvidenceFound(pest.d6ChemicalDelignification.summaryAnswer) &&
     checkboxItems(pest.d6ChemicalDelignification.evidenceItems).some((item) =>
       textIncludesAny(item, ['roof']),
     );
@@ -290,6 +288,13 @@ export function generatePestAutoConclusion(pest: PestInspectionSections): string
     );
   }
 
+  const nextInspection = formatPestFutureInspectionFrequency(pest.d5FutureInspection.frequency);
+  if (nextInspection) {
+    parts.push(
+      `The next inspection to help detect future termite activity is recommended in ${nextInspection} (see Item D5).`,
+    );
+  }
+
   return parts.filter(Boolean).join('\n\n');
 }
 
@@ -322,7 +327,7 @@ export function generatePestAutoRecommendations(
     recs.push(MANAGEMENT_PROPOSAL_OPTIONS[0]);
   }
 
-  if (pest.d6ChemicalDelignification.summaryAnswer === 'Evidence Found') {
+  if (isPestEvidenceFound(pest.d6ChemicalDelignification.summaryAnswer)) {
     const items = checkboxItems(pest.d6ChemicalDelignification.evidenceItems);
     recs.push(
       items.length
@@ -331,7 +336,7 @@ export function generatePestAutoRecommendations(
     );
   }
 
-  if (pest.d7FungalDecay.summaryAnswer === 'Evidence Found') {
+  if (isPestEvidenceFound(pest.d7FungalDecay.summaryAnswer)) {
     const items = checkboxItems(pest.d7FungalDecay.evidenceLocations);
     recs.push(
       items.length
@@ -340,21 +345,21 @@ export function generatePestAutoRecommendations(
     );
   }
 
-  if (pest.d8WoodBorers.answer === 'The following evidence was found:') {
+  if (isPestEvidenceFound(pest.d8WoodBorers.answer)) {
     recs.push('Engage a licensed timber pest management operator to assess evidence of wood borer activity.');
     if (pest.d8WoodBorers.locationNarrative.trim()) {
       recs.push(pest.d8WoodBorers.locationNarrative.trim());
     }
   }
 
-  if (pest.d9SubfloorVentilation.answer === 'The following evidence was found.') {
+  if (isPestEvidenceFound(pest.d9SubfloorVentilation.answer)) {
     recs.push('Improve subfloor ventilation to reduce conditions conducive to timber pest attack.');
     if (pest.d9SubfloorVentilation.locationNarrative.trim()) {
       recs.push(pest.d9SubfloorVentilation.locationNarrative.trim());
     }
   }
 
-  if (pest.d10ExcessiveMoisture.answer === 'The following evidence was found:') {
+  if (isPestEvidenceFound(pest.d10ExcessiveMoisture.answer)) {
     recs.push(
       'Address sources of excessive moisture identified during inspection to reduce conditions conducive to timber pest attack.',
     );
@@ -362,14 +367,14 @@ export function generatePestAutoRecommendations(
 
   appendMoistureTradeRecommendations(pest, recs, building);
 
-  if (pest.d11BarrierBridging.summaryAnswer === 'Evidence Found') {
+  if (isPestEvidenceFound(pest.d11BarrierBridging.summaryAnswer)) {
     const items = checkboxItems(pest.d11BarrierBridging.evidenceItems);
     if (items.length) {
       recs.push(`Remove or adjust termite barrier bridging and/or inspection zone obstructions including: ${items.join(', ')}.`);
     }
   }
 
-  if (pest.d13ConduciveConditions.summaryDuringInspection === 'Yes') {
+  if (isPestEvidenceFound(pest.d13ConduciveConditions.summaryDuringInspection)) {
     recs.push(...checkboxItems(pest.d13ConduciveConditions.recommendationPresets));
     if (pest.d13ConduciveConditions.locationNarrative.trim()) {
       recs.push(pest.d13ConduciveConditions.locationNarrative.trim());
@@ -383,10 +388,7 @@ export function generatePestAutoRecommendations(
     }
   }
 
-  const futureFreq =
-    pest.pestConclusion.futureInspectionOther.trim() ||
-    pest.pestConclusion.futureInspectionFrequency ||
-    pest.d5FutureInspection.frequency;
+  const futureFreq = formatPestFutureInspectionFrequency(pest.d5FutureInspection.frequency);
   if (futureFreq) {
     recs.push(
       `Schedule the next timber pest inspection in ${futureFreq} in accordance with Australian Standard AS 3660 and relevant manufacturer guidelines.`,
@@ -400,8 +402,7 @@ export function applyPestConclusionUpdates(
   pest: PestInspectionSections,
   building?: PestTradeBuildingContext,
 ): PestInspectionSections {
-  const futureInspectionFrequency =
-    pest.pestConclusion.futureInspectionFrequency || pest.d5FutureInspection.frequency;
+  const futureInspectionFrequency = pest.d5FutureInspection.frequency;
 
   return {
     ...pest,
@@ -415,7 +416,7 @@ export function applyPestConclusionUpdates(
 }
 
 export function generateD1ReportStatement(section: PestInspectionSections['d1ActiveTermites']): string {
-  if (section.evidenceAnswer !== 'The following evidence was found') return '';
+  if (!isPestEvidenceFound(section.evidenceAnswer)) return '';
   const species =
     [...section.species.selected, ...section.species.custom].filter((s) => s !== 'Undetermined').join(', ') ||
     'Undetermined';
@@ -429,7 +430,7 @@ export function generateD2ReportStatement(section: PestInspectionSections['d2Man
 }
 
 export function generateD3ReportStatement(section: PestInspectionSections['d3TermiteWorkings']): string {
-  if (section.summaryAnswer !== 'Evidence Found' && section.evidenceAnswer !== 'The following evidence was found') {
+  if (!isPestEvidenceFound(section.summaryAnswer) && !isPestEvidenceFound(section.evidenceAnswer)) {
     return '';
   }
   const location = section.locationNarrative.trim() || 'the areas noted above';
@@ -437,13 +438,13 @@ export function generateD3ReportStatement(section: PestInspectionSections['d3Ter
 }
 
 export function generateD4ReportStatement(section: PestInspectionSections['d4PreviousTreatment']): string {
-  if (section.evidenceAnswer !== 'Yes') return '';
+  if (!isPestEvidenceFound(section.evidenceAnswer)) return '';
   const items = [...section.evidenceFound.selected, ...section.evidenceFound.custom];
-  return `The following evidence was found: ${items.join('; ') || 'Evidence of previous program noted'}.`;
+  return `Evidence Found: ${items.join('; ') || 'Evidence of previous program noted'}.`;
 }
 
 export function generateD10ReportStatement(section: PestInspectionSections['d10ExcessiveMoisture']): string {
-  if (section.answer !== 'The following evidence was found:') return '';
+  if (!isPestEvidenceFound(section.answer)) return '';
   const locations = [...section.moistureLocations.selected, ...section.moistureLocations.custom];
   const stains = [...section.moistureStains.selected, ...section.moistureStains.custom];
   const parts: string[] = [];
@@ -459,6 +460,7 @@ export function generateD10ReportStatement(section: PestInspectionSections['d10E
 export function applyPestSectionUpdates(
   pest: PestInspectionSections,
   accessibility?: AccessibilityObstructionsSection,
+  services?: ServicesSection,
 ): PestInspectionSections {
   let updated: PestInspectionSections = {
     ...pest,
@@ -487,6 +489,82 @@ export function applyPestSectionUpdates(
   if (accessibility) {
     updated = applyPestTimberRiskAssessment(updated, accessibility);
   }
+  if (services) {
+    updated = syncD11BarrierBridgingFromServices(updated, services);
+  }
 
   return enrichPestConclusion(applyPestConclusionUpdates(updated));
+}
+
+function mergePhotoRefs(existing: InspectionPhotoRef[], incoming: InspectionPhotoRef[]): InspectionPhotoRef[] {
+  const merged = [...existing];
+  const seen = new Set(existing.map((photo) => `${photo.id}|${photo.dataUrl}`));
+  for (const photo of incoming) {
+    const key = `${photo.id}|${photo.dataUrl}`;
+    if (seen.has(key)) continue;
+    merged.push(photo);
+    seen.add(key);
+  }
+  return merged;
+}
+
+function hasLpgGasSelected(services: ServicesSection): boolean {
+  const gas = normalizeCheckboxField(services.gas);
+  const selectedLpg = [...gas.selected, ...gas.custom].some(
+    (item) => item.trim().toLowerCase() === 'lpg',
+  );
+  return selectedLpg || services.gasOther.toLowerCase().includes('lpg');
+}
+
+function syncD11BarrierBridgingFromServices(
+  pest: PestInspectionSections,
+  services: ServicesSection,
+): PestInspectionSections {
+  const current = normalizeCheckboxField(pest.d11BarrierBridging.evidenceItems);
+
+  const autoPresetItems: string[] = [];
+  if (services.airConPresent === 'Yes') autoPresetItems.push('Air Conditioners');
+  if (services.hotWaterPresent === 'Yes' && services.hotWaterLocation !== 'Internal') {
+    autoPresetItems.push('Hot water service');
+  }
+  if (hasLpgGasSelected(services)) {
+    autoPresetItems.push('Gas storage cylinders');
+  }
+
+  const nextSelected = [
+    ...current.selected.filter(
+      (item) => !['Air Conditioners', 'Hot water service', 'Gas storage cylinders'].includes(item),
+    ),
+    ...autoPresetItems,
+  ];
+
+  // Keep checkbox values normalized and deduplicated.
+  const nextEvidence = normalizeCheckboxField({
+    selected: [...new Set(nextSelected)],
+    custom: [...new Set(current.custom)],
+  });
+
+  const shouldLinkPhotos =
+    services.airConPresent === 'Yes' ||
+    (services.hotWaterPresent === 'Yes' && services.hotWaterLocation !== 'Internal') ||
+    hasLpgGasSelected(services);
+  const linkedPhotos = shouldLinkPhotos
+    ? mergePhotoRefs(
+        pest.d11BarrierBridging.photos,
+        [...services.photos, ...services.hotWaterPhotos, ...services.gasBottlePhotos],
+      )
+    : pest.d11BarrierBridging.photos;
+
+  const hasEvidenceItems =
+    nextEvidence.selected.length > 0 || nextEvidence.custom.length > 0 || linkedPhotos.length > 0;
+
+  return {
+    ...pest,
+    d11BarrierBridging: {
+      ...pest.d11BarrierBridging,
+      evidenceItems: nextEvidence,
+      photos: linkedPhotos,
+      summaryAnswer: hasEvidenceItems ? EVIDENCE_FOUND : pest.d11BarrierBridging.summaryAnswer,
+    },
+  };
 }

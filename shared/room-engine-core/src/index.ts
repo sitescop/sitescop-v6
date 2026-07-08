@@ -1,3 +1,4 @@
+export * from './certification.js';
 export * from './property-profile.js';
 export * from './comment-suggestions.js';
 export * from './dictation-format.js';
@@ -11,4 +12,7 @@ export * from './pest-defaults.js';
 export * from './pest-conclusion.js';
 export * from './hazard-assessment.js';
 export * from './risk-assessment.js';
+export * from './major-defects-conclusion.js';
+export * from './major-defects-rules.js';
+export * from './major-defects-rollup.js';
 export * from './form-data.js';

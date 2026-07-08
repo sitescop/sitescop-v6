@@ -7,7 +7,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { extname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { app, safeStorage } from 'electron';
 import {
   DEFAULT_REPORT_SETTINGS,
@@ -80,6 +79,44 @@ function settingsPath(): string {
 
 function brandingDir(): string {
   return join(app.getPath('userData'), 'branding');
+}
+
+function filePathToDataUrl(path: string): string {
+  const ext = extname(path).toLowerCase();
+  const mime =
+    ext === '.png'
+      ? 'image/png'
+      : ext === '.webp'
+        ? 'image/webp'
+        : ext === '.gif'
+          ? 'image/gif'
+          : 'image/jpeg';
+  const base64 = readFileSync(path).toString('base64');
+  return `data:${mime};base64,${base64}`;
+}
+
+function getBundledLogoPath(): string | null {
+  const candidates = app.isPackaged
+    ? [join(process.resourcesPath, 'sitescop-logo.jpg')]
+    : [join(app.getAppPath(), 'build/sitescop-logo.jpg')];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+let bundledLogoDataUrlCache: string | null | undefined;
+
+function getBundledSiteScopLogoDataUrl(): string | null {
+  if (bundledLogoDataUrlCache !== undefined) return bundledLogoDataUrlCache;
+  const path = getBundledLogoPath();
+  bundledLogoDataUrlCache = path ? filePathToDataUrl(path) : null;
+  return bundledLogoDataUrlCache;
+}
+
+function getResolvedLogoDataUrl(): string | null {
+  return getCompanyLogoDataUrl() ?? getBundledSiteScopLogoDataUrl();
+}
+
+export function getReportLogoPreviewDataUrl(): string | null {
+  return getResolvedLogoDataUrl();
 }
 
 function canEncrypt(): boolean {
@@ -211,7 +248,7 @@ export function getLogoFilePath(): string | null {
 }
 
 export function hasCompanyLogo(): boolean {
-  return Boolean(getLogoFilePath());
+  return Boolean(getLogoFilePath() || getBundledLogoPath());
 }
 
 export function saveCompanyLogoFromPath(sourcePath: string): string {
@@ -245,17 +282,7 @@ export function removeCompanyLogo(): void {
 export function getCompanyLogoDataUrl(): string | null {
   const path = getLogoFilePath();
   if (!path) return null;
-  const ext = extname(path).toLowerCase();
-  const mime =
-    ext === '.png'
-      ? 'image/png'
-      : ext === '.webp'
-        ? 'image/webp'
-        : ext === '.gif'
-          ? 'image/gif'
-          : 'image/jpeg';
-  const base64 = readFileSync(path).toString('base64');
-  return `data:${mime};base64,${base64}`;
+  return filePathToDataUrl(path);
 }
 
 export interface ResolvedCompanyBranding {
@@ -270,7 +297,6 @@ export interface ResolvedCompanyBranding {
 
 export function getResolvedCompanyBranding(): ResolvedCompanyBranding {
   const company = getCompanySettings();
-  const logoPath = getLogoFilePath();
   return {
     name: company.name,
     abn: company.abn,
@@ -278,15 +304,16 @@ export function getResolvedCompanyBranding(): ResolvedCompanyBranding {
     email: company.email,
     website: company.website,
     address: company.address || null,
-    logoUrl: logoPath ? pathToFileURL(logoPath).href : null,
+    logoUrl: getResolvedLogoDataUrl(),
   };
 }
 
 export function getResolvedReportSettings(): ReportSettings {
   const report = getReportSettings();
+  const includeLogo = report.pdfIncludeLogo !== false && hasCompanyLogo();
   return {
     ...report,
-    pdfIncludeLogo: report.pdfIncludeLogo && hasCompanyLogo(),
+    pdfIncludeLogo: includeLogo,
   };
 }
 

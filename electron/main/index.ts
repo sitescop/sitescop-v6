@@ -207,6 +207,7 @@ const bootstrapExportToken = process.env.SITESCOP_BOOTSTRAP_EXPORT_TOKEN === '1'
 
 const gotLock = bootstrapExportToken || app.requestSingleInstanceLock();
 if (!gotLock) {
+  console.error('\nSiteScop is already running. Check the taskbar for the SiteScop V6 window.\n');
   app.quit();
 } else {
   app.on('second-instance', () => {

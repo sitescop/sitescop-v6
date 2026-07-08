@@ -76,7 +76,7 @@ export function renderInvoiceHtml(ctx: InvoicePdfContext): string {
   .cover-meta { margin-top: 20px; }
   </style>
 </head>
-<body>
+<body class="report-body">
   <div class="cover-page">
     ${renderCompanyHeader(ctx)}
     <h1 class="cover-title">Tax Invoice</h1>
@@ -112,7 +112,6 @@ export function renderInvoiceHtml(ctx: InvoicePdfContext): string {
         : ''
     }
   </div>
-  <footer class="report-footer">${escapeHtml(ctx.footerText)}</footer>
 </body>
 </html>`;
 }

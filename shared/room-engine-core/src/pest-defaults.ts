@@ -1,7 +1,15 @@
 import { emptySectionBase, emptyCheckboxField, normalizeCheckboxField } from './defaults.js';
 import type { PrefillJobContext } from './types.js';
 import type { D13ConduciveConditionsSection, PestInspectionSections } from './pest-types.js';
-import { CONDUCIVE_RECOMMENDATION_PRESETS, MANAGEMENT_PROPOSAL_OPTIONS, MOISTURE_STAINS_DISCLAIMER, PEST_CONCLUSION_RECOMMENDATIONS } from './pest-options.js';
+import {
+  CONDUCIVE_RECOMMENDATION_PRESETS,
+  EVIDENCE_FOUND,
+  formatPestEvidenceAnswer,
+  MANAGEMENT_PROPOSAL_OPTIONS,
+  MOISTURE_STAINS_DISCLAIMER,
+  NO_EVIDENCE_FOUND,
+  PEST_CONCLUSION_RECOMMENDATIONS,
+} from './pest-options.js';
 
 export function defaultConduciveRecommendationPresets() {
   return {
@@ -22,10 +30,64 @@ export function applyD13ConduciveDefaults(section: D13ConduciveConditionsSection
   return { ...section, recommendationPresets: presets };
 }
 
-export function applyPestSectionDefaults(pest: PestInspectionSections): PestInspectionSections {
+function migrateEvidenceValue(value: string): string {
+  return formatPestEvidenceAnswer(value) || value;
+}
+
+/** Normalize legacy bare/sentence answers into professional Evidence Found wording. */
+export function migratePestEvidenceAnswers(pest: PestInspectionSections): PestInspectionSections {
   return {
     ...pest,
-    d13ConduciveConditions: applyD13ConduciveDefaults(pest.d13ConduciveConditions),
+    d1ActiveTermites: {
+      ...pest.d1ActiveTermites,
+      evidenceAnswer: migrateEvidenceValue(pest.d1ActiveTermites.evidenceAnswer),
+    },
+    d3TermiteWorkings: {
+      ...pest.d3TermiteWorkings,
+      summaryAnswer: migrateEvidenceValue(pest.d3TermiteWorkings.summaryAnswer),
+      evidenceAnswer: migrateEvidenceValue(pest.d3TermiteWorkings.evidenceAnswer),
+    },
+    d4PreviousTreatment: {
+      ...pest.d4PreviousTreatment,
+      evidenceAnswer: migrateEvidenceValue(pest.d4PreviousTreatment.evidenceAnswer),
+    },
+    d6ChemicalDelignification: {
+      ...pest.d6ChemicalDelignification,
+      summaryAnswer: migrateEvidenceValue(pest.d6ChemicalDelignification.summaryAnswer),
+    },
+    d7FungalDecay: {
+      ...pest.d7FungalDecay,
+      summaryAnswer: migrateEvidenceValue(pest.d7FungalDecay.summaryAnswer),
+    },
+    d8WoodBorers: {
+      ...pest.d8WoodBorers,
+      answer: migrateEvidenceValue(pest.d8WoodBorers.answer),
+    },
+    d9SubfloorVentilation: {
+      ...pest.d9SubfloorVentilation,
+      answer: migrateEvidenceValue(pest.d9SubfloorVentilation.answer),
+    },
+    d10ExcessiveMoisture: {
+      ...pest.d10ExcessiveMoisture,
+      answer: migrateEvidenceValue(pest.d10ExcessiveMoisture.answer),
+    },
+    d11BarrierBridging: {
+      ...pest.d11BarrierBridging,
+      summaryAnswer: migrateEvidenceValue(pest.d11BarrierBridging.summaryAnswer),
+    },
+    d13ConduciveConditions: {
+      ...pest.d13ConduciveConditions,
+      summaryDuringInspection: migrateEvidenceValue(pest.d13ConduciveConditions.summaryDuringInspection),
+      otherEvidenceAnswer: migrateEvidenceValue(pest.d13ConduciveConditions.otherEvidenceAnswer),
+    },
+  };
+}
+
+export function applyPestSectionDefaults(pest: PestInspectionSections): PestInspectionSections {
+  const migrated = migratePestEvidenceAnswers(pest);
+  return {
+    ...migrated,
+    d13ConduciveConditions: applyD13ConduciveDefaults(migrated.d13ConduciveConditions),
   };
 }
 
@@ -39,7 +101,7 @@ export function createEmptyPestSections(prefill?: PrefillJobContext): PestInspec
     },
     d1ActiveTermites: {
       ...base,
-      evidenceAnswer: 'No',
+      evidenceAnswer: NO_EVIDENCE_FOUND,
       locationNarrative: '',
       species: emptyCheckboxField(),
       reportStatement: '',
@@ -52,16 +114,16 @@ export function createEmptyPestSections(prefill?: PrefillJobContext): PestInspec
     },
     d3TermiteWorkings: {
       ...base,
-      summaryAnswer: 'No Evidence Found',
+      summaryAnswer: NO_EVIDENCE_FOUND,
       evidenceLocations: emptyCheckboxField(),
-      evidenceAnswer: 'No',
+      evidenceAnswer: NO_EVIDENCE_FOUND,
       locationNarrative: '',
       oneOffComments: '',
       reportStatement: '',
     },
     d4PreviousTreatment: {
       ...base,
-      evidenceAnswer: 'No',
+      evidenceAnswer: NO_EVIDENCE_FOUND,
       evidenceFound: emptyCheckboxField(),
       productDetails: '',
       oneOffComments: '',
@@ -73,17 +135,17 @@ export function createEmptyPestSections(prefill?: PrefillJobContext): PestInspec
     },
     d6ChemicalDelignification: {
       ...base,
-      summaryAnswer: 'No Evidence Found',
+      summaryAnswer: NO_EVIDENCE_FOUND,
       evidenceItems: emptyCheckboxField(),
     },
     d7FungalDecay: {
       ...base,
-      summaryAnswer: 'No Evidence Found',
+      summaryAnswer: NO_EVIDENCE_FOUND,
       evidenceLocations: emptyCheckboxField(),
     },
     d8WoodBorers: {
       ...base,
-      answer: 'No evidence was found.',
+      answer: NO_EVIDENCE_FOUND,
       locationNarrative: '',
     },
     d9SubfloorVentilation: {
@@ -93,7 +155,7 @@ export function createEmptyPestSections(prefill?: PrefillJobContext): PestInspec
     },
     d10ExcessiveMoisture: {
       ...base,
-      answer: 'No evidence was found.',
+      answer: NO_EVIDENCE_FOUND,
       moistureLocations: emptyCheckboxField(),
       moistureStains: emptyCheckboxField(),
       stainsDisclaimer: MOISTURE_STAINS_DISCLAIMER,
@@ -102,19 +164,19 @@ export function createEmptyPestSections(prefill?: PrefillJobContext): PestInspec
     },
     d11BarrierBridging: {
       ...base,
-      summaryAnswer: 'No Evidence Found',
+      summaryAnswer: NO_EVIDENCE_FOUND,
       evidenceItems: emptyCheckboxField(),
     },
     d13ConduciveConditions: {
       ...base,
-      summaryDuringInspection: 'Yes',
-      otherEvidenceAnswer: 'No',
+      summaryDuringInspection: EVIDENCE_FOUND,
+      otherEvidenceAnswer: NO_EVIDENCE_FOUND,
       recommendationPresets: defaultConduciveRecommendationPresets(),
       locationNarrative: '',
     },
     d14MajorSafetyHazards: {
       ...base,
-      summaryAnswer: 'No Evidence Found',
+      summaryAnswer: NO_EVIDENCE_FOUND,
       hazardItems: emptyCheckboxField(),
     },
     pestConclusion: {

@@ -44,7 +44,7 @@ export function InspectionWorkspacePage() {
     retry: 1,
   });
 
-  const isCompleted = inspection?.status === 'COMPLETED';
+  const isCompleted = inspection?.status === 'COMPLETED' || Boolean(inspection?.completedAt);
   const formKind = inspection ? jobTypeToFormKind(inspection.jobType) : 'BUILDING';
 
   const { formData, rooms, saveState, patchSection, patchRoom, updateRoomData } = useInspectionEditor(
@@ -92,7 +92,7 @@ export function InspectionWorkspacePage() {
   } = useQuery({
     queryKey: ['reports-for-job', jobId],
     queryFn: () => getSitescopApi().reports.listForJob(jobId),
-    enabled: Boolean(jobId) && Boolean(inspection?.status === 'COMPLETED'),
+    enabled: Boolean(jobId) && Boolean(inspection?.status === 'COMPLETED' || inspection?.completedAt),
   });
 
   const generateReportsMutation = useMutation({
@@ -181,6 +181,7 @@ export function InspectionWorkspacePage() {
             readOnly={false}
             embedded
             mode="shared-only"
+            formKind="PEST"
           />
           <PestInspectionForm
             pest={formData.pest}

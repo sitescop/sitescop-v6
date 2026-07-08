@@ -2,70 +2,113 @@ import {
   PEST_INSPECTION_SECTION_KEYS,
   PEST_INSPECTION_SECTION_LABELS,
   SHARED_INSPECTION_SECTION_KEYS,
-  SHARED_INSPECTION_SECTION_LABELS,
 } from '../../room-engine-core/src/index.js';
-import { SITESCOP_PDF_FOOTER_TEXT } from '../../company-branding.js';
-import { escapeHtml, formatDate, renderSectionBlock } from './html-utils.js';
+import { escapeHtml, renderSectionBlock } from './html-utils.js';
 import { renderCoverHeader } from './cover-header.js';
 import { renderInspectorHazardAssessmentBlock } from './hazard-assessment-block.js';
 import { loadLegalScheduleHtml } from './legal-loader.js';
 import { renderPestConclusionBlock } from './pest-conclusion-block.js';
+import { renderCoverReferenceMeta } from './report-identifiers.js';
+import { renderPdfLetterPartHeading } from './report-design.js';
 import { getPestSectionFieldDefs, getSharedSectionFieldDefs } from './section-fields.js';
 import { reportPrintStyles } from './styles.js';
+import { renderPestInspectionSummaryBlock } from './pest-inspection-summary-block.js';
+import {
+  renderPropertyReportDetailsBlock,
+  resolvePestReportTitle,
+} from './property-report-details-block.js';
 import type { ReportRenderContext } from './types.js';
 
-const PEST_SECTION_A_FIELDS = [
-  { key: 'propertyAddress', label: 'Property Address' },
-  { key: 'clientName', label: 'Client Name' },
-  { key: 'jobNumber', label: 'Job Number' },
-  { key: 'inspectionNumber', label: 'Inspection Number' },
-  { key: 'inspector', label: 'Inspector' },
-  { key: 'inspectionDate', label: 'Inspection Date' },
-  { key: 'propertyType', label: 'Property Type' },
-  { key: 'storeys', label: 'Storeys' },
-  { key: 'inaccessibleCustomLines', label: 'Inaccessible Area Notes' },
-] as const;
+const PEST_PDF_SECTION_TITLES: Record<string, string> = {
+  undetectedTimberPestRisk: 'Undetected Timber Pest Risk Assessment',
+  d1ActiveTermites: 'D1 — Active (Live) Termites',
+  d2ManagementProposal: 'D2 — Subterranean Termite Management Proposal',
+  d3TermiteWorkings: 'D3 — Termite Workings and/or Damage',
+  d4PreviousTreatment: 'D4 — Previous Termite Management Program',
+  d5FutureInspection: 'D5 — Frequency of Future Inspections',
+  d6ChemicalDelignification: 'D6 — Chemical Delignification',
+  d7FungalDecay: 'D7 — Fungal Decay',
+  d8WoodBorers: 'D8 — Wood Borers',
+  d9SubfloorVentilation: 'D9 — Lack of Adequate Subfloor Ventilation',
+  d10ExcessiveMoisture: 'D10 — The Presence of Excessive Moisture',
+  d11BarrierBridging: 'D11 — Bridging of Termite Barriers',
+  d13ConduciveConditions: 'D13 — Other Conditions Conducive',
+  d14MajorSafetyHazards: 'D14 — Major Safety Hazards',
+};
 
-function pestPropertyTypeLabel(propertyType: string, propertyTypeOther: string): string {
-  if (propertyType === 'Other') return propertyTypeOther.trim() || 'Other';
-  return propertyType.trim();
+function pestPdfSectionTitle(key: string): string {
+  return PEST_PDF_SECTION_TITLES[key] ?? PEST_INSPECTION_SECTION_LABELS[key as keyof typeof PEST_INSPECTION_SECTION_LABELS] ?? key;
 }
 
+const PEST_SECTION_FIELD_LABELS: Partial<Record<string, Record<string, string>>> = {
+  d1ActiveTermites: {
+    evidenceAnswer: 'Active (Live) Termites',
+  },
+  d3TermiteWorkings: {
+    summaryAnswer: 'Termite Workings and/or Damage',
+    evidenceAnswer: 'Termite workings / damage evidence',
+  },
+  d4PreviousTreatment: {
+    evidenceAnswer: 'Previous Termite Management Program',
+  },
+  d6ChemicalDelignification: {
+    summaryAnswer: 'Chemical Delignification',
+  },
+  d7FungalDecay: {
+    summaryAnswer: 'Fungal Decay',
+  },
+  d8WoodBorers: {
+    answer: 'Wood Borers',
+  },
+  d9SubfloorVentilation: {
+    answer: 'Lack of Adequate Subfloor Ventilation',
+  },
+  d10ExcessiveMoisture: {
+    answer: 'Presence of Excessive Moisture',
+  },
+  d11BarrierBridging: {
+    summaryAnswer: 'Bridging of Termite Barriers',
+  },
+  d13ConduciveConditions: {
+    summaryDuringInspection: 'Other Conditions Conducive',
+  },
+  d14MajorSafetyHazards: {
+    summaryAnswer: 'Major Safety Hazards',
+  },
+};
+
+export { resolvePestReportTitle } from './property-report-details-block.js';
+
 export function renderPestReportHtml(ctx: ReportRenderContext): string {
-  const { company, settings } = ctx;
-  const footerText = settings.pdfFooterText?.trim() || SITESCOP_PDF_FOOTER_TEXT;
-  const pd = ctx.formData.shared.propertyDescription;
-  const acc = ctx.formData.shared.accessibilityObstructions;
+  const { settings } = ctx;
 
   const sections: string[] = [];
-  const skipJobPhotos = new Set(['photos']);
+
+  if (ctx.formData.pest) {
+    sections.push(
+      renderPdfLetterPartHeading('Section A — Results of Inspection (Summary)'),
+      renderPestInspectionSummaryBlock(ctx.formData.pest),
+    );
+  }
 
   sections.push(
-    renderSectionBlock(
-      'Section A — Property Details',
-      {
-        propertyAddress: ctx.job.propertyAddress,
-        clientName: ctx.job.clientName,
-        jobNumber: ctx.job.jobNumber,
-        inspectionNumber: ctx.inspection.inspectionNumber,
-        inspector: ctx.inspector?.name ?? '—',
-        inspectionDate: formatDate(ctx.inspection.completedAt ?? ctx.inspection.startedAt),
-        propertyType: pestPropertyTypeLabel(pd.propertyType, pd.propertyTypeOther),
-        storeys: pd.storeys,
-        inaccessibleCustomLines: acc.inaccessibleCustomLines,
-      },
-      new Set(),
-      undefined,
-      [...PEST_SECTION_A_FIELDS],
-    ),
+    renderPdfLetterPartHeading('Section B — Property & Report Details'),
+    renderPropertyReportDetailsBlock(ctx),
   );
 
+  sections.push(renderPdfLetterPartHeading('Section C — Site & Property Assessment'));
   for (const key of SHARED_INSPECTION_SECTION_KEYS) {
+    if (key === 'jobInformation') continue;
+
     const data = ctx.formData.shared[key] as unknown as Record<string, unknown>;
+    const extraSkip =
+      key === 'accessibilityObstructions'
+        ? new Set<string>(['undetectedStructuralRisk', 'riskExplanation'])
+        : new Set<string>();
     const block = renderSectionBlock(
-      SHARED_INSPECTION_SECTION_LABELS[key],
+      key === 'services' ? 'Services & Utilities' : key === 'propertyDescription' ? 'Property Description' : key === 'accessibilityObstructions' ? 'Accessibility & Obstructions' : key === 'siteConditions' ? 'Site Conditions' : key === 'external' ? 'External Building Elements' : key === 'roofExterior' ? 'Roof Exterior' : 'Roof Space',
       data,
-      key === 'jobInformation' ? skipJobPhotos : new Set(),
+      extraSkip,
       undefined,
       getSharedSectionFieldDefs(key),
     );
@@ -73,15 +116,20 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
   }
 
   if (ctx.formData.pest) {
+    sections.push(renderPdfLetterPartHeading('Section D — Timber Pest Inspection Findings'));
     for (const key of PEST_INSPECTION_SECTION_KEYS) {
       if (key === 'pestConclusion') continue;
       const data = ctx.formData.pest[key] as unknown as Record<string, unknown>;
+      const fieldDefs = getPestSectionFieldDefs(key).map((def) => {
+        const override = PEST_SECTION_FIELD_LABELS[key]?.[def.key];
+        return override ? { ...def, label: override } : def;
+      });
       const block = renderSectionBlock(
-        PEST_INSPECTION_SECTION_LABELS[key],
+        pestPdfSectionTitle(key),
         data,
         new Set(),
-        undefined,
-        getPestSectionFieldDefs(key),
+        PEST_SECTION_FIELD_LABELS[key],
+        fieldDefs,
       );
       if (block) sections.push(block);
     }
@@ -106,33 +154,25 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
   }
 
   const body = sections.filter(Boolean).join('\n');
+  const reportTitle = resolvePestReportTitle();
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Timber Pest Inspection Report</title>
+<title>${escapeHtml(reportTitle)}</title>
 <style>${reportPrintStyles(settings.primaryColor, settings.secondaryColor)}</style>
 </head>
-<body>
+<body class="report-body">
 <div class="cover-page">
   ${renderCoverHeader(ctx)}
-  <h1 class="cover-title">Timber Pest Inspection Report</h1>
+  <h1 class="cover-title">${escapeHtml(reportTitle)}</h1>
   <p class="cover-subtitle">Prepared in accordance with AS 4349.3</p>
   ${settings.reportHeader ? `<p>${escapeHtml(settings.reportHeader)}</p>` : ''}
-  <div class="cover-meta">
-    <p><strong>Property:</strong> ${escapeHtml(ctx.job.propertyAddress)}</p>
-    <p><strong>Client:</strong> ${escapeHtml(ctx.job.clientName)}</p>
-    <p><strong>Job:</strong> ${escapeHtml(ctx.job.jobNumber)}</p>
-    <p><strong>Inspection:</strong> ${escapeHtml(ctx.inspection.inspectionNumber)}</p>
-    <p><strong>Inspector:</strong> ${escapeHtml(ctx.inspector?.name ?? '—')}</p>
-    <p><strong>Inspection date:</strong> ${formatDate(ctx.inspection.completedAt ?? ctx.inspection.startedAt)}</p>
-    ${company.abn ? `<p><strong>ABN:</strong> ${escapeHtml(company.abn)}</p>` : ''}
-  </div>
+  ${renderCoverReferenceMeta(ctx)}
 </div>
 ${body}
 ${loadLegalScheduleHtml('pest')}
-<div class="page-footer">${escapeHtml(footerText)}</div>
 </body>
 </html>`;
 }

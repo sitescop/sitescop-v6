@@ -4,10 +4,78 @@ import { RISK_LEVELS } from './options.js';
 
 export const TIMBER_PEST_RISK_LEVELS = RISK_LEVELS;
 
-export const TERMITE_EVIDENCE_ANSWERS = [
-  'No',
+/** Canonical professional evidence answers for pest report findings. */
+export const EVIDENCE_FOUND = 'Evidence Found';
+export const NO_EVIDENCE_FOUND = 'No Evidence Found';
+export const PRESENCE_UNDETERMINED = 'Presence was undetermined.';
+
+/** Standard presence answers for D1, D3, D4, D6, D7 and similar timber pest items. */
+export const PEST_PRESENCE_ANSWERS = [NO_EVIDENCE_FOUND, EVIDENCE_FOUND, PRESENCE_UNDETERMINED] as const;
+
+export const TERMITE_EVIDENCE_ANSWERS = PEST_PRESENCE_ANSWERS;
+
+const EVIDENCE_FOUND_ALIASES = new Set([
+  EVIDENCE_FOUND,
   'The following evidence was found',
-] as const;
+  'The following evidence was found.',
+  'The following evidence was found:',
+  'Yes',
+]);
+
+const NO_EVIDENCE_FOUND_ALIASES = new Set([
+  NO_EVIDENCE_FOUND,
+  'No',
+  'No evidence was found.',
+  'No evidence was found',
+]);
+
+const PRESENCE_UNDETERMINED_ALIASES = new Set([
+  PRESENCE_UNDETERMINED,
+  'Presence Undetermined',
+  'Presence undetermined',
+  'Undetermined',
+]);
+
+/** True when a stored pest answer means evidence was found (includes legacy values). */
+export function isPestEvidenceFound(value: string | undefined | null): boolean {
+  return EVIDENCE_FOUND_ALIASES.has((value ?? '').trim());
+}
+
+/** True when a stored pest answer means no evidence was found (includes legacy values). */
+export function isPestNoEvidenceFound(value: string | undefined | null): boolean {
+  return NO_EVIDENCE_FOUND_ALIASES.has((value ?? '').trim());
+}
+
+/** True when presence could not be confirmed or ruled out (includes legacy values). */
+export function isPestPresenceUndetermined(value: string | undefined | null): boolean {
+  return PRESENCE_UNDETERMINED_ALIASES.has((value ?? '').trim());
+}
+
+/**
+ * Maps legacy/bare answers to professional PDF/form display text.
+ * Leaves undetermined / N/A / other specialised answers unchanged.
+ */
+export function formatPestEvidenceAnswer(value: string | undefined | null): string {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) return '';
+  if (isPestEvidenceFound(trimmed)) return EVIDENCE_FOUND;
+  if (isPestNoEvidenceFound(trimmed)) return NO_EVIDENCE_FOUND;
+  if (isPestPresenceUndetermined(trimmed)) return PRESENCE_UNDETERMINED;
+  return trimmed;
+}
+
+/** Formats D5 frequency values (e.g. "6 Month") for professional report display. */
+export function formatPestFutureInspectionFrequency(frequency: string | undefined | null): string {
+  const trimmed = frequency?.trim();
+  if (!trimmed) return '';
+  const match = trimmed.match(/^(\d+)\s*Month/i);
+  if (match) {
+    const months = Number.parseInt(match[1] ?? '', 10);
+    if (months === 1) return '1 month';
+    if (Number.isFinite(months)) return `${months} months`;
+  }
+  return trimmed.toLowerCase();
+}
 
 export const TERMITE_SPECIES_PRESETS = [
   'Undetermined',
@@ -29,7 +97,7 @@ export const MANAGEMENT_PROPOSAL_OPTIONS = [
   'The need for a proposal is undetermined.',
 ] as const;
 
-export const EVIDENCE_FOUND_OPTIONS = ['Evidence Found', 'No Evidence Found'] as const;
+export const EVIDENCE_FOUND_OPTIONS = PEST_PRESENCE_ANSWERS;
 
 export const TERMITE_WORKING_LOCATIONS = [
   'Wall Frames',
@@ -77,22 +145,18 @@ export const MAJOR_SAFETY_HAZARD_ITEMS = [
   'Other',
 ] as const;
 
-export const WOOD_BORER_ANSWERS = [
-  'No evidence was found.',
-  'The following evidence was found:',
-  'Presence was undetermined.',
-] as const;
+export const WOOD_BORER_ANSWERS = PEST_PRESENCE_ANSWERS;
 
 export const SUBFLOOR_VENTILATION_ANSWERS = [
   'Not applicable due to construction design.',
-  'No evidence was found.',
-  'The following evidence was found.',
+  NO_EVIDENCE_FOUND,
+  EVIDENCE_FOUND,
   'Undetermined due to access restrictions.',
 ] as const;
 
 export const EXCESSIVE_MOISTURE_ANSWERS = [
-  'No evidence was found.',
-  'The following evidence was found:',
+  NO_EVIDENCE_FOUND,
+  EVIDENCE_FOUND,
   'Presence was undetermined.',
 ] as const;
 
@@ -124,6 +188,8 @@ export const BARRIER_BRIDGING_ITEMS = [
   'Foliage',
   'Garden Beds',
   'Air Conditioners',
+  'Hot water service',
+  'Gas storage cylinders',
   'Rendered Walls',
   'Down Pipes',
   'High ground',
@@ -139,7 +205,11 @@ export const CONDUCIVE_RECOMMENDATION_PRESETS = [
 
 export const MAJOR_HAZARD_ANSWERS = ['No Evidence Found', 'Hazard Found'] as const;
 
-export const CONDUCIVE_INSPECTION_ANSWERS = ['Yes', 'No', 'Undetermined'] as const;
+export const CONDUCIVE_INSPECTION_ANSWERS = [
+  EVIDENCE_FOUND,
+  NO_EVIDENCE_FOUND,
+  'Undetermined',
+] as const;
 
 export const PEST_CONCLUSION_RECOMMENDATIONS = [
   'Yes, detailed in Section D',

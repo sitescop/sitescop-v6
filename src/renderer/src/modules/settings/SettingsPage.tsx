@@ -79,7 +79,7 @@ export function SettingsPage() {
     primaryColor: '#1B4332',
     secondaryColor: '#D4A017',
     pdfFooterText: '',
-    pdfIncludeLogo: false,
+    pdfIncludeLogo: true,
     reportHeader: '',
     reportFooter: '',
   });
@@ -331,7 +331,7 @@ export function SettingsPage() {
           <div className="rounded-lg border border-border bg-background p-4">
             <h4 className="font-semibold text-text">Company logo</h4>
             <p className="mt-1 text-sm text-text-light">
-              Shown on PDF reports and agreements when &quot;Include logo on PDFs&quot; is enabled.
+              Shown on PDF reports when &quot;Include logo on PDFs&quot; is enabled. The SiteScop logo is used by default until you upload your own.
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-4">
               <div className="flex h-24 w-40 items-center justify-center rounded-lg border border-dashed border-border bg-surface">

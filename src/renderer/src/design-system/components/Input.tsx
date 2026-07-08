@@ -1,5 +1,9 @@
 import { useContext } from 'react';
 import { cn } from '@/lib/cn';
+import { CommentWritingAssist } from '@/modules/inspections/components/CommentWritingAssist';
+import {
+  isInspectionWritingLabel,
+} from '@/modules/inspections/components/inspection-writing-field';
 import {
   InspectionFormContext,
   INSPECTION_INPUT_CLASS,
@@ -9,11 +13,37 @@ import {
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  /** Enable spell check and grammar assist (defaults on for inspection narrative fields). */
+  writingAssist?: boolean;
 }
 
-export function Input({ label, error, className, id, ...props }: InputProps) {
+export function Input({
+  label,
+  error,
+  className,
+  id,
+  writingAssist,
+  spellCheck,
+  value,
+  onChange,
+  readOnly,
+  disabled,
+  ...props
+}: InputProps) {
   const inInspectionForm = useContext(InspectionFormContext);
+  const enableWritingTools =
+    writingAssist ??
+    (inInspectionForm && !readOnly && !disabled && isInspectionWritingLabel(label));
   const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
+  const enableSpellCheck = spellCheck ?? (enableWritingTools && !readOnly);
+
+  const handleWritingApply = (next: string) => {
+    onChange?.({
+      target: { value: next },
+      currentTarget: { value: next },
+    } as React.ChangeEvent<HTMLInputElement>);
+  };
+
   return (
     <div className={inInspectionForm ? 'w-full' : undefined}>
       {label && (
@@ -37,6 +67,7 @@ export function Input({ label, error, className, id, ...props }: InputProps) {
       )}
       <input
         id={inputId}
+        lang="en-AU"
         className={cn(
           inInspectionForm
             ? INSPECTION_INPUT_CLASS
@@ -44,8 +75,16 @@ export function Input({ label, error, className, id, ...props }: InputProps) {
           error && 'border-danger',
           className,
         )}
+        spellCheck={enableSpellCheck}
+        value={value}
+        readOnly={readOnly}
+        disabled={disabled}
+        onChange={onChange}
         {...props}
       />
+      {enableWritingTools && onChange ? (
+        <CommentWritingAssist text={String(value ?? '')} disabled={disabled} onApplyText={handleWritingApply} />
+      ) : null}
       {error && <p className="mt-1 text-sm text-danger">{error}</p>}
     </div>
   );

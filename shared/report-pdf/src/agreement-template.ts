@@ -108,7 +108,7 @@ export function renderAgreementHtml(ctx: AgreementPdfContext): string {
   .cover-meta { margin-top: 20px; }
   </style>
 </head>
-<body>
+<body class="report-body">
   <div class="cover-page">
     ${renderCompanyHeader(ctx)}
     <h1 class="cover-title">Inspection Agreement</h1>
@@ -131,7 +131,6 @@ export function renderAgreementHtml(ctx: AgreementPdfContext): string {
   </div>
   ${renderLegalSections(ctx.legalSections)}
   ${renderSignatureBlock(ctx)}
-  <footer class="report-footer">${escapeHtml(ctx.footerText)}</footer>
 </body>
 </html>`;
 }

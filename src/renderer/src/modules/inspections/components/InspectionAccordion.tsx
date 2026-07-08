@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -23,6 +24,18 @@ interface InspectionAccordionContextValue {
 }
 
 const InspectionAccordionContext = createContext<InspectionAccordionContextValue | null>(null);
+
+const ACCORDION_SCROLL_OFFSET = 76;
+
+function scrollHeaderIntoPlace(sectionId: string) {
+  const header = document.getElementById(`inspection-section-header-${sectionId}`);
+  if (!header) return;
+
+  const delta = header.getBoundingClientRect().top - ACCORDION_SCROLL_OFFSET;
+  if (Math.abs(delta) < 4) return;
+
+  window.scrollTo({ top: window.scrollY + delta, behavior: 'auto' });
+}
 
 export function InspectionAccordion({
   children,
@@ -49,9 +62,20 @@ export function InspectionAccordion({
 
   useEffect(() => {
     if (!openId) return;
-    window.requestAnimationFrame(() => {
-      document.getElementById(`inspection-section-${openId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+
+    // Pin the header before the open animation shifts layout.
+    requestAnimationFrame(() => scrollHeaderIntoPlace(openId));
+
+    const panel = document.getElementById(`${openId}-panel`);
+    const onTransitionEnd = (event: TransitionEvent) => {
+      if (event.propertyName !== 'grid-template-rows') return;
+      scrollHeaderIntoPlace(openId);
+    };
+    panel?.addEventListener('transitionend', onTransitionEnd);
+
+    return () => {
+      panel?.removeEventListener('transitionend', onTransitionEnd);
+    };
   }, [openId]);
 
   const value = useMemo(
@@ -92,17 +116,30 @@ export function InspectionAccordionSection({
   status,
   children,
   className,
+  onOpen,
 }: {
   id: string;
   title: string;
   status: SectionCompletionStatus;
   children: ReactNode;
   className?: string;
+  onOpen?: () => void;
 }) {
   const ctx = useContext(InspectionAccordionContext);
   const fallbackId = useId();
   const sectionId = id || fallbackId;
   const isOpen = ctx ? ctx.openId === sectionId : true;
+  const openedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      openedRef.current = false;
+      return;
+    }
+    if (openedRef.current) return;
+    openedRef.current = true;
+    onOpen?.();
+  }, [isOpen, onOpen]);
 
   const handleToggle = () => {
     ctx?.toggle(sectionId);
@@ -122,9 +159,10 @@ export function InspectionAccordionSection({
       )}
     >
       <button
+        id={`inspection-section-header-${sectionId}`}
         type="button"
         className={cn(
-          'flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors md:px-5',
+          'inspection-accordion-header flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors md:px-5',
           status === 'not_started' && 'hover:bg-secondary/[0.08]',
           status === 'in_progress' && 'hover:bg-accent/[0.06]',
           status === 'completed' && 'hover:bg-success/[0.05]',
@@ -137,7 +175,10 @@ export function InspectionAccordionSection({
         )}
         aria-expanded={isOpen}
         aria-controls={`${sectionId}-panel`}
-        onClick={handleToggle}
+        onClick={(event) => {
+          event.currentTarget.focus({ preventScroll: true });
+          handleToggle();
+        }}
       >
         <StatusBadge status={status} />
         <span

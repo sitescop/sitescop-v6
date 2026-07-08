@@ -10,11 +10,13 @@ import {
 } from '../../shared/company-branding.js';
 import { getResolvedCompanyBranding, getResolvedReportSettings } from './settings.service.js';
 import { mergeRoomDataForReport } from '../../shared/room-engine-core/src/defaults.js';
+import { enrichInspectionFormData } from '../../shared/room-engine-core/src/form-data.js';
 import { enrichPestConclusion } from '../../shared/room-engine-core/src/pest-conclusion.js';
 import {
   closePdfBrowser,
   generateBuildingReportPdf,
   generatePestReportPdf,
+  reportFileNameStem,
 } from '../../shared/report-pdf/src/index.js';
 import { setLegalBasePath } from '../../shared/report-pdf/src/legal-loader.js';
 import type { ReportRenderContext } from '../../shared/report-pdf/src/types.js';
@@ -55,10 +57,35 @@ function reportTypesForJob(jobType: InspectionType): ReportType[] {
   }
 }
 
-function reportFileName(inspectionNumber: string, reportType: ReportType): string {
+function reportFileName(
+  inspectionNumber: string,
+  reportType: ReportType,
+  jobType: InspectionType,
+): string {
   const suffix = reportType === 'BUILDING' ? 'Building' : 'Pest';
-  const safeNumber = inspectionNumber.replace(/[^\w-]+/g, '-');
+  const safeNumber = reportFileNameStem(inspectionNumber, reportType, jobType);
   return `${safeNumber}-${suffix}.pdf`;
+}
+
+function getAgreementNumberForJob(db: SqlDatabase, jobId: string): string | null {
+  const stmt = db.prepare(
+    `SELECT agreement_number FROM agreements
+     WHERE job_id = ?
+       AND status != 'CANCELLED'
+       AND IFNULL(deleted_at, '') = ''
+     ORDER BY
+       CASE status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
+       updated_at DESC
+     LIMIT 1`,
+  );
+  stmt.bind([jobId]);
+  if (!stmt.step()) {
+    stmt.free();
+    return null;
+  }
+  const row = stmt.getAsObject() as { agreement_number: string };
+  stmt.free();
+  return row.agreement_number?.trim() || null;
 }
 
 function reportsRoot(): string {
@@ -100,7 +127,8 @@ async function buildRenderContext(
 ): Promise<{ ctx: ReportRenderContext; inspectionId: string; inspectionNumber: string; jobType: InspectionType }> {
   const inspection = getInspectionByJob(db, jobId, user);
   if (!inspection) throw new Error('Inspection not found');
-  if (inspection.status !== 'COMPLETED') {
+  const canGeneratePdf = inspection.status === 'COMPLETED' || Boolean(inspection.completedAt);
+  if (!canGeneratePdf) {
     throw new Error('Complete the inspection before generating a PDF report.');
   }
 
@@ -108,6 +136,17 @@ async function buildRenderContext(
 
   const inspectorName =
     inspection.inspectorName.trim() || `${user.firstName} ${user.lastName}`.trim();
+
+  if (formData.building) {
+    formData = enrichInspectionFormData(formData, {
+      rooms: inspection.rooms.map((room) => ({
+        id: room.id,
+        label: room.label,
+        roomType: room.roomType,
+        data: mergeRoomDataForReport(room.roomType, room.roomIndex, room.data),
+      })),
+    });
+  }
 
   if (formData.pest) {
     formData = {
@@ -120,6 +159,7 @@ async function buildRenderContext(
   }
 
   const branding = getResolvedCompanyBranding();
+  const agreementNumber = getAgreementNumberForJob(db, jobId);
   const ctx: ReportRenderContext = {
     company: {
       name: user.companyName || branding.name,
@@ -153,6 +193,8 @@ async function buildRenderContext(
       roomIndex: room.roomIndex,
       data: mergeRoomDataForReport(room.roomType, room.roomIndex, room.data),
     })),
+    reportType: 'BUILDING',
+    agreementNumber,
   };
 
   return {
@@ -183,9 +225,11 @@ export async function generateReportsForJob(
     }
 
     const buffer =
-      reportType === 'PEST' ? await generatePestReportPdf(ctx) : await generateBuildingReportPdf(ctx);
+      reportType === 'PEST'
+        ? await generatePestReportPdf({ ...ctx, reportType: 'PEST' })
+        : await generateBuildingReportPdf({ ...ctx, reportType: 'BUILDING' });
 
-    const fileName = reportFileName(inspectionNumber, reportType);
+    const fileName = reportFileName(inspectionNumber, reportType, jobType);
     const filePath = join(outDir, fileName);
     await writeFile(filePath, buffer);
 

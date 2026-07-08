@@ -1,6 +1,8 @@
 import type { InspectorHazardAssessmentSection, PestInspectionSections } from '../../room-engine-core/src/index.js';
 import { escapeHtml, formatDate } from './html-utils.js';
+import { renderCertificationIntroHtml } from './certification-block.js';
 import { renderInspectorHazardLowConclusionNote } from './hazard-assessment-block.js';
+import { renderPdfLetterPartHeading } from './report-design.js';
 
 function renderSignatureImage(dataUrl: string | undefined): string {
   if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image')) {
@@ -40,22 +42,22 @@ export function renderPestConclusionBlock(
   const hazardLowNote = hazardAssessment ? renderInspectorHazardLowConclusionNote(hazardAssessment) : '';
 
   return `
+${renderPdfLetterPartHeading('Section E — Conclusion & Certification')}
 <section class="report-section conclusion-section">
-  <h2>Section E — Conclusion &amp; Inspector Declaration</h2>
   <div class="conclusion-narrative">
-    <h3>Conclusion</h3>
+    <h3 class="report-section-heading">Summary of Inspection Findings</h3>
     ${hazardLowNote}
     ${conclusionText ? renderConclusionParagraphs(conclusionText) : '<p>—</p>'}
   </div>
   <div class="recommendations-block">
-    <h3>Recommendations</h3>
+    <h3 class="report-section-heading">Recommendations</h3>
     ${renderRecommendationsList(recommendations)}
   </div>
-  <div class="declaration-block">
-    <h3>Inspector Declaration</h3>
+  <div class="declaration-block certification-section">
+    <h3 class="report-section-heading">Certification</h3>
+    ${renderCertificationIntroHtml()}
     <table class="field-table">
       <tr><th>Inspector Name</th><td>${escapeHtml(inspectorName)}</td></tr>
-      <tr><th>Licence Number</th><td>${escapeHtml(conclusion.licenceNumber?.trim() || '—')}</td></tr>
       <tr><th>Declaration Date</th><td>${escapeHtml(declarationDate)}</td></tr>
     </table>
     <div class="signature-block">

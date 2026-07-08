@@ -44,6 +44,8 @@ export interface ReportRoomInfo {
   data: Record<string, unknown>;
 }
 
+export type ReportPdfType = 'BUILDING' | 'PEST';
+
 export interface ReportRenderContext {
   company: ReportCompanyInfo;
   settings: ReportSettingsInfo;
@@ -52,6 +54,8 @@ export interface ReportRenderContext {
   inspector: ReportInspectorInfo | null;
   formData: InspectionFormDataV2;
   rooms: ReportRoomInfo[];
+  reportType: ReportPdfType;
+  agreementNumber?: string | null;
 }
 
 export type LegalReportKind = 'building' | 'pest';

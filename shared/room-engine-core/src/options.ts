@@ -42,6 +42,7 @@ export const ELECTRICITY_OPTIONS = ['Mains', 'Solar + Mains', 'Generator'] as co
 export const GAS_OPTIONS = ['None', 'Natural Gas', 'LPG'] as const;
 
 export const HOT_WATER_TYPES = ['Electric', 'Gas', 'Solar', 'Heat Pump'] as const;
+export const HOT_WATER_LOCATION_OPTIONS = ['External', 'Internal'] as const;
 export const AC_TYPES = ['Split System', 'Ducted', 'Evaporative', 'Multi Split', 'Window Unit'] as const;
 export const YES_NO_NA = ['Yes', 'No', 'N/A'] as const;
 export const YES_NO = ['Yes', 'No'] as const;
@@ -96,6 +97,7 @@ export const INTERIOR_OBSTRUCTIONS = [
   'Furniture and stored goods will limit access',
   'Storage to garage',
   'Excessive furniture and/or stored items to some areas',
+  'Hot water service',
 ] as const;
 
 export const EXTERIOR_OBSTRUCTIONS = [
@@ -132,7 +134,21 @@ export const ROOF_SPACE_OBSTRUCTIONS = [
   'Raked ceiling areas',
 ] as const;
 
-export const SUBFLOOR_OBSTRUCTIONS = ['Site', 'Vegetation covering tree stumps and fences'] as const;
+export const SUBFLOOR_OBSTRUCTIONS = [
+  'Stored goods or furniture',
+  'Building materials',
+  'Debris or rubbish',
+  'Low ground clearance',
+  'Ducted air-conditioning ducts',
+  'Plumbing pipes',
+  'Sewer or stormwater pipes',
+  'Electrical conduits or cables',
+  'Restricted or undersized access hatch',
+  'Standing water or flooding',
+  'Mud or soft ground',
+  'Animal activity (snakes, rodents, spiders)',
+  'Not applicable',
+] as const;
 
 export const INACCESSIBLE_AREA_PRESETS = [
   'All areas permitted entry',
@@ -356,6 +372,55 @@ export const DEFORMATION_ITEMS = [
 
 export const MOISTURE_SOURCES = ['Rising Damp', 'Plumbing Leak', 'Roof Leak'] as const;
 
+export const BUILDING_CONDITIONS_CONDUCIVE = [
+  'Water pooling adjacent to building',
+  'Poor surface drainage',
+  'Inadequate fall away from building',
+  'Garden beds against external walls',
+  'Timber in ground contact',
+  'DPC below ground level or not visible',
+  'Downpipe discharge against building',
+  'Subfloor moisture / poor drainage',
+] as const;
+
+export const BUILDING_MAJOR_SAFETY_HAZARDS = [
+  'Asbestos Suspected',
+  'Electrical Hazard',
+  'Exposed electrical components',
+  'Structural Hazard',
+  'Trip Hazard',
+  'Loose balustrades',
+  'Unsafe handrails',
+  'Damaged stairs',
+  'Aggressive dog / dangerous animal',
+  'Aggressive or hostile client',
+  'Other',
+] as const;
+
+export const FINISH_ELEMENT_DAMAGE_OPTIONS = [
+  'Skirting',
+  'Carpet',
+  'Plasterboard',
+  'Door',
+  'Door jamb',
+  'Architrave',
+  'Cornice',
+  'Floorboards',
+  'Tiling',
+  'Window sill',
+  'Ceiling lining',
+  'Other',
+] as const;
+
+export const CRACK_WIDTH_OPTIONS = [
+  '< 1 mm',
+  '1-2 mm',
+  '2-5 mm',
+  '5-15 mm',
+  '> 15 mm',
+  'Undetermined',
+] as const;
+
 export const CONCLUSION_RATINGS = [
   'Low',
   'Below Average',
@@ -379,6 +444,22 @@ export const OVERALL_COMPARISON = [
   'Below Average',
   'Well Below Average',
 ] as const;
+
+export const BUILDING_REPORT_TYPES = [
+  'Pre-Purchase Building Report',
+  'Building Report',
+] as const;
+
+export const DEFAULT_BUILDING_REPORT_TYPE = BUILDING_REPORT_TYPES[0];
+
+export const PEST_REPORT_TYPES = [
+  'Timber and Pest Inspection',
+  'Timber Pest Inspection',
+] as const;
+
+export const DEFAULT_PEST_REPORT_TYPE = PEST_REPORT_TYPES[0];
+
+export const QUALITY_OF_WORKMANSHIP_RATINGS = OVERALL_BUILDING_CONDITION;
 
 export const RECOMMENDATION_PRESETS = [
   'Licensed Plumber Recommended',

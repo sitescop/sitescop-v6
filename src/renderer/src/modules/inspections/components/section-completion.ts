@@ -1,10 +1,19 @@
 import {
+  NO_EVIDENCE_FOUND,
+  NO_ISSUES_OBSERVED_COMMENT,
   normalizeCheckboxField,
+  isPestEvidenceFound,
+  isPestNoEvidenceFound,
+  isPestPresenceUndetermined,
+  PRESENCE_UNDETERMINED,
   type BuildingExtensionSections,
   type CheckboxFieldState,
+  type GarageRoomData,
   type InspectionFormDataV2,
+  type MoistureTestingSection,
   type PestInspectionSections,
   type SharedInspectionSections,
+  type ThermalImagingSection,
   isSubfloorApplicable,
   resolveSubfloorPresent,
 } from '@sitescop/room-engine-core';
@@ -47,6 +56,76 @@ function resolveStatus(hasActivity: boolean, requiredComplete: boolean): Section
 
 function checklistStatus(section: object): SectionCompletionStatus {
   if (sectionActivity(section)) return 'completed';
+  return 'not_started';
+}
+
+function evidenceSummaryStatus(
+  summaryAnswer: string | undefined,
+  section: object,
+  evidenceFound: boolean,
+): SectionCompletionStatus {
+  if (!hasText(summaryAnswer)) return 'not_started';
+  if (!evidenceFound) return 'completed';
+  if (sectionActivity(section)) return 'completed';
+  return 'in_progress';
+}
+
+function yesNoEvidenceStatus(
+  evidenceAnswer: string | undefined,
+  section: object,
+): SectionCompletionStatus {
+  if (!hasText(evidenceAnswer)) return 'not_started';
+  if (!isPestEvidenceFound(evidenceAnswer)) return 'completed';
+  if (sectionActivity(section)) return 'completed';
+  return 'in_progress';
+}
+
+function narrativeAnswerStatus(
+  answer: string | undefined,
+  section: object,
+  noEvidenceAnswers: readonly string[],
+): SectionCompletionStatus {
+  const resolved = typeof answer === 'string' ? answer.trim() : '';
+  if (!resolved) return 'not_started';
+  if (
+    noEvidenceAnswers.includes(resolved) ||
+    isPestNoEvidenceFound(resolved) ||
+    isPestPresenceUndetermined(resolved)
+  ) {
+    return 'completed';
+  }
+  if (sectionActivity(section)) return 'completed';
+  return 'in_progress';
+}
+
+function hasNoIssuesComment(comments: string | undefined): boolean {
+  const text = comments?.trim() ?? '';
+  return text.length > 0 && text.includes(NO_ISSUES_OBSERVED_COMMENT);
+}
+
+function getGarageRoomStatus(data: Record<string, unknown>): SectionCompletionStatus {
+  const garage = data as unknown as GarageRoomData;
+  if (hasNoIssuesComment(garage.comments)) return 'completed';
+  if (hasCheckboxes(garage.defects) || hasCheckboxes(garage.damageObserved)) return 'completed';
+  if (sectionActivity(garage)) return 'completed';
+  return 'not_started';
+}
+
+function moistureThermalActivity(moisture: MoistureTestingSection): boolean {
+  if (sectionActivity(moisture)) return true;
+  if (hasPhotos(moisture.moistureMeterPhotos) || hasPhotos(moisture.thermalImages)) return true;
+  return hasCheckboxes(moisture.visualLocations) || hasCheckboxes(moisture.excessiveLocations);
+}
+
+export function getMoistureThermalStatus(
+  moisture: MoistureTestingSection,
+  thermal: ThermalImagingSection,
+): SectionCompletionStatus {
+  if (moisture.visualMoistureEvidence === 'Yes' || moisture.excessiveMoistureEvidence === 'Yes') {
+    return 'completed';
+  }
+  if (hasNoIssuesComment(moisture.comments)) return 'completed';
+  if (moistureThermalActivity(moisture) || sectionActivity(thermal)) return 'completed';
   return 'not_started';
 }
 
@@ -168,10 +247,11 @@ export function getConclusionStatus(section: BuildingExtensionSections['conclusi
 }
 
 export function getInspectorDeclarationStatus(section: BuildingExtensionSections['inspectorDeclaration']): SectionCompletionStatus {
-  if (hasText(section.inspectorName) && hasText(section.licenceNumber) && hasText(section.signatureData)) {
+  if (section.sectionReviewed) return 'completed';
+  if (hasText(section.inspectorName) && hasText(section.signatureData)) {
     return 'completed';
   }
-  if (hasText(section.inspectorName) || hasText(section.licenceNumber) || hasText(section.declarationDate)) {
+  if (hasText(section.inspectorName) || hasText(section.declarationDate)) {
     return 'in_progress';
   }
   return 'not_started';
@@ -192,8 +272,7 @@ export function getPestSectionStatus(
 
   if (sectionKey === 'undetectedTimberPestRisk') {
     const risk = section as PestInspectionSections['undetectedTimberPestRisk'];
-    if (hasText(risk.riskLevel) && hasText(risk.riskExplanation)) return 'completed';
-    if (hasText(risk.riskLevel)) return 'in_progress';
+    if (hasText(risk.riskLevel)) return 'completed';
     return 'not_started';
   }
 
@@ -207,6 +286,88 @@ export function getPestSectionStatus(
     return hasText(d2.recommendation) ? 'completed' : 'not_started';
   }
 
+  if (sectionKey === 'd1ActiveTermites') {
+    const d1 = section as PestInspectionSections['d1ActiveTermites'];
+    if (!hasText(d1.evidenceAnswer)) return 'not_started';
+    if (isPestNoEvidenceFound(d1.evidenceAnswer) || isPestPresenceUndetermined(d1.evidenceAnswer)) {
+      return 'completed';
+    }
+    if (sectionActivity(d1)) return 'completed';
+    return 'in_progress';
+  }
+
+  if (sectionKey === 'd3TermiteWorkings') {
+    const d3 = section as PestInspectionSections['d3TermiteWorkings'];
+    return evidenceSummaryStatus(d3.summaryAnswer, d3, isPestEvidenceFound(d3.summaryAnswer));
+  }
+
+  if (sectionKey === 'd4PreviousTreatment') {
+    const d4 = section as PestInspectionSections['d4PreviousTreatment'];
+    return yesNoEvidenceStatus(d4.evidenceAnswer, d4);
+  }
+
+  if (sectionKey === 'd6ChemicalDelignification') {
+    const d6 = section as PestInspectionSections['d6ChemicalDelignification'];
+    return evidenceSummaryStatus(d6.summaryAnswer, d6, isPestEvidenceFound(d6.summaryAnswer));
+  }
+
+  if (sectionKey === 'd7FungalDecay') {
+    const d7 = section as PestInspectionSections['d7FungalDecay'];
+    return evidenceSummaryStatus(d7.summaryAnswer, d7, isPestEvidenceFound(d7.summaryAnswer));
+  }
+
+  if (sectionKey === 'd8WoodBorers') {
+    const d8 = section as PestInspectionSections['d8WoodBorers'];
+    return narrativeAnswerStatus(d8.answer, d8, [
+      NO_EVIDENCE_FOUND,
+      'No evidence was found.',
+      PRESENCE_UNDETERMINED,
+    ]);
+  }
+
+  if (sectionKey === 'd9SubfloorVentilation') {
+    const d9 = section as PestInspectionSections['d9SubfloorVentilation'];
+    return narrativeAnswerStatus(d9.answer, d9, [
+      'Not applicable due to construction design.',
+      NO_EVIDENCE_FOUND,
+      'No evidence was found.',
+      'Undetermined due to access restrictions.',
+    ]);
+  }
+
+  if (sectionKey === 'd10ExcessiveMoisture') {
+    const d10 = section as PestInspectionSections['d10ExcessiveMoisture'];
+    return narrativeAnswerStatus(d10.answer, d10, [
+      NO_EVIDENCE_FOUND,
+      'No evidence was found.',
+      PRESENCE_UNDETERMINED,
+    ]);
+  }
+
+  if (sectionKey === 'd11BarrierBridging') {
+    const d11 = section as PestInspectionSections['d11BarrierBridging'];
+    return evidenceSummaryStatus(d11.summaryAnswer, d11, isPestEvidenceFound(d11.summaryAnswer));
+  }
+
+  if (sectionKey === 'd13ConduciveConditions') {
+    const d13 = section as PestInspectionSections['d13ConduciveConditions'];
+    if (hasText(d13.summaryDuringInspection) && hasText(d13.otherEvidenceAnswer)) {
+      if (isPestNoEvidenceFound(d13.otherEvidenceAnswer) || sectionActivity(d13)) return 'completed';
+      return 'in_progress';
+    }
+    if (sectionActivity(d13)) return 'in_progress';
+    return 'not_started';
+  }
+
+  if (sectionKey === 'd14MajorSafetyHazards') {
+    const d14 = section as PestInspectionSections['d14MajorSafetyHazards'];
+    return evidenceSummaryStatus(
+      d14.summaryAnswer,
+      d14,
+      d14.summaryAnswer === 'Hazard Found' || isPestEvidenceFound(d14.summaryAnswer),
+    );
+  }
+
   return checklistStatus(section);
 }
 
@@ -214,7 +375,12 @@ export function getRoomSectionStatus(rooms: InspectionRoomDetail[], roomType: In
   const typed = rooms.filter((room) => room.roomType === roomType);
   if (typed.length === 0) return 'not_started';
 
-  const statuses = typed.map((room) => checklistStatus(room.data as Record<string, unknown>));
+  const statusForRoom = (room: InspectionRoomDetail) =>
+    roomType === InspectionRoomType.GARAGE
+      ? getGarageRoomStatus(room.data as Record<string, unknown>)
+      : checklistStatus(room.data as Record<string, unknown>);
+
+  const statuses = typed.map(statusForRoom);
   if (statuses.every((status) => status === 'completed')) return 'completed';
   if (statuses.some((status) => status !== 'not_started')) return 'in_progress';
   return 'not_started';
@@ -292,8 +458,10 @@ export function buildInspectionSectionStatuses(
     statuses.corrosion = checklistStatus(building.corrosion);
     statuses['minor-defects'] = checklistStatus(building.minorDefects);
     statuses['major-defects'] = checklistStatus(building.majorDefects);
-    statuses['thermal-imaging'] = checklistStatus(building.thermalImaging);
-    statuses['moisture-testing'] = checklistStatus(building.moistureTesting);
+    statuses['moisture-testing'] = getMoistureThermalStatus(
+      building.moistureTesting,
+      building.thermalImaging,
+    );
     statuses.conclusion = getConclusionStatus(building.conclusion);
     statuses.recommendations =
       building.recommendations.manualRecommendations.length > 0 ||

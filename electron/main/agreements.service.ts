@@ -606,7 +606,7 @@ async function generateAgreementPdfFile(db: SqlDatabase, agreement: AgreementDet
     footerText: SITESCOP_PDF_FOOTER_TEXT,
     primaryColor: DEFAULT_REPORT_SETTINGS.primaryColor,
     secondaryColor: DEFAULT_REPORT_SETTINGS.secondaryColor,
-    pdfIncludeLogo: DEFAULT_REPORT_SETTINGS.pdfIncludeLogo,
+    pdfIncludeLogo: getResolvedReportSettings().pdfIncludeLogo,
   });
 
   await writeFile(filePath, buffer);

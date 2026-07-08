@@ -1,22 +1,32 @@
 import {
   BUILDING_EXTENSION_SECTION_KEYS,
-  BUILDING_EXTENSION_SECTION_LABELS,
   GENERAL_ELECTRICAL_DISCLAIMERS,
   SHARED_INSPECTION_SECTION_KEYS,
-  SHARED_INSPECTION_SECTION_LABELS,
+  type ConclusionSection,
   type InspectionPhotoRef,
 } from '../../room-engine-core/src/index.js';
-import { SITESCOP_PDF_FOOTER_TEXT } from '../../company-branding.js';
-import { escapeHtml, formatDate, renderComments, renderPhotos, renderSectionBlock } from './html-utils.js';
+import { escapeHtml, renderComments, renderPhotos, renderSectionBlock } from './html-utils.js';
 import { renderInspectorHazardAssessmentBlock, renderInspectorHazardLowConclusionNote } from './hazard-assessment-block.js';
+import {
+  buildingPdfPartTitleForKey,
+  buildingPdfSectionTitle,
+  renderPdfPartHeading,
+} from './building-pdf-headings.js';
+import { renderCertificationSectionBlock } from './certification-block.js';
+import {
+  renderConclusionNarrativeBlock,
+  renderInspectionFindingsSummaryBlock,
+} from './building-summary-block.js';
 import { renderCoverHeader } from './cover-header.js';
 import { loadLegalScheduleHtml } from './legal-loader.js';
+import { renderCoverReferenceMeta } from './report-identifiers.js';
 import {
   getBuildingSectionFieldDefs,
   getRoomFieldDefs,
   getSharedSectionFieldDefs,
 } from './section-fields.js';
 import { reportPrintStyles } from './styles.js';
+import { renderPropertyReportDetailsBlock, resolveBuildingReportTitle } from './property-report-details-block.js';
 import type { ReportRenderContext, ReportRoomInfo } from './types.js';
 
 const ROOM_SECTION_ORDER: Record<string, number> = {
@@ -54,11 +64,18 @@ function renderRecommendationsBlock(data: Record<string, unknown>): string {
 
   return `
 <section class="report-section">
-  <h2>Recommendations</h2>
+  <h3 class="report-section-heading">${escapeHtml(buildingPdfSectionTitle('recommendations'))}</h3>
   ${listHtml}
   ${renderComments(comments)}
   ${renderPhotos(photos as InspectionPhotoRef[])}
 </section>`;
+}
+
+function maybeRenderPartHeading(sections: string[], key: string, renderedParts: Set<string>): void {
+  const partTitle = buildingPdfPartTitleForKey(key);
+  if (!partTitle || renderedParts.has(partTitle)) return;
+  renderedParts.add(partTitle);
+  sections.push(renderPdfPartHeading(partTitle));
 }
 
 function renderBuildingSection(
@@ -66,39 +83,39 @@ function renderBuildingSection(
   key: string,
   data: Record<string, unknown>,
   hazardNote?: string,
+  renderedParts?: Set<string>,
 ): void {
+  if (renderedParts) maybeRenderPartHeading(sections, key, renderedParts);
+
   if (key === 'recommendations') {
     const block = renderRecommendationsBlock(data);
     if (block) sections.push(block);
     return;
   }
-  if (key === 'riskAssessment') {
+  if (key === 'riskAssessment' || key === 'thermalImaging') {
+    return;
+  }
+
+  if (key === 'inspectorDeclaration') {
+    const block = renderCertificationSectionBlock(
+      buildingPdfSectionTitle('inspectorDeclaration'),
+      data,
+      BUILDING_FIELD_LABEL_OVERRIDES.inspectorDeclaration,
+      getBuildingSectionFieldDefs('inspectorDeclaration'),
+    );
+    if (block) sections.push(block);
     return;
   }
 
   if (key === 'conclusion') {
-    const block = renderSectionBlock(
-      BUILDING_EXTENSION_SECTION_LABELS.conclusion,
-      data,
-      new Set(),
-      BUILDING_FIELD_LABEL_OVERRIDES.conclusion,
-      getBuildingSectionFieldDefs('conclusion'),
-    );
-    if (!block && !hazardNote) return;
-    if (block && hazardNote) {
-      sections.push(block.replace('</h2>', `</h2>\n${hazardNote}`));
-      return;
-    }
-    if (block) {
-      sections.push(block);
-      return;
-    }
-    sections.push(`<section class="report-section"><h2>Conclusion</h2>${hazardNote ?? ''}</section>`);
+    const conclusion = data as unknown as ConclusionSection;
+    const block = renderConclusionNarrativeBlock(conclusion, hazardNote);
+    if (block) sections.push(block);
     return;
   }
 
   const block = renderSectionBlock(
-    BUILDING_EXTENSION_SECTION_LABELS[key as keyof typeof BUILDING_EXTENSION_SECTION_LABELS],
+    buildingPdfSectionTitle(key),
     data,
     new Set(),
     BUILDING_FIELD_LABEL_OVERRIDES[key],
@@ -120,9 +137,7 @@ function renderInspectionRooms(sections: string[], rooms: ReportRoomInfo[]): voi
   }
 }
 
-const BUILDING_FIELD_LABEL_OVERRIDES: Record<string, Record<string, string>> = {
-  conclusion: { autoConclusion: 'Conclusion' },
-};
+const BUILDING_FIELD_LABEL_OVERRIDES: Record<string, Record<string, string>> = {};
 
 function renderBuildingElectricalDisclaimerLegalHtml(): string {
   const items = GENERAL_ELECTRICAL_DISCLAIMERS.map(
@@ -138,8 +153,7 @@ function loadBuildingLegalScheduleHtml(): string {
 }
 
 function wrapDocument(ctx: ReportRenderContext, body: string, title: string): string {
-  const { company, settings } = ctx;
-  const footerText = settings.pdfFooterText?.trim() || SITESCOP_PDF_FOOTER_TEXT;
+  const { settings } = ctx;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -148,40 +162,44 @@ function wrapDocument(ctx: ReportRenderContext, body: string, title: string): st
 <title>${escapeHtml(title)}</title>
 <style>${reportPrintStyles(settings.primaryColor, settings.secondaryColor)}</style>
 </head>
-<body>
+<body class="report-body">
 <div class="cover-page">
   ${renderCoverHeader(ctx)}
   <h1 class="cover-title">${escapeHtml(title)}</h1>
   <p class="cover-subtitle">Prepared in accordance with AS 4349.1</p>
   ${settings.reportHeader ? `<p>${escapeHtml(settings.reportHeader)}</p>` : ''}
-  <div class="cover-meta">
-    <p><strong>Property:</strong> ${escapeHtml(ctx.job.propertyAddress)}</p>
-    <p><strong>Client:</strong> ${escapeHtml(ctx.job.clientName)}</p>
-    <p><strong>Job:</strong> ${escapeHtml(ctx.job.jobNumber)}</p>
-    <p><strong>Inspection:</strong> ${escapeHtml(ctx.inspection.inspectionNumber)}</p>
-    <p><strong>Inspector:</strong> ${escapeHtml(ctx.inspector?.name ?? '—')}</p>
-    <p><strong>Inspection date:</strong> ${formatDate(ctx.inspection.completedAt ?? ctx.inspection.startedAt)}</p>
-    ${company.abn ? `<p><strong>ABN:</strong> ${escapeHtml(company.abn)}</p>` : ''}
-  </div>
+  ${renderCoverReferenceMeta(ctx)}
 </div>
 ${body}
 ${loadBuildingLegalScheduleHtml()}
-<div class="page-footer">${escapeHtml(footerText)}</div>
 </body>
 </html>`;
 }
 
 export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
   const sections: string[] = [];
-  const skipJobPhotos = new Set(['photos']);
+  const renderedParts = new Set<string>();
+  const reportTitle = resolveBuildingReportTitle();
+
+  maybeRenderPartHeading(sections, 'jobInformation', renderedParts);
+  const propertyDetailsBlock = renderPropertyReportDetailsBlock(ctx);
+  if (propertyDetailsBlock) sections.push(propertyDetailsBlock);
+
+  if (ctx.formData.building) {
+    const summaryBlock = renderInspectionFindingsSummaryBlock(ctx);
+    if (summaryBlock) sections.push(summaryBlock);
+  }
 
   for (const key of SHARED_INSPECTION_SECTION_KEYS) {
+    if (key === 'jobInformation') continue;
+
+    maybeRenderPartHeading(sections, key, renderedParts);
     const data = ctx.formData.shared[key] as unknown as Record<string, unknown>;
     const block = renderSectionBlock(
-      SHARED_INSPECTION_SECTION_LABELS[key],
+      buildingPdfSectionTitle(key),
       data,
-      key === 'jobInformation' ? skipJobPhotos : new Set(),
-      undefined,
+      new Set(),
+      BUILDING_FIELD_LABEL_OVERRIDES[key],
       getSharedSectionFieldDefs(key),
     );
     if (block) sections.push(block);
@@ -198,7 +216,7 @@ export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
         if (hazardBlock) sections.push(hazardBlock);
       }
       const data = ctx.formData.building[key] as unknown as Record<string, unknown>;
-      renderBuildingSection(sections, key, data, key === 'conclusion' ? hazardLowNote : undefined);
+      renderBuildingSection(sections, key, data, key === 'conclusion' ? hazardLowNote : undefined, renderedParts);
       if (key === 'laundry') {
         renderInspectionRooms(sections, ctx.rooms);
       }
@@ -209,7 +227,7 @@ export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
     sections.push(`<section class="report-section"><p>${escapeHtml(ctx.settings.reportFooter!)}</p></section>`);
   }
 
-  return wrapDocument(ctx, sections.join('\n'), 'Building Inspection Report');
+  return wrapDocument(ctx, sections.join('\n'), reportTitle);
 }
 
 function settingsFooter(ctx: ReportRenderContext): boolean {

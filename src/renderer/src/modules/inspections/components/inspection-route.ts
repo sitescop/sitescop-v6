@@ -37,7 +37,6 @@ const BUILDING_CLOSEOUT_ROUTE = [
   'minor-defects',
   'major-defects',
   'moisture-testing',
-  'thermal-imaging',
   'conclusion',
   'recommendations',
   'inspector-declaration',

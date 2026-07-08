@@ -12,7 +12,9 @@
     "build:win": "npm run build && electron-builder --win",
     "build:installer": "npm run build:win",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json"
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
+    "postinstall": "node scripts/ensure-chrome-for-pdf.mjs",
+    "setup:pdf-browser": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.77.2",
@@ -63,6 +65,10 @@
       {
         "from": "shared/report-pdf/legal",
         "to": "report-pdf/legal"
+      },
+      {
+        "from": "build/sitescop-logo.jpg",
+        "to": "sitescop-logo.jpg"
       }
     ],
     "win": {

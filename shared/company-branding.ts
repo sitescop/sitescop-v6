@@ -10,7 +10,7 @@ export const DEFAULT_REPORT_SETTINGS = {
   primaryColor: '#1B4332',
   secondaryColor: '#D4A017',
   pdfFooterText: SITESCOP_PDF_FOOTER_TEXT,
-  pdfIncludeLogo: false,
+  pdfIncludeLogo: true,
   reportHeader: null as string | null,
   reportFooter: null as string | null,
 };

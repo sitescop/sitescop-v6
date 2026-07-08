@@ -39,6 +39,10 @@ export interface JobInformationSection extends SectionBase {
   gpsLongitude: string;
   frontPhotoAngle: 'driveway' | 'street' | '';
   frontPhotoAngles: CheckboxFieldState;
+  /** Building inspections only — drives PDF cover title. */
+  buildingReportType: string;
+  /** Pest inspections only — drives PDF cover title. */
+  pestReportType: string;
 }
 
 export interface ServicesSection extends SectionBase {
@@ -51,13 +55,16 @@ export interface ServicesSection extends SectionBase {
   gas: CheckboxFieldState;
   gasOther: string;
   hotWaterPresent: string;
+  hotWaterLocation: string;
   hotWaterType: CheckboxFieldState;
   hotWaterTypeOther: string;
   hotWaterOperating: string;
+  hotWaterPhotos: InspectionPhotoRef[];
   airConPresent: string;
   airConType: CheckboxFieldState;
   airConTypeOther: string;
   airConOperating: string;
+  gasBottlePhotos: InspectionPhotoRef[];
 }
 
 export interface PropertyDescriptionSection extends SectionBase {
@@ -130,8 +137,6 @@ export interface KitchenSection extends SectionBase {
   floorCondition: string;
   window: string;
   windowLock: string;
-  door: string;
-  handle: string;
   lights: string;
   switches: string;
   powerPoints: string;
@@ -199,7 +204,27 @@ export interface CrackingEntry {
   monitoringRecommended: string;
   engineeringRequired: string;
   comments: string;
+  photos: InspectionPhotoRef[];
 }
+
+export interface FinishElementDamageEntry {
+  id: string;
+  elements: CheckboxFieldState;
+  location: string;
+  comments: string;
+  photos: InspectionPhotoRef[];
+}
+
+export interface MajorDefectRollupDismissed {
+  structuralMovement: string[];
+  deformation: string[];
+  moistureSources: string[];
+  conditionsConducive: string[];
+  areasNotInspected: string[];
+  safetyHazards: string[];
+}
+
+export type MajorDefectRollupDismissibleField = keyof MajorDefectRollupDismissed;
 
 export interface MajorDefectsSection extends SectionBase {
   structuralMovement: CheckboxFieldState;
@@ -207,8 +232,16 @@ export interface MajorDefectsSection extends SectionBase {
   crackingEntries: CrackingEntry[];
   deformation: CheckboxFieldState;
   deformationEngineeringRequired: string;
+  deformationPhotos: InspectionPhotoRef[];
   moistureSources: CheckboxFieldState;
+  moistureSourcePhotos: InspectionPhotoRef[];
   conditionsConducive: CheckboxFieldState;
+  finishElementDamageEntries: FinishElementDamageEntry[];
+  areasNotInspected: CheckboxFieldState;
+  safetyHazards: CheckboxFieldState;
+  safetyHazardPhotos: InspectionPhotoRef[];
+  plumbingDefectPhotos: InspectionPhotoRef[];
+  rollupDismissed: MajorDefectRollupDismissed;
 }
 
 export interface ThermalImagingSection extends SectionBase {}
@@ -237,6 +270,7 @@ export interface RiskAssessmentSection extends SectionBase {
 }
 
 export interface ConclusionSection extends SectionBase {
+  qualityOfWorkmanship: string;
   structuralDamageRating: string;
   conditionsConduciveRating: string;
   majorDefectsRating: string;
@@ -258,6 +292,8 @@ export interface InspectorDeclarationSection {
   declarationDate: string;
   clientSignatureData: string;
   reportComplete: boolean;
+  /** Set when the inspector opens the declaration section in the workflow UI. */
+  sectionReviewed: boolean;
 }
 
 export interface BuildingInspectionFormData {
@@ -333,11 +369,11 @@ export const INSPECTION_SECTION_LABELS: Record<InspectionSectionKey, string> = {
   minorDefects: 'Minor Defects',
   majorDefects: 'Major Defects',
   thermalImaging: 'Thermal Imaging',
-  moistureTesting: 'Moisture Testing',
+  moistureTesting: 'Moisture & Thermal Testing',
   riskAssessment: 'Risk Assessment',
   conclusion: 'Conclusion',
   recommendations: 'Recommendations',
-  inspectorDeclaration: 'Inspector Declaration',
+  inspectorDeclaration: 'Certification',
 };
 
 export interface BathroomRoomData extends SectionBase {

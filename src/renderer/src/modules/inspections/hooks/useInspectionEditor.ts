@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { InspectionFormDataV2, InspectionFormRealm } from '@sitescop/room-engine-core';
+import type { InspectionFormDataV2, InspectionFormRealm, MajorDefectRollupRoom } from '@sitescop/room-engine-core';
 import {
   enrichInspectionFormData,
   getSectionData,
@@ -20,6 +20,15 @@ const AUTO_SYNC_KEYS = new Set([
   'building:conclusion',
   'building:recommendations',
 ]);
+
+function roomsForEnrichment(rooms: InspectionRoomDetail[]): MajorDefectRollupRoom[] {
+  return rooms.map((room) => ({
+    id: room.id,
+    label: room.label,
+    roomType: room.roomType,
+    data: room.data,
+  }));
+}
 
 function sectionTimerKey(realm: InspectionFormRealm, section: string): string {
   return `${realm}:${section}`;
@@ -44,6 +53,7 @@ export function useInspectionEditor(
       const formKind = jobTypeToFormKind(inspection.jobType);
       const enriched = enrichInspectionFormData(
         normalizeInspectionFormData(inspection.formData, formKind),
+        { rooms: roomsForEnrichment(inspection.rooms) },
       );
       setFormData(enriched);
       formDataRef.current = enriched;
@@ -76,7 +86,7 @@ export function useInspectionEditor(
       setFormData((prev) => {
         if (!prev) return prev;
         const patched = patchSectionData(prev, realm, section, partial);
-        const next = enrichInspectionFormData(patched);
+        const next = enrichInspectionFormData(patched, { rooms: roomsForEnrichment(roomsRef.current) });
         formDataRef.current = next;
         return next;
       });
@@ -159,11 +169,17 @@ export function useInspectionEditor(
       if (readOnly || !inspectionId) return;
 
       setRooms((prev) => {
-        const next = prev.map((room) =>
+        const nextRooms = prev.map((room) =>
           room.id === roomId ? { ...room, data: { ...room.data, ...partial } } : room,
         );
-        roomsRef.current = next;
-        return next;
+        roomsRef.current = nextRooms;
+        setFormData((current) => {
+          if (!current?.building) return current;
+          const enriched = enrichInspectionFormData(current, { rooms: roomsForEnrichment(nextRooms) });
+          formDataRef.current = enriched;
+          return enriched;
+        });
+        return nextRooms;
       });
 
       const existing = roomTimers.current.get(roomId);
@@ -197,9 +213,15 @@ export function useInspectionEditor(
       if (readOnly || !inspectionId) return;
 
       setRooms((prev) => {
-        const next = prev.map((room) => (room.id === roomId ? { ...room, data } : room));
-        roomsRef.current = next;
-        return next;
+        const nextRooms = prev.map((room) => (room.id === roomId ? { ...room, data } : room));
+        roomsRef.current = nextRooms;
+        setFormData((current) => {
+          if (!current?.building) return current;
+          const enriched = enrichInspectionFormData(current, { rooms: roomsForEnrichment(nextRooms) });
+          formDataRef.current = enriched;
+          return enriched;
+        });
+        return nextRooms;
       });
 
       const existing = roomTimers.current.get(roomId);

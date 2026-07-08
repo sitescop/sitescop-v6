@@ -54,6 +54,7 @@ export function CombinedInspectionForm({
           readOnly={readOnly}
           embedded
           mode="shared-only"
+          formKind="COMBINED"
           rooms={rooms}
           onRoomPatch={onRoomPatch}
           onRoomDataChange={onRoomDataChange}

@@ -19,7 +19,6 @@ export type CommentSuggestionSectionId =
   | 'corrosion'
   | 'minor-defects'
   | 'major-defects'
-  | 'thermal-imaging'
   | 'moisture-testing'
   | 'pest-d6ChemicalDelignification'
   | 'pest-d7FungalDecay'
@@ -114,13 +113,11 @@ const SECTION_COMMENT_SUGGESTIONS: Record<CommentSuggestionSectionId, readonly s
     'A significant defect was observed requiring further investigation by an appropriate licensed professional.',
     'Urgent assessment by a qualified building practitioner is recommended.',
   ],
-  'thermal-imaging': [
-    'Thermal imaging identified temperature anomalies warranting further investigation.',
-    'Anomalies may indicate concealed moisture; confirm with appropriate testing where required.',
-  ],
   'moisture-testing': [
     'Elevated moisture readings were recorded and the source should be investigated.',
     'Moisture levels should be re-tested after remedial works are completed.',
+    'Thermal imaging identified temperature anomalies warranting further investigation.',
+    'Anomalies may indicate concealed moisture; confirm with appropriate testing where required.',
   ],
   'pest-d6ChemicalDelignification': [
     'Evidence consistent with chemical delignification was observed. Further assessment is recommended.',
@@ -136,7 +133,8 @@ const SECTION_COMMENT_SUGGESTIONS: Record<CommentSuggestionSectionId, readonly s
 };
 
 export function getCommentSuggestions(sectionId: string): readonly string[] {
-  return SECTION_COMMENT_SUGGESTIONS[sectionId as CommentSuggestionSectionId] ?? [];
+  const resolvedId = sectionId === 'thermal-imaging' ? 'moisture-testing' : sectionId;
+  return SECTION_COMMENT_SUGGESTIONS[resolvedId as CommentSuggestionSectionId] ?? [];
 }
 
 export function appendInspectionComment(current: string, snippet: string): string {

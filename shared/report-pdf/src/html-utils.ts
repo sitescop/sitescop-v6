@@ -1,5 +1,5 @@
 import type { CheckboxFieldState, InspectionPhotoRef } from '../../room-engine-core/src/index.js';
-import { normalizeCheckboxField } from '../../room-engine-core/src/index.js';
+import { formatPestEvidenceAnswer, normalizeCheckboxField } from '../../room-engine-core/src/index.js';
 import type { SectionFieldDef } from './section-fields.js';
 
 const SKIP_KEYS = new Set(['photos', 'comments']);
@@ -11,7 +11,25 @@ const EXTRA_PHOTO_KEYS = [
   'waterEscapingPhotos',
   'moistureEvidencePhotos',
   'incompleteConstructionPhotos',
+  'hotWaterPhotos',
+  'gasBottlePhotos',
+  'plumbingDefectPhotos',
+  'deformationPhotos',
+  'moistureSourcePhotos',
+  'safetyHazardPhotos',
 ] as const;
+
+/** Render these photo fields immediately after the named field row (matches inspection form order). */
+const INLINE_PHOTO_AFTER_FIELD: Partial<Record<string, (typeof EXTRA_PHOTO_KEYS)[number]>> = {
+  deformationEngineeringRequired: 'deformationPhotos',
+  moistureSources: 'moistureSourcePhotos',
+  safetyHazards: 'safetyHazardPhotos',
+  hotWaterOperating: 'hotWaterPhotos',
+  gas: 'gasBottlePhotos',
+  incompleteConstruction: 'incompleteConstructionPhotos',
+  evidenceOfWaterPooling: 'waterPoolingPhotos',
+  excessiveMoistureEvidence: 'moistureEvidencePhotos',
+};
 
 const SIGNATURE_KEYS = new Set(['signatureData', 'clientSignatureData']);
 
@@ -38,6 +56,32 @@ function renderCheckboxState(state: CheckboxFieldState | undefined): string {
   return items.length ? items.join(', ') : '—';
 }
 
+function renderFinishElementDamageEntries(entries: unknown): string {
+  if (!Array.isArray(entries) || entries.length === 0) return '—';
+  const rows = entries
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return '';
+      const row = entry as Record<string, unknown>;
+      const elements =
+        row.elements && typeof row.elements === 'object'
+          ? renderCheckboxState(normalizeCheckboxField(row.elements as CheckboxFieldState))
+          : typeof row.element === 'string'
+            ? row.element
+            : '';
+      const parts = [
+        elements && elements !== '—' && `Damage to: ${elements}`,
+        row.location && `Location: ${row.location}`,
+        row.comments && `Comments: ${row.comments}`,
+      ].filter(Boolean);
+      const photos = Array.isArray(row.photos) ? (row.photos as InspectionPhotoRef[]) : [];
+      const photoHtml = photos.length ? renderPhotos(photos, 'Damage photos') : '';
+      return parts.length ? `<li>${escapeHtml(parts.join(' · '))}${photoHtml}</li>` : '';
+    })
+    .filter(Boolean)
+    .join('');
+  return rows ? `<ul class="report-list">${rows}</ul>` : '—';
+}
+
 function renderCrackingEntries(entries: unknown): string {
   if (!Array.isArray(entries) || entries.length === 0) return '—';
   const rows = entries
@@ -58,6 +102,29 @@ function renderCrackingEntries(entries: unknown): string {
   return rows ? `<ul class="report-list">${rows}</ul>` : '—';
 }
 
+function renderCrackingEntryPhotoRows(entries: unknown): string {
+  if (!Array.isArray(entries) || entries.length === 0) return '';
+  const rows: string[] = [];
+  for (const [index, entry] of entries.entries()) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const photos = Array.isArray(row.photos) ? (row.photos as InspectionPhotoRef[]) : [];
+    if (!photos.length) continue;
+    const location = typeof row.location === 'string' ? row.location.trim() : '';
+    const label =
+      entries.length > 1
+        ? location
+          ? `Cracking photos — ${location}`
+          : `Cracking photos (${index + 1})`
+        : 'Cracking photos';
+    const photoHtml = renderPhotos(photos, label);
+    if (photoHtml) {
+      rows.push(`<tr class="field-photo-row"><td colspan="2">${photoHtml}</td></tr>`);
+    }
+  }
+  return rows.join('\n');
+}
+
 function renderStringList(items: unknown): string {
   if (!Array.isArray(items) || items.length === 0) return '—';
   const filtered = items.filter((item) => typeof item === 'string' && item.trim());
@@ -74,6 +141,7 @@ function renderValue(key: string, value: unknown): string {
     return '—';
   }
   if (key === 'crackingEntries') return renderCrackingEntries(value);
+  if (key === 'finishElementDamageEntries') return renderFinishElementDamageEntries(value);
   if (key === 'autoRecommendations' || key === 'manualRecommendations') return renderStringList(value);
   if (key === 'inaccessibleCustomLines') {
     if (!Array.isArray(value)) return '—';
@@ -83,7 +151,18 @@ function renderValue(key: string, value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (typeof value === 'number') return escapeHtml(String(value));
-  if (typeof value === 'string') return escapeHtml(value);
+  if (typeof value === 'string') {
+    if (
+      key === 'evidenceAnswer' ||
+      key === 'summaryAnswer' ||
+      key === 'answer' ||
+      key === 'summaryDuringInspection' ||
+      key === 'otherEvidenceAnswer'
+    ) {
+      return escapeHtml(formatPestEvidenceAnswer(value) || value);
+    }
+    return escapeHtml(value);
+  }
   if (Array.isArray(value)) {
     if (value.length === 0) return '—';
     if (value.every((item) => typeof item === 'string')) return escapeHtml(value.join(', '));
@@ -104,7 +183,9 @@ export function renderFieldRows(
   extraSkip = new Set<string>(),
   fieldLabels?: Record<string, string>,
   fieldDefs?: SectionFieldDef[],
+  inlinedPhotoKeys = new Set<string>(),
 ): string {
+  const labelByKey = new Map(fieldDefs?.map((def) => [def.key, def.label]));
   const defs =
     fieldDefs ??
     Object.keys(data)
@@ -119,6 +200,21 @@ export function renderFieldRows(
     rows.push(
       `<tr><th>${escapeHtml(def.label)}</th><td>${renderValue(def.key, data[def.key])}</td></tr>`,
     );
+
+    if (def.key === 'crackingEntries') {
+      const crackingPhotoRows = renderCrackingEntryPhotoRows(data[def.key]);
+      if (crackingPhotoRows) rows.push(crackingPhotoRows);
+    }
+
+    const inlinePhotoKey = INLINE_PHOTO_AFTER_FIELD[def.key];
+    if (!inlinePhotoKey || inlinedPhotoKeys.has(inlinePhotoKey)) continue;
+    const photos = data[inlinePhotoKey];
+    if (!Array.isArray(photos) || photos.length === 0) continue;
+    inlinedPhotoKeys.add(inlinePhotoKey);
+    const photoHtml = renderPhotos(photos as InspectionPhotoRef[], labelByKey.get(inlinePhotoKey));
+    if (photoHtml) {
+      rows.push(`<tr class="field-photo-row"><td colspan="2">${photoHtml}</td></tr>`);
+    }
   }
   return rows.join('\n');
 }
@@ -133,16 +229,21 @@ export function renderPhotos(photos: InspectionPhotoRef[] | undefined, label?: s
   const items = photos
     .map(
       (photo) =>
-        `<figure class="photo"><img src="${photo.dataUrl}" alt="${escapeHtml(photo.caption ?? 'Inspection photo')}" /><figcaption>${escapeHtml(photo.caption ?? '')}</figcaption></figure>`,
+        `<figure class="photo"><img src="${photo.dataUrl}" alt="${escapeHtml(photo.caption ?? 'Inspection photo')}" /></figure>`,
     )
     .join('\n');
   return `<div class="photo-group">${label ? `<strong>${escapeHtml(label)}</strong>` : ''}<div class="photo-grid">${items}</div></div>`;
 }
 
-function renderExtraPhotoFields(data: Record<string, unknown>, fieldDefs?: SectionFieldDef[]): string {
+function renderExtraPhotoFields(
+  data: Record<string, unknown>,
+  fieldDefs?: SectionFieldDef[],
+  skipKeys = new Set<string>(),
+): string {
   const labelByKey = new Map(fieldDefs?.map((def) => [def.key, def.label]));
   const parts: string[] = [];
   for (const key of EXTRA_PHOTO_KEYS) {
+    if (skipKeys.has(key)) continue;
     const photos = data[key];
     if (!Array.isArray(photos) || photos.length === 0) continue;
     parts.push(renderPhotos(photos as InspectionPhotoRef[], labelByKey.get(key) ?? formatLabel(key)));
@@ -163,13 +264,14 @@ export function renderSectionBlock(
     : Array.isArray(data.photos)
       ? (data.photos as InspectionPhotoRef[])
       : [];
-  const rows = renderFieldRows(data, extraSkip, fieldLabels, fieldDefs);
-  const extraPhotos = renderExtraPhotoFields(data, fieldDefs);
+  const inlinedPhotoKeys = new Set<string>();
+  const rows = renderFieldRows(data, extraSkip, fieldLabels, fieldDefs, inlinedPhotoKeys);
+  const extraPhotos = renderExtraPhotoFields(data, fieldDefs, inlinedPhotoKeys);
   if (!rows && !comments && !photos.length && !extraPhotos) return '';
 
   return `
 <section class="report-section">
-  <h2>${escapeHtml(title)}</h2>
+  <h3 class="report-section-heading">${escapeHtml(title)}</h3>
   ${rows ? `<table class="field-table">${rows}</table>` : ''}
   ${renderComments(comments)}
   ${renderPhotos(photos)}

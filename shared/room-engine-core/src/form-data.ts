@@ -25,9 +25,10 @@ import type {
   MoistureTestingSection,
   RiskAssessmentSection,
   PrefillJobContext,
+  InspectionPhotoRef,
 } from './types.js';
 import type { PestInspectionSections } from './pest-types.js';
-import { createEmptyFormData, normalizeAccessibilityAreas, mergeSectionRecord, applyRoomElectricalDefaults, defaultElectricalDisclaimersField, defaultKitchenDisclaimersField, defaultLaundryDisclaimersField, defaultIfEmptyWorkingStatus, defaultSwitchesStatus, applyLaundrySurfaceDefaults } from './defaults.js';
+import { createEmptyFormData, normalizeAccessibilityAreas, normalizeCheckboxField, mergeSectionRecord, applyRoomElectricalDefaults, defaultElectricalDisclaimersField, defaultKitchenDisclaimersField, defaultLaundryDisclaimersField, defaultIfEmptyWorkingStatus, defaultSwitchesStatus, applyLaundrySurfaceDefaults } from './defaults.js';
 import {
   DEFAULT_INCOMPLETE_CONSTRUCTION,
   DEFAULT_OCCUPANCY_STATUS,
@@ -41,8 +42,14 @@ import {
   generateAutoRecommendations,
 } from './conclusion.js';
 import { applyPestConclusionUpdates, applyPestSectionUpdates, enrichPestConclusion } from './pest-conclusion.js';
+import { applyMajorDefectsRollup, type MajorDefectRollupRoom } from './major-defects-rollup.js';
+import { isSubfloorApplicable, resolveSubfloorPresent } from './property-profile.js';
 
 export const INSPECTION_FORM_VERSION = 2 as const;
+
+export interface InspectionEnrichmentOptions {
+  rooms?: MajorDefectRollupRoom[];
+}
 
 /** Shared by building, pest, and combined — Job Information through Roof Space (kitchen excluded). */
 export interface SharedInspectionSections {
@@ -138,11 +145,11 @@ export const BUILDING_EXTENSION_SECTION_LABELS: Record<BuildingExtensionSectionK
   minorDefects: 'Minor Defects',
   majorDefects: 'Major Defects',
   thermalImaging: 'Thermal Imaging',
-  moistureTesting: 'Moisture Testing',
+  moistureTesting: 'Moisture & Thermal Testing',
   riskAssessment: 'Risk Assessment',
   conclusion: 'Conclusion',
   recommendations: 'Recommendations',
-  inspectorDeclaration: 'Inspector Declaration',
+  inspectorDeclaration: 'Certification',
 };
 
 export type InspectionFormRealm = 'shared' | 'building' | 'pest';
@@ -231,7 +238,7 @@ function coalesceBuildingSections(
   building: Partial<BuildingExtensionSections> | undefined,
   template: BuildingExtensionSections,
 ): BuildingExtensionSections {
-  return Object.fromEntries(
+  const merged = Object.fromEntries(
     BUILDING_EXTENSION_SECTION_KEYS.map((key) => {
       const partial: Record<string, unknown> = {};
       if (isSectionObject(raw[key])) Object.assign(partial, raw[key]);
@@ -242,6 +249,32 @@ function coalesceBuildingSections(
       ];
     }),
   ) as unknown as BuildingExtensionSections;
+  return mergeThermalImagingIntoMoistureTesting(merged);
+}
+
+function mergeThermalImagingIntoMoistureTesting(
+  building: BuildingExtensionSections,
+): BuildingExtensionSections {
+  const thermal = building.thermalImaging;
+  const moisture = building.moistureTesting;
+  const hasThermalData =
+    Boolean(thermal.comments?.trim()) ||
+    (Array.isArray(thermal.photos) && thermal.photos.length > 0);
+  if (!hasThermalData) return building;
+
+  const mergedComments = [moisture.comments?.trim(), thermal.comments?.trim()]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return {
+    ...building,
+    moistureTesting: {
+      ...moisture,
+      comments: mergedComments || moisture.comments,
+      thermalImages: mergePhotoRefs(moisture.thermalImages, thermal.photos ?? []),
+    },
+    thermalImaging: { comments: '', photos: [] },
+  };
 }
 
 function migrateLegacyJobInformationFields(
@@ -369,6 +402,100 @@ function withSharedDefaults(
   };
 }
 
+function includesCheckboxValue(
+  field: { selected?: string[]; custom?: string[] } | undefined,
+  value: string,
+): boolean {
+  const target = value.trim().toLowerCase();
+  if (!target) return false;
+  return [...(field?.selected ?? []), ...(field?.custom ?? [])].some(
+    (item) => item.trim().toLowerCase() === target,
+  );
+}
+
+function setObstructionItem(
+  field: { selected: string[]; custom: string[] },
+  item: string,
+  enabled: boolean,
+): { selected: string[]; custom: string[] } {
+  const selected = field.selected.filter((entry) => entry !== item);
+  const custom = field.custom.filter((entry) => entry !== item);
+  if (enabled) selected.push(item);
+  return { selected: [...new Set(selected)], custom: [...new Set(custom)] };
+}
+
+function mergePhotoRefs(
+  existing: InspectionPhotoRef[],
+  incoming: InspectionPhotoRef[],
+): InspectionPhotoRef[] {
+  const merged = [...existing];
+  const seen = new Set(
+    existing.map((photo) => `${photo.id ?? ''}|${photo.dataUrl ?? ''}`),
+  );
+  for (const photo of incoming) {
+    const key = `${photo.id ?? ''}|${photo.dataUrl ?? ''}`;
+    if (seen.has(key)) continue;
+    merged.push(photo);
+    seen.add(key);
+  }
+  return merged;
+}
+
+function hasLpgGasSelected(services: SharedInspectionSections['services']): boolean {
+  const gasField = services.gas;
+  const hasOption = includesCheckboxValue(gasField, 'LPG');
+  const hasOther = services.gasOther.trim().toLowerCase().includes('lpg');
+  return hasOption || hasOther;
+}
+
+function syncServiceObstructions(shared: SharedInspectionSections): SharedInspectionSections {
+  const accessibility = { ...shared.accessibilityObstructions };
+  const services = shared.services;
+  const hotWaterExternal = services.hotWaterPresent === 'Yes' && services.hotWaterLocation !== 'Internal';
+  const hotWaterInternal = services.hotWaterPresent === 'Yes' && services.hotWaterLocation === 'Internal';
+  const hasLpg = hasLpgGasSelected(services);
+
+  const exterior = setObstructionItem(
+    setObstructionItem(
+      setObstructionItem(
+        normalizeCheckboxField(accessibility.exteriorObstructions),
+        'Air conditioning',
+        services.airConPresent === 'Yes',
+      ),
+      'Hot water service',
+      hotWaterExternal,
+    ),
+    'Gas storage cylinders',
+    hasLpg,
+  );
+
+  const interior = setObstructionItem(
+    normalizeCheckboxField(accessibility.interiorObstructions),
+    'Hot water service',
+    hotWaterInternal,
+  );
+
+  const linkedServicePhotos =
+    services.airConPresent === 'Yes' || services.hotWaterPresent === 'Yes' || hasLpg;
+  const serviceObstructionPhotos = [
+    ...services.photos,
+    ...services.hotWaterPhotos,
+    ...services.gasBottlePhotos,
+  ];
+
+  return {
+    ...shared,
+    accessibilityObstructions: {
+      ...accessibility,
+      interiorObstructions: interior,
+      exteriorObstructions: exterior,
+      photos: linkedServicePhotos
+        ? mergePhotoRefs(accessibility.photos, serviceObstructionPhotos)
+        : accessibility.photos,
+    },
+  };
+}
+
 export function createEmptyInspectionFormData(
   jobFormKind: InspectionJobFormKind,
   prefill?: PrefillJobContext,
@@ -418,11 +545,28 @@ export function flattenToLegacyBuildingFormData(form: InspectionFormDataV2): Bui
 }
 
 /** Building auto-enrichment using flattened legacy shape for existing generators. */
-export function enrichBuildingExtension(building: BuildingExtensionSections, shared: SharedInspectionSections): BuildingExtensionSections {
-  const flat = { ...shared, ...building } as BuildingInspectionFormData;
+export function enrichBuildingExtension(
+  building: BuildingExtensionSections,
+  shared: SharedInspectionSections,
+  rooms?: MajorDefectRollupRoom[],
+): BuildingExtensionSections {
+  const subfloorPresent = resolveSubfloorPresent(
+    shared.propertyDescription,
+    building.subfloor,
+    shared.accessibilityObstructions,
+  );
+  const subfloorApplicable = isSubfloorApplicable(subfloorPresent);
+  const majorDefects = applyMajorDefectsRollup(building.majorDefects, {
+    shared,
+    building,
+    rooms,
+    subfloorApplicable,
+  });
+  const flat = { ...shared, ...building, majorDefects } as BuildingInspectionFormData;
   const enriched = {
     ...building,
-    conclusion: applyConclusionUpdates(building.conclusion),
+    majorDefects,
+    conclusion: applyConclusionUpdates(building.conclusion, majorDefects),
     recommendations: {
       ...building.recommendations,
       autoRecommendations: generateAutoRecommendations(flat),
@@ -457,7 +601,8 @@ function applyBuildingElectricalDefaults(building: BuildingExtensionSections): B
 }
 
 export function enrichSharedSections(shared: SharedInspectionSections): SharedInspectionSections {
-  const accessibility = { ...shared.accessibilityObstructions };
+  const synced = syncServiceObstructions(shared);
+  const accessibility = { ...synced.accessibilityObstructions };
   const noteLines = [...(accessibility.inaccessibleCustomLines ?? [''])];
   while (noteLines.length < 1) noteLines.push('');
 
@@ -470,7 +615,7 @@ export function enrichSharedSections(shared: SharedInspectionSections): SharedIn
   }
 
   return {
-    ...shared,
+    ...synced,
     accessibilityObstructions: applyAccessibilityRiskAssessment({
       ...accessibility,
       inaccessibleCustomLines: noteLines.slice(0, 1),
@@ -482,7 +627,10 @@ export function enrichSharedSections(shared: SharedInspectionSections): SharedIn
   };
 }
 
-export function enrichInspectionFormData(form: InspectionFormDataV2): InspectionFormDataV2 {
+export function enrichInspectionFormData(
+  form: InspectionFormDataV2,
+  options?: InspectionEnrichmentOptions,
+): InspectionFormDataV2 {
   const sharedBase = {
     ...form.shared,
     inspectorHazardAssessment:
@@ -505,8 +653,10 @@ export function enrichInspectionFormData(form: InspectionFormDataV2): Inspection
     }
   }
   const shared = enrichSharedSections(sharedBase);
-  const building = form.building ? enrichBuildingExtension(form.building, shared) : undefined;
-  let pest = form.pest ? applyPestSectionUpdates(form.pest, shared.accessibilityObstructions) : undefined;
+  const building = form.building ? enrichBuildingExtension(form.building, shared, options?.rooms) : undefined;
+  let pest = form.pest
+    ? applyPestSectionUpdates(form.pest, shared.accessibilityObstructions, shared.services)
+    : undefined;
   if (pest) {
     pest = applyPestConclusionUpdates(pest, building);
     pest = enrichPestConclusion(pest, { building });
