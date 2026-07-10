@@ -218,6 +218,13 @@ function ensureJobColumns(db: SqlDatabase) {
     ['cancel_reason', 'TEXT'],
     ['cancel_notes', 'TEXT'],
     ['invoice_path', 'TEXT'],
+    ['agent_phone', 'TEXT'],
+    ['agent_mobile', 'TEXT'],
+    ['agent_email', 'TEXT'],
+    ['ordering_party_type', 'TEXT'],
+    ['payment_received', 'INTEGER NOT NULL DEFAULT 0'],
+    ['paid_at', 'TEXT'],
+    ['xero_invoice_id', 'TEXT'],
   ];
   for (const [name, type] of alters) {
     if (!columnExists(db, 'jobs', name)) {
@@ -236,6 +243,12 @@ function ensureAgreementColumns(db: SqlDatabase) {
   const alters: Array<[string, string]> = [
     ['deleted_at', 'TEXT'],
     ['deleted_reason', 'TEXT'],
+    ['signer_role', "TEXT NOT NULL DEFAULT 'CLIENT'"],
+    ['agency_name', 'TEXT'],
+    ['agent_name', 'TEXT'],
+    ['agent_email', 'TEXT'],
+    ['signed_on_behalf_of', 'TEXT'],
+    ['agent_authority_accepted', 'INTEGER NOT NULL DEFAULT 0'],
   ];
   for (const [name, type] of alters) {
     if (!columnExists(db, 'agreements', name)) {
@@ -398,7 +411,7 @@ export function getDashboardSummary(db: SqlDatabase): DashboardSummary {
     ),
     outstandingInvoices: scalar(
       db,
-      `SELECT COUNT(*) FROM jobs WHERE has_invoice = 1 AND status != 'ARCHIVED' AND IFNULL(deleted_at, '') = ''`,
+      `SELECT COUNT(*) FROM jobs WHERE agreement_status = 'SIGNED' AND payment_received = 0 AND status != 'ARCHIVED' AND IFNULL(deleted_at, '') = ''`,
     ),
     upcomingInspections: scalar(
       db,
@@ -434,6 +447,7 @@ export function getTodayJobs(db: SqlDatabase): TodayJobRow[] {
        j.status,
        j.priority,
        j.agreement_status AS agreementStatus,
+       j.payment_received AS paymentReceived,
        j.has_invoice AS hasInvoice,
        j.has_report AS hasReport,
        c.first_name || ' ' || c.last_name AS clientName,
@@ -448,11 +462,23 @@ export function getTodayJobs(db: SqlDatabase): TodayJobRow[] {
 
   const rows: TodayJobRow[] = [];
   while (stmt.step()) {
-    const row = stmt.getAsObject() as unknown as TodayJobRow;
+    const row = stmt.getAsObject() as Record<string, unknown>;
     rows.push({
-      ...row,
-      hasInvoice: Boolean(row.hasInvoice),
-      hasReport: Boolean(row.hasReport),
+      id: String(row.id),
+      jobNumber: String(row.jobNumber),
+      clientName: String(row.clientName),
+      mobile: String(row.mobile ?? ''),
+      email: String(row.email ?? ''),
+      inspectionType: row.inspectionType as TodayJobRow['inspectionType'],
+      inspectionDate: today,
+      inspectionTime: String(row.inspectionTime),
+      propertyAddress: String(row.propertyAddress),
+      status: row.status as TodayJobRow['status'],
+      priority: row.priority as TodayJobRow['priority'],
+      agreementStatus: row.agreementStatus as TodayJobRow['agreementStatus'],
+      hasInvoice: row.hasInvoice === 1 || row.hasInvoice === true,
+      hasReport: row.hasReport === 1 || row.hasReport === true,
+      paymentReceived: row.paymentReceived === 1 || row.paymentReceived === true,
     });
   }
   stmt.free();

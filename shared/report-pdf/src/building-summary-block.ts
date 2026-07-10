@@ -10,7 +10,7 @@ import {
   normalizeFinishElementDamageEntry,
 } from '../../room-engine-core/src/index.js';
 import type { CheckboxFieldState } from '../../room-engine-core/src/index.js';
-import { escapeHtml } from './html-utils.js';
+import { escapeHtml, renderHeadingGroup, renderSectionHeading } from './html-utils.js';
 import { buildingPdfSectionTitle } from './building-pdf-headings.js';
 import type { ReportRenderContext } from './types.js';
 
@@ -189,21 +189,27 @@ export function renderInspectionFindingsSummaryBlock(ctx: ReportRenderContext): 
     .slice(0, 4);
 
   const recommendationsBlock = priorityRecommendations.length
-    ? `
-  <div class="building-summary-recommendations">
-    <h3 class="report-section-heading">Priority Recommendations</h3>
-    ${renderRecommendationsList(priorityRecommendations)}
-    <p class="building-summary-note">Further recommendations may appear in section ${escapeHtml(RECOMMENDATIONS_SECTION_NAME)}.</p>
-  </div>`
+    ? renderHeadingGroup(
+        renderSectionHeading('Priority Recommendations'),
+        `${renderRecommendationsList(priorityRecommendations)}
+    <p class="building-summary-note">Further recommendations may appear in section ${escapeHtml(RECOMMENDATIONS_SECTION_NAME)}.</p>`,
+        false,
+      )
     : '';
 
   return `
 <section class="report-section inspection-findings-summary building-inspection-summary">
   <p class="building-summary-disclaimer">${escapeHtml(SUMMARY_DISCLAIMER)}</p>
-  <h3 class="report-section-heading">Summary of Inspection Findings</h3>
-  <table class="field-table inspection-summary-ratings building-summary-table">${ratingRows}</table>
-  <h3 class="report-section-heading">Significant Items</h3>
-  <table class="field-table inspection-summary-ratings building-summary-table">${significantRows}</table>
+  ${renderHeadingGroup(
+    renderSectionHeading('Summary of Inspection Findings'),
+    `<table class="field-table inspection-summary-ratings building-summary-table">${ratingRows}</table>`,
+    true,
+  )}
+  ${renderHeadingGroup(
+    renderSectionHeading('Significant Items'),
+    `<table class="field-table inspection-summary-ratings building-summary-table">${significantRows}</table>`,
+    true,
+  )}
   ${recommendationsBlock}
   <p class="building-summary-note">${escapeHtml(URGENCY_NOTICE)}</p>
 </section>`;
@@ -226,10 +232,15 @@ export function renderConclusionNarrativeBlock(
   const text = conclusion.autoConclusion?.trim() ?? '';
   if (!text && !hazardNote?.trim()) return '';
 
+  const body = [
+    text ? `<div class="conclusion-narrative">${renderConclusionParagraphs(text)}</div>` : '',
+    hazardNote ?? '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   return `
 <section class="report-section conclusion-section">
-  <h3 class="report-section-heading">Conclusion</h3>
-  ${text ? `<div class="conclusion-narrative">${renderConclusionParagraphs(text)}</div>` : ''}
-  ${hazardNote ?? ''}
+  ${renderHeadingGroup(renderSectionHeading('Conclusion'), body, false)}
 </section>`;
 }

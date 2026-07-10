@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle2, Copy, FileText, FolderOpen, Mail } from 'lucid
 import { useNavigate, useParams } from 'react-router-dom';
 import { jobTypeToFormKind, isSubfloorApplicable, resolveSubfloorPresent } from '@sitescop/room-engine-core';
 import type { InspectionReportRow } from '@shared/api-types';
+import { jobRequiresPaymentForReportDelivery, NOT_PAID_REPORT_MESSAGE } from '@shared/job-payment';
 import { INSPECTION_TYPE_LABELS } from '@shared/inspection-types';
 import { getSitescopApi } from '@/lib/sitescop-api';
 import { Button, Card, LoadingOverlay, PageHeader } from '@/design-system/components';
@@ -46,6 +47,16 @@ export function InspectionWorkspacePage() {
     enabled: Boolean(jobId),
     retry: 1,
   });
+
+  const { data: job } = useQuery({
+    queryKey: ['job', jobId],
+    queryFn: () => getSitescopApi().jobs.get(jobId),
+    enabled: Boolean(jobId),
+  });
+
+  const reportDeliveryBlocked =
+    job != null &&
+    jobRequiresPaymentForReportDelivery(job.agreementStatus, job.paymentReceived);
 
   const isCompleted = inspection?.status === 'COMPLETED' || Boolean(inspection?.completedAt);
   const formKind = inspection ? jobTypeToFormKind(inspection.jobType) : 'BUILDING';
@@ -111,6 +122,10 @@ export function InspectionWorkspacePage() {
     report.reportType === 'BUILDING' ? 'Building report' : 'Pest report';
 
   async function copyReportPdf(report: InspectionReportRow) {
+    if (reportDeliveryBlocked) {
+      setCopyFeedback(NOT_PAID_REPORT_MESSAGE);
+      return;
+    }
     setCopyFeedback(null);
     setCopyingReportId(report.id);
     try {
@@ -125,6 +140,10 @@ export function InspectionWorkspacePage() {
 
   async function copyAllReportPdfs() {
     if (reports.length < 2) return;
+    if (reportDeliveryBlocked) {
+      setCopyFeedback(NOT_PAID_REPORT_MESSAGE);
+      return;
+    }
     setCopyFeedback(null);
     setCopyingAll(true);
     try {
@@ -198,13 +217,18 @@ export function InspectionWorkspacePage() {
           rooms={rooms}
           onRoomPatch={patchRoom}
           onRoomDataChange={updateRoomData}
+          workflowStorageKey={inspection.id}
         />
       ) : (
         <p className="text-danger">Combined inspection data is incomplete. Contact support.</p>
       )
     ) : formKind === 'PEST' && formData.pest ? (
       <InspectionFormProvider>
-        <InspectionAccordion defaultOpenId="inspector-hazard" routeIds={pestRouteIds}>
+        <InspectionAccordion
+          defaultOpenId="inspector-hazard"
+          routeIds={pestRouteIds}
+          workflowStorageKey={inspection.id}
+        >
           <BuildingInspectionForm
             formData={formData}
             onSectionChange={patchSection}
@@ -230,6 +254,7 @@ export function InspectionWorkspacePage() {
         rooms={rooms}
         onRoomDataChange={updateRoomData}
         onRoomPatch={patchRoom}
+        workflowStorageKey={inspection.id}
       />
     );
 
@@ -291,6 +316,9 @@ export function InspectionWorkspacePage() {
               <p className="text-sm font-semibold text-text">PDF reports</p>
               <p className="mt-1 text-xs text-text-light">
                 Generate professional inspection reports from the completed form data.
+                {reportDeliveryBlocked
+                  ? ' You can generate and open PDFs to review — copy and email to the client unlock when the job is marked paid.'
+                  : ''}
               </p>
               {generateReportsMutation.isError && (
                 <p className="mt-2 text-sm text-danger">
@@ -306,7 +334,15 @@ export function InspectionWorkspacePage() {
                   {emailFeedback.text}
                 </p>
               )}
-              {copyFeedback && <p className="mt-2 text-sm text-success">{copyFeedback}</p>}
+              {copyFeedback && (
+                <p
+                  className={`mt-2 text-sm ${
+                    copyFeedback === NOT_PAID_REPORT_MESSAGE ? 'text-danger' : 'text-success'
+                  }`}
+                >
+                  {copyFeedback}
+                </p>
+              )}
               {inspection.clientEmail && (
                 <p className="mt-1 text-xs text-text-muted">
                   Client email: {inspection.clientEmail}
@@ -335,7 +371,12 @@ export function InspectionWorkspacePage() {
                 </Button>
               )}
               {formKind === 'COMBINED' && reports.length >= 2 && (
-                <Button variant="secondary" disabled={copyingAll} onClick={() => void copyAllReportPdfs()}>
+                <Button
+                  variant="secondary"
+                  disabled={copyingAll}
+                  title={reportDeliveryBlocked ? NOT_PAID_REPORT_MESSAGE : undefined}
+                  onClick={() => void copyAllReportPdfs()}
+                >
                   <Copy className="h-4 w-4" />
                   {copyingAll ? 'Copying…' : 'Copy both reports'}
                 </Button>
@@ -364,6 +405,7 @@ export function InspectionWorkspacePage() {
                       variant="secondary"
                       size="sm"
                       disabled={copyingReportId === report.id}
+                      title={reportDeliveryBlocked ? NOT_PAID_REPORT_MESSAGE : undefined}
                       onClick={() => void copyReportPdf(report)}
                     >
                       <Copy className="h-4 w-4" />
@@ -371,7 +413,14 @@ export function InspectionWorkspacePage() {
                     </Button>
                     <Button
                       size="sm"
-                      onClick={() => emailReportMutation.mutate(report.id)}
+                      title={reportDeliveryBlocked ? NOT_PAID_REPORT_MESSAGE : undefined}
+                      onClick={() => {
+                        if (reportDeliveryBlocked) {
+                          setEmailFeedback({ type: 'error', text: NOT_PAID_REPORT_MESSAGE });
+                          return;
+                        }
+                        emailReportMutation.mutate(report.id);
+                      }}
                       disabled={emailReportMutation.isPending}
                     >
                       <Mail className="h-4 w-4" />

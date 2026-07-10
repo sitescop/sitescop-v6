@@ -1,11 +1,13 @@
 import {
   NO_EVIDENCE_FOUND,
-  NO_ISSUES_OBSERVED_COMMENT,
+  NO_MAJOR_DEFECT_OBSERVED_COMMENT,
+  isNoMajorDefectObserved,
   normalizeCheckboxField,
   isPestEvidenceFound,
   isPestNoEvidenceFound,
   isPestPresenceUndetermined,
   PRESENCE_UNDETERMINED,
+  SUBFLOOR_VENTILATION_NOT_APPLICABLE,
   type BuildingExtensionSections,
   type CheckboxFieldState,
   type GarageRoomData,
@@ -21,6 +23,19 @@ import type { InspectionRoomDetail } from '@shared/inspection-types';
 import { InspectionRoomType } from '@shared/inspection-types';
 
 export type SectionCompletionStatus = 'not_started' | 'in_progress' | 'completed';
+
+/** Accordion colour from inspector workflow (open / close / next), not form defaults alone. */
+export function resolveWorkflowSectionStatus(
+  sectionId: string,
+  openId: string | null,
+  visitedIds: ReadonlySet<string>,
+  completedIds: ReadonlySet<string>,
+): SectionCompletionStatus {
+  if (!visitedIds.has(sectionId)) return 'not_started';
+  if (openId === sectionId) return 'in_progress';
+  if (completedIds.has(sectionId)) return 'completed';
+  return 'in_progress';
+}
 
 const hasText = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
 
@@ -55,6 +70,9 @@ function resolveStatus(hasActivity: boolean, requiredComplete: boolean): Section
 }
 
 function checklistStatus(section: object): SectionCompletionStatus {
+  if (isNoMajorDefectObserved(section as { noMajorDefectObserved?: boolean; comments?: string })) {
+    return 'completed';
+  }
   if (sectionActivity(section)) return 'completed';
   return 'not_started';
 }
@@ -100,12 +118,12 @@ function narrativeAnswerStatus(
 
 function hasNoIssuesComment(comments: string | undefined): boolean {
   const text = comments?.trim() ?? '';
-  return text.length > 0 && text.includes(NO_ISSUES_OBSERVED_COMMENT);
+  return text.length > 0 && text.includes(NO_MAJOR_DEFECT_OBSERVED_COMMENT);
 }
 
 function getGarageRoomStatus(data: Record<string, unknown>): SectionCompletionStatus {
   const garage = data as unknown as GarageRoomData;
-  if (hasNoIssuesComment(garage.comments)) return 'completed';
+  if (isNoMajorDefectObserved(garage)) return 'completed';
   if (hasCheckboxes(garage.defects) || hasCheckboxes(garage.damageObserved)) return 'completed';
   if (sectionActivity(garage)) return 'completed';
   return 'not_started';
@@ -124,7 +142,7 @@ export function getMoistureThermalStatus(
   if (moisture.visualMoistureEvidence === 'Yes' || moisture.excessiveMoistureEvidence === 'Yes') {
     return 'completed';
   }
-  if (hasNoIssuesComment(moisture.comments)) return 'completed';
+  if (hasNoIssuesComment(moisture.comments) || isNoMajorDefectObserved(moisture)) return 'completed';
   if (moistureThermalActivity(moisture) || sectionActivity(thermal)) return 'completed';
   return 'not_started';
 }
@@ -161,6 +179,7 @@ export function getServicesStatus(section: SharedInspectionSections['services'])
     hasCheckboxes(section.gas) ||
     hasText(section.hotWaterPresent) ||
     hasText(section.airConPresent) ||
+    hasText(section.rainwaterTankPresent) ||
     sectionActivity(section);
   const complete =
     (hasCheckboxes(section.waterSupply) || hasCheckboxes(section.sewer)) &&
@@ -169,20 +188,50 @@ export function getServicesStatus(section: SharedInspectionSections['services'])
   return resolveStatus(activity, complete);
 }
 
-export function getPropertyDescriptionStatus(section: SharedInspectionSections['propertyDescription']): SectionCompletionStatus {
-  const core =
+export function getPropertyDescriptionStatus(
+  section: SharedInspectionSections['propertyDescription'],
+  resolvedSubfloorPresent?: string,
+): SectionCompletionStatus {
+  const subfloorAnswer = hasText(section.subfloorPresent)
+    ? section.subfloorPresent
+    : resolvedSubfloorPresent?.trim() ?? '';
+
+  const hasPropertyType =
     hasText(section.propertyType) &&
+    (section.propertyType !== 'Other' || hasText(section.propertyTypeOther));
+
+  const core =
+    hasPropertyType &&
     hasText(section.storeys) &&
     hasText(section.orientation) &&
     hasText(section.positionOnBlock) &&
-    hasText(section.subfloorPresent);
+    hasText(subfloorAnswer);
+
   const materials =
     hasCheckboxes(section.walls) ||
     hasCheckboxes(section.roof) ||
     hasCheckboxes(section.floor) ||
-    hasCheckboxes(section.frame);
-  const activity = core || materials || hasText(section.buildingAgeYears);
-  if (core && materials) return 'completed';
+    hasCheckboxes(section.frame) ||
+    hasCheckboxes(section.fencing);
+
+  if (core && (materials || sectionActivity(section))) {
+    return 'completed';
+  }
+
+  const activity =
+    hasPropertyType ||
+    hasText(subfloorAnswer) ||
+    materials ||
+    hasText(section.buildingAgeYears) ||
+    hasText(section.storeys) ||
+    hasText(section.orientation) ||
+    hasText(section.positionOnBlock) ||
+    section.bedroomCount > 0 ||
+    section.bathroomCount > 0 ||
+    section.livingAreaCount > 0 ||
+    section.garageCount > 0 ||
+    sectionActivity(section);
+
   if (activity) return 'in_progress';
   return 'not_started';
 }
@@ -211,6 +260,7 @@ export function getSiteConditionsStatus(section: SharedInspectionSections['siteC
 }
 
 export function getKitchenStatus(section: BuildingExtensionSections['kitchen']): SectionCompletionStatus {
+  if (isNoMajorDefectObserved(section)) return 'completed';
   const keys = [
     'cabinetDoorsOperating',
     'cabinetDamage',
@@ -228,6 +278,7 @@ export function getKitchenStatus(section: BuildingExtensionSections['kitchen']):
 }
 
 export function getLaundryStatus(section: BuildingExtensionSections['laundry']): SectionCompletionStatus {
+  if (isNoMajorDefectObserved(section)) return 'completed';
   const keys = ['cabinetDamage', 'drainage', 'floorCondition', 'lights', 'powerPoints'];
   const { filled, total } = ratingActivity(section as unknown as Record<string, unknown>, keys);
   if (sectionActivity(section) || filled === total) return 'completed';
@@ -328,7 +379,7 @@ export function getPestSectionStatus(
   if (sectionKey === 'd9SubfloorVentilation') {
     const d9 = section as PestInspectionSections['d9SubfloorVentilation'];
     return narrativeAnswerStatus(d9.answer, d9, [
-      'Not applicable due to construction design.',
+      SUBFLOOR_VENTILATION_NOT_APPLICABLE,
       NO_EVIDENCE_FOUND,
       'No evidence was found.',
       'Undetermined due to access restrictions.',
@@ -375,10 +426,13 @@ export function getRoomSectionStatus(rooms: InspectionRoomDetail[], roomType: In
   const typed = rooms.filter((room) => room.roomType === roomType);
   if (typed.length === 0) return 'not_started';
 
-  const statusForRoom = (room: InspectionRoomDetail) =>
-    roomType === InspectionRoomType.GARAGE
+  const statusForRoom = (room: InspectionRoomDetail) => {
+    const data = room.data as { noMajorDefectObserved?: boolean; comments?: string };
+    if (isNoMajorDefectObserved(data)) return 'completed' as SectionCompletionStatus;
+    return roomType === InspectionRoomType.GARAGE
       ? getGarageRoomStatus(room.data as Record<string, unknown>)
       : checklistStatus(room.data as Record<string, unknown>);
+  };
 
   const statuses = typed.map(statusForRoom);
   if (statuses.every((status) => status === 'completed')) return 'completed';
@@ -437,7 +491,7 @@ export function buildInspectionSectionStatuses(
     'inspector-hazard': getInspectorHazardStatus(shared.inspectorHazardAssessment),
     'job-information': getJobInformationStatus(shared.jobInformation),
     services: getServicesStatus(shared.services),
-    'property-description': getPropertyDescriptionStatus(shared.propertyDescription),
+    'property-description': getPropertyDescriptionStatus(shared.propertyDescription, subfloorPresent),
     accessibility: getAccessibilityStatus(shared.accessibilityObstructions, subfloorApplicable),
     'site-conditions': getSiteConditionsStatus(shared.siteConditions),
     external: checklistStatus(shared.external),

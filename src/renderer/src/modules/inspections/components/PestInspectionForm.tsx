@@ -46,6 +46,7 @@ interface PestInspectionFormProps {
   readOnly?: boolean;
   embedded?: boolean;
   subfloorApplicable?: boolean;
+  workflowStorageKey?: string;
 }
 
 export function PestInspectionForm({
@@ -54,6 +55,7 @@ export function PestInspectionForm({
   readOnly,
   embedded = false,
   subfloorApplicable = true,
+  workflowStorageKey,
 }: PestInspectionFormProps) {
   const disabled = Boolean(readOnly);
   const patch = (section: keyof PestInspectionSections, partial: Record<string, unknown>) => {
@@ -324,7 +326,11 @@ export function PestInspectionForm({
 
   return (
     <InspectionFormProvider>
-      <InspectionAccordion defaultOpenId="pest-risk" routeIds={routeIds}>
+      <InspectionAccordion
+        defaultOpenId="pest-risk"
+        routeIds={routeIds}
+        workflowStorageKey={workflowStorageKey}
+      >
         {sections}
       </InspectionAccordion>
     </InspectionFormProvider>

@@ -208,6 +208,7 @@ export async function putGitHubFileText(
   message: string,
   token = settings.personalAccessToken,
   existingSha?: string,
+  allowConflictRetry = true,
 ): Promise<void> {
   const encodedPath = path
     .split('/')
@@ -236,6 +237,23 @@ export async function putGitHubFileText(
 
   if (!response.ok) {
     const apiMessage = await readErrorMessage(response);
+    const shaConflict =
+      response.status === 409 || /does not match/i.test(apiMessage);
+    if (allowConflictRetry && shaConflict) {
+      const latest = await getGitHubFileText(settings, path, token);
+      if (latest && latest.sha !== existingSha) {
+        await putGitHubFileText(
+          settings,
+          path,
+          content,
+          message,
+          token,
+          latest.sha,
+          false,
+        );
+        return;
+      }
+    }
     if (response.status === 401 || response.status === 403) {
       throw mapGitHubHttpError(response.status, apiMessage);
     }

@@ -24,6 +24,8 @@ import type {
   GitHubSettingsPublic,
   BillingSettings,
   BillingSettingsInput,
+  XeroSettingsInput,
+  XeroSettingsPublic,
   InspectionType,
   ReportSettings,
   ReportSettingsInput,
@@ -55,6 +57,18 @@ interface StoredSettingsFile {
   billing?: Partial<BillingSettings>;
   branding?: {
     logoFileName?: string;
+  };
+  xero?: {
+    enabled?: boolean;
+    clientId?: string;
+    clientSecret?: string;
+    encryptedClientSecret?: string;
+    salesAccountCode?: string;
+    encryptedAccessToken?: string;
+    encryptedRefreshToken?: string;
+    tokenExpiresAt?: number;
+    tenantId?: string;
+    tenantName?: string;
   };
 }
 
@@ -441,4 +455,122 @@ export function saveGitHubSettings(input: GitHubSettingsInput): GitHubSettingsPu
   };
   saveRaw(raw);
   return getGitHubSettingsPublic();
+}
+
+export interface XeroSettings {
+  enabled: boolean;
+  clientId: string;
+  clientSecret: string;
+  salesAccountCode: string;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+  tenantId: string;
+  tenantName: string;
+}
+
+const DEFAULT_XERO: XeroSettings = {
+  enabled: false,
+  clientId: '',
+  clientSecret: '',
+  salesAccountCode: '200',
+  accessToken: '',
+  refreshToken: '',
+  tokenExpiresAt: 0,
+  tenantId: '',
+  tenantName: '',
+};
+
+function readXeroSettings(): XeroSettings {
+  const raw = loadRaw().xero ?? {};
+  return {
+    enabled: raw.enabled ?? false,
+    clientId: raw.clientId?.trim() ?? '',
+    clientSecret: raw.encryptedClientSecret
+      ? decryptSecret(raw.encryptedClientSecret)
+      : raw.clientSecret?.trim() ?? '',
+    salesAccountCode: raw.salesAccountCode?.trim() || DEFAULT_XERO.salesAccountCode,
+    accessToken: raw.encryptedAccessToken ? decryptSecret(raw.encryptedAccessToken) : '',
+    refreshToken: raw.encryptedRefreshToken ? decryptSecret(raw.encryptedRefreshToken) : '',
+    tokenExpiresAt: Number(raw.tokenExpiresAt ?? 0),
+    tenantId: raw.tenantId?.trim() ?? '',
+    tenantName: raw.tenantName?.trim() ?? '',
+  };
+}
+
+export function getXeroSettings(): XeroSettings {
+  return readXeroSettings();
+}
+
+export function getXeroSettingsPublic(): XeroSettingsPublic {
+  const settings = readXeroSettings();
+  return {
+    enabled: settings.enabled,
+    clientId: settings.clientId,
+    hasClientSecret: Boolean(settings.clientSecret),
+    salesAccountCode: settings.salesAccountCode,
+    connected: Boolean(settings.refreshToken && settings.tenantId),
+    tenantName: settings.tenantName,
+    redirectUri: 'http://localhost:53682/xero/callback',
+  };
+}
+
+export function isXeroConnected(): boolean {
+  const settings = readXeroSettings();
+  return Boolean(settings.enabled && settings.refreshToken && settings.tenantId && settings.clientId && settings.clientSecret);
+}
+
+export function saveXeroSettings(input: XeroSettingsInput): XeroSettingsPublic {
+  const current = readXeroSettings();
+  const next: XeroSettings = {
+    ...current,
+    enabled: input.enabled,
+    clientId: input.clientId.trim(),
+    clientSecret: input.clientSecret?.trim() || current.clientSecret,
+    salesAccountCode: input.salesAccountCode.trim() || DEFAULT_XERO.salesAccountCode,
+  };
+
+  const raw = loadRaw();
+  raw.xero = {
+    enabled: next.enabled,
+    clientId: next.clientId,
+    encryptedClientSecret: encryptSecret(next.clientSecret),
+    salesAccountCode: next.salesAccountCode,
+    encryptedAccessToken: encryptSecret(next.accessToken),
+    encryptedRefreshToken: encryptSecret(next.refreshToken),
+    tokenExpiresAt: next.tokenExpiresAt,
+    tenantId: next.tenantId,
+    tenantName: next.tenantName,
+  };
+  delete raw.xero?.clientSecret;
+  saveRaw(raw);
+  return getXeroSettingsPublic();
+}
+
+export function saveXeroTokens(settings: XeroSettings): void {
+  const raw = loadRaw();
+  raw.xero = {
+    enabled: settings.enabled,
+    clientId: settings.clientId.trim(),
+    encryptedClientSecret: encryptSecret(settings.clientSecret),
+    salesAccountCode: settings.salesAccountCode.trim() || DEFAULT_XERO.salesAccountCode,
+    encryptedAccessToken: encryptSecret(settings.accessToken),
+    encryptedRefreshToken: encryptSecret(settings.refreshToken),
+    tokenExpiresAt: settings.tokenExpiresAt,
+    tenantId: settings.tenantId,
+    tenantName: settings.tenantName,
+  };
+  saveRaw(raw);
+}
+
+export function clearXeroConnection(): void {
+  const current = readXeroSettings();
+  saveXeroTokens({
+    ...current,
+    accessToken: '',
+    refreshToken: '',
+    tokenExpiresAt: 0,
+    tenantId: '',
+    tenantName: '',
+  });
 }

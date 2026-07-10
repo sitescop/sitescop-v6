@@ -5,6 +5,7 @@ import {
   getPublicAgreement,
   markAgreementViewed,
   signAgreement,
+  syncAgentDetailsFromJob,
 } from './agreements.service.js';
 import { GitHubCloudError, wrapGitHubNetworkError } from './github-errors.js';
 import { getGitHubFileText, listGitHubDirectory, putGitHubFileText } from './github.service.js';
@@ -36,6 +37,8 @@ export interface GitHubSignedAgreementFile {
   signatureName: string;
   signatureData: string;
   declarationsAccepted: boolean;
+  signingParty?: 'CLIENT' | 'AGENT';
+  agentAuthorityAccepted?: boolean;
   signedAt: string;
 }
 
@@ -48,8 +51,7 @@ export interface GitHubSyncResult {
 
 export function buildGitHubSigningUrl(token: string, settings = getGitHubSettings()): string {
   const base = settings.pagesBaseUrl.replace(/\/$/, '');
-  const separator = base.includes('?') ? '&' : '?';
-  return `${base}${separator}token=${encodeURIComponent(token)}`;
+  return `${base}/?token=${encodeURIComponent(token)}`;
 }
 
 function buildSubmitEndpoints(token: string, settings = getGitHubSettings()) {
@@ -74,6 +76,8 @@ export async function pushSignedAgreementToGitHub(
     signatureName: input.signatureName.trim(),
     signatureData: input.signatureData,
     declarationsAccepted: input.declarationsAccepted,
+    signingParty: input.signingParty,
+    agentAuthorityAccepted: input.agentAuthorityAccepted,
     signedAt: new Date().toISOString(),
   };
   const path = `${SIGNED_DIR}/${token}.json`;
@@ -116,6 +120,12 @@ export async function pushPendingAgreementToGitHub(
       'UPLOAD_FAILED',
     );
   }
+
+  if (agreement.status === 'SIGNED' || agreement.status === 'CANCELLED') {
+    return;
+  }
+
+  syncAgentDetailsFromJob(db, agreementId);
 
   const publicView = getPublicAgreement(db, agreement.accessToken);
   if (!publicView) {
@@ -204,6 +214,8 @@ export async function syncSignedAgreementsFromGitHub(
           signatureName: payload.signatureName.trim(),
           signatureData: payload.signatureData,
           declarationsAccepted: payload.declarationsAccepted ?? true,
+          signingParty: payload.signingParty,
+          agentAuthorityAccepted: payload.agentAuthorityAccepted,
         };
 
         await signAgreement(db, token, input);

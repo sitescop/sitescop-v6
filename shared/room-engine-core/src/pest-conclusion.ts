@@ -9,10 +9,12 @@ import {
   EVIDENCE_FOUND,
   isPestEvidenceFound,
   MANAGEMENT_PROPOSAL_OPTIONS,
+  NO_EVIDENCE_FOUND,
   formatPestFutureInspectionFrequency,
   PEST_CONCLUSION_RECOMMENDATIONS,
   PLUMBING_MOISTURE_LOCATION_PRESETS,
   ROOF_MOISTURE_LOCATION_PRESETS,
+  SUBFLOOR_VENTILATION_NOT_APPLICABLE,
 } from './pest-options.js';
 import { normalizeCheckboxField } from './defaults.js';
 import {
@@ -461,6 +463,7 @@ export function applyPestSectionUpdates(
   pest: PestInspectionSections,
   accessibility?: AccessibilityObstructionsSection,
   services?: ServicesSection,
+  options?: { subfloorApplicable?: boolean },
 ): PestInspectionSections {
   let updated: PestInspectionSections = {
     ...pest,
@@ -493,7 +496,41 @@ export function applyPestSectionUpdates(
     updated = syncD11BarrierBridgingFromServices(updated, services);
   }
 
+  updated = syncD9SubfloorVentilationAnswer(updated, options?.subfloorApplicable);
+
   return enrichPestConclusion(applyPestConclusionUpdates(updated));
+}
+
+function syncD9SubfloorVentilationAnswer(
+  pest: PestInspectionSections,
+  subfloorApplicable?: boolean,
+): PestInspectionSections {
+  if (subfloorApplicable === undefined) return pest;
+
+  const current = pest.d9SubfloorVentilation.answer?.trim() ?? '';
+
+  if (!subfloorApplicable) {
+    if (current === SUBFLOOR_VENTILATION_NOT_APPLICABLE) return pest;
+    return {
+      ...pest,
+      d9SubfloorVentilation: {
+        ...pest.d9SubfloorVentilation,
+        answer: SUBFLOOR_VENTILATION_NOT_APPLICABLE,
+      },
+    };
+  }
+
+  if (!current) {
+    return {
+      ...pest,
+      d9SubfloorVentilation: {
+        ...pest.d9SubfloorVentilation,
+        answer: NO_EVIDENCE_FOUND,
+      },
+    };
+  }
+
+  return pest;
 }
 
 function mergePhotoRefs(existing: InspectionPhotoRef[], incoming: InspectionPhotoRef[]): InspectionPhotoRef[] {

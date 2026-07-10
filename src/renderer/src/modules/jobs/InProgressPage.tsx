@@ -6,7 +6,7 @@ import { getSitescopApi } from '@/lib/sitescop-api';
 import { filterJobsBySearch } from '@/lib/job-search';
 import { Button, Card } from '@/design-system/components';
 import { formatDisplayDate } from '@/lib/dates';
-import { PriorityBadge, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
+import { PriorityBadge, PaymentBadge, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
 import { JobQuickActions } from '@/modules/jobs/components/JobQuickActions';
 import { JobListSearchBar } from '@/modules/jobs/components/JobListSearchBar';
 import { useJobDelete } from '@/modules/jobs/hooks/useJobDelete';
@@ -97,6 +97,10 @@ export function InProgressPage() {
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <TypeBadge type={job.inspectionType} />
                       <StatusBadge status={job.status} />
+                      <PaymentBadge
+                        agreementStatus={job.agreementStatus}
+                        paymentReceived={job.paymentReceived}
+                      />
                       <PriorityBadge priority={job.priority} />
                       <span className="text-sm font-semibold text-primary">{job.inspectionTime}</span>
                       <span className="text-sm text-text-light">{formatDisplayDate(job.inspectionDate)}</span>

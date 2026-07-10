@@ -6,9 +6,12 @@ import { app } from 'electron';
 import type { Database as SqlDatabase } from 'sql.js';
 import type {
   AgreementDetail,
+  AgreementLegalSection,
   AgreementRow,
+  AgreementSignerRole,
   AgreementStatus,
   CreateAgreementInput,
+  CreateJobResult,
   InspectionType,
   PublicAgreementView,
   SessionUser,
@@ -19,23 +22,29 @@ import {
   DEFAULT_REPORT_SETTINGS,
   SITESCOP_PDF_FOOTER_TEXT,
 } from '../../shared/company-branding.js';
-import { getResolvedCompanyBranding, getResolvedReportSettings, getDefaultInspectionPriceCents } from './settings.service.js';
+import { getResolvedCompanyBranding, getResolvedReportSettings, getDefaultInspectionPriceCents, getReportLogoPreviewDataUrl } from './settings.service.js';
 import { generateAgreementPdf } from '../../shared/report-pdf/src/index.js';
 import {
   ensureAgreementLegalPath,
   inspectionTypeLabel,
   loadLegalSectionsForType,
   resolveLegalSections,
+  buildAgentAuthoritySection,
+  withAgentAuthoritySection,
   type AgreementLegalContent,
 } from './agreement-legal.js';
 import { setLegalBasePath } from '../../shared/report-pdf/src/legal-loader.js';
-import { getJobDetail } from './jobs.service.js';
+import { createJob, getJobDetail } from './jobs.service.js';
 
 const GST_RATE = 10;
 
 function calculatePricing(priceCents: number) {
   const gstCents = Math.round(priceCents * (GST_RATE / 100));
   return { gstCents, totalCents: priceCents + gstCents };
+}
+
+function parseSignerRole(value: unknown): AgreementSignerRole {
+  return value === 'AGENT' ? 'AGENT' : 'CLIENT';
 }
 
 function mapAgreementRow(row: Record<string, unknown>): AgreementRow {
@@ -46,6 +55,15 @@ function mapAgreementRow(row: Record<string, unknown>): AgreementRow {
     jobNumber: row.jobNumber ? String(row.jobNumber) : null,
     status: row.status as AgreementStatus,
     inspectionType: row.inspectionType as InspectionType,
+    signerRole: parseSignerRole(row.signerRole ?? row.signer_role),
+    agencyName: row.agencyName || row.agency_name ? String(row.agencyName ?? row.agency_name) : null,
+    agentName: row.agentName || row.agent_name ? String(row.agentName ?? row.agent_name) : null,
+    agentEmail: row.agentEmail || row.agent_email ? String(row.agentEmail ?? row.agent_email) : null,
+    signedOnBehalfOf:
+      row.signedOnBehalfOf || row.signed_on_behalf_of
+        ? String(row.signedOnBehalfOf ?? row.signed_on_behalf_of)
+        : null,
+    agentAuthorityAccepted: Boolean(Number(row.agentAuthorityAccepted ?? row.agent_authority_accepted ?? 0)),
     clientName: String(row.clientName),
     clientEmail: String(row.clientEmail),
     clientPhone: row.clientPhone ? String(row.clientPhone) : null,
@@ -159,6 +177,12 @@ export function listAgreements(
        j.job_number AS jobNumber,
        a.status,
        a.inspection_type AS inspectionType,
+       a.signer_role AS signerRole,
+       a.agency_name AS agencyName,
+       a.agent_name AS agentName,
+       a.agent_email AS agentEmail,
+       a.signed_on_behalf_of AS signedOnBehalfOf,
+       a.agent_authority_accepted AS agentAuthorityAccepted,
        a.client_name AS clientName,
        a.client_email AS clientEmail,
        a.client_phone AS clientPhone,
@@ -201,6 +225,12 @@ export function getAgreement(db: SqlDatabase, agreementId: string): AgreementDet
     agreementNumber: row.agreement_number,
     jobId: row.job_id,
     inspectionType: row.inspection_type,
+    signerRole: row.signer_role,
+    agencyName: row.agency_name,
+    agentName: row.agent_name,
+    agentEmail: row.agent_email,
+    signedOnBehalfOf: row.signed_on_behalf_of,
+    agentAuthorityAccepted: row.agent_authority_accepted,
     clientName: row.client_name,
     clientEmail: row.client_email,
     clientPhone: row.client_phone,
@@ -240,18 +270,24 @@ export function createAgreement(db: SqlDatabase, input: CreateAgreementInput): A
   const { gstCents, totalCents } = calculatePricing(priceCents);
   const legalSections = loadLegalSectionsForType(input.inspectionType);
   const agreementDate = input.agreementDate ?? new Date().toISOString().slice(0, 10);
+  const agentFields = resolveCreateAgentFields(db, input);
 
   db.run(
     `INSERT INTO agreements (
        id, agreement_number, job_id, status, inspection_type,
+       signer_role, agency_name, agent_name, agent_email,
        client_name, client_email, client_phone, property_address,
        price_cents, gst_cents, total_cents, agreement_date, notes, legal_sections
-     ) VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       agreementNumber,
       input.jobId ?? null,
       input.inspectionType,
+      agentFields.signerRole,
+      agentFields.agencyName,
+      agentFields.agentName,
+      agentFields.agentEmail,
       input.clientName.trim(),
       input.clientEmail.trim().toLowerCase(),
       input.clientPhone?.trim() || null,
@@ -269,7 +305,11 @@ export function createAgreement(db: SqlDatabase, input: CreateAgreementInput): A
     syncJobAgreementStatus(db, input.jobId, 'DRAFT');
   }
 
-  return getAgreement(db, id)!;
+  const created = getAgreement(db, id)!;
+  if (input.jobId) {
+    syncAgentDetailsFromJob(db, id);
+  }
+  return resolveAgreementAgentView(db, getAgreement(db, id)! ?? created);
 }
 
 export function createAgreementFromJob(db: SqlDatabase, jobId: string): AgreementDetail {
@@ -281,7 +321,8 @@ export function createAgreementFromJob(db: SqlDatabase, jobId: string): Agreemen
   if (existing.step()) {
     const row = existing.getAsObject() as { id: string };
     existing.free();
-    return getAgreement(db, row.id)!;
+    syncAgentDetailsFromJob(db, row.id);
+    return resolveAgreementAgentView(db, getAgreement(db, row.id)!);
   }
   existing.free();
 
@@ -294,7 +335,72 @@ export function createAgreementFromJob(db: SqlDatabase, jobId: string): Agreemen
     propertyAddress: job.propertyAddress,
     priceCents: getDefaultInspectionPriceCents(job.inspectionType),
     notes: job.notes,
+    signerRole: 'CLIENT',
+    agencyName: job.realEstate?.trim() || undefined,
+    agentName: job.agentName?.trim() || undefined,
+    agentEmail: job.agentEmail?.trim() || undefined,
   });
+}
+
+function splitAgreementClientName(clientName: string): { firstName: string; lastName: string } {
+  const trimmed = clientName.trim();
+  if (!trimmed) return { firstName: 'Client', lastName: '' };
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
+}
+
+export async function createJobFromSignedAgreement(
+  db: SqlDatabase,
+  agreementId: string,
+): Promise<CreateJobResult & { agreement: AgreementDetail }> {
+  const agreement = getAgreement(db, agreementId);
+  if (!agreement) throw new Error('Agreement not found.');
+  if (agreement.status !== 'SIGNED') {
+    throw new Error('Only signed agreements can be converted to a job.');
+  }
+  if (agreement.jobId) {
+    throw new Error('This agreement is already linked to a job.');
+  }
+
+  const { firstName, lastName } = splitAgreementClientName(agreement.clientName);
+  const inspectionDate =
+    agreement.signedAt?.slice(0, 10) ||
+    agreement.agreementDate ||
+    new Date().toISOString().slice(0, 10);
+  const hasAgent = Boolean(agreement.agencyName?.trim() || agreement.agentName?.trim());
+
+  const result = createJob(db, {
+    clientFirstName: firstName,
+    clientLastName: lastName,
+    clientEmail: agreement.clientEmail || undefined,
+    clientMobile: agreement.clientPhone || undefined,
+    propertyAddress: agreement.propertyAddress,
+    inspectionType: agreement.inspectionType,
+    inspectionDate,
+    inspectionTime: '09:00',
+    realEstate: agreement.agencyName?.trim() || undefined,
+    orderingPartyType: hasAgent ? 'Agent' : undefined,
+    agentName: agreement.agentName?.trim() || undefined,
+    agentEmail: agreement.agentEmail?.trim() || undefined,
+    notes: agreement.notes?.trim() || undefined,
+  });
+
+  db.run(`UPDATE agreements SET job_id = ?, updated_at = datetime('now') WHERE id = ?`, [
+    result.job.id,
+    agreementId,
+  ]);
+  syncJobAgreementStatus(db, result.job.id, 'SIGNED');
+
+  try {
+    const { generateInvoicePdfForJob } = await import('./invoices.service.js');
+    await generateInvoicePdfForJob(db, result.job.id);
+  } catch {
+    // Invoice can be generated later from the job or client screen.
+  }
+
+  const linked = getAgreement(db, agreementId)!;
+  return { ...result, agreement: linked };
 }
 
 export function updateAgreement(
@@ -313,10 +419,20 @@ export function updateAgreement(
     input.inspectionType && input.inspectionType !== existing.inspectionType
       ? loadLegalSectionsForType(inspectionType)
       : existing.legalSections;
+  const signerRole = input.signerRole ?? existing.signerRole;
+  const agencyName =
+    input.agencyName !== undefined ? input.agencyName?.trim() || null : existing.agencyName;
+  const agentName = input.agentName !== undefined ? input.agentName?.trim() || null : existing.agentName;
+  const agentEmail =
+    input.agentEmail !== undefined ? input.agentEmail?.trim().toLowerCase() || null : existing.agentEmail;
 
   db.run(
     `UPDATE agreements SET
        inspection_type = ?,
+       signer_role = ?,
+       agency_name = ?,
+       agent_name = ?,
+       agent_email = ?,
        client_name = ?,
        client_email = ?,
        client_phone = ?,
@@ -331,6 +447,10 @@ export function updateAgreement(
      WHERE id = ?`,
     [
       inspectionType,
+      signerRole,
+      agencyName,
+      agentName,
+      agentEmail,
       (input.clientName ?? existing.clientName).trim(),
       (input.clientEmail ?? existing.clientEmail).trim().toLowerCase(),
       input.clientPhone !== undefined ? input.clientPhone?.trim() || null : existing.clientPhone,
@@ -345,7 +465,134 @@ export function updateAgreement(
     ],
   );
 
-  return getAgreement(db, agreementId)!;
+  syncAgentDetailsFromJob(db, agreementId);
+  return resolveAgreementAgentView(db, getAgreement(db, agreementId)!);
+}
+
+function getAvailableAgentContext(
+  db: SqlDatabase,
+  agreement: AgreementDetail,
+): {
+  agencyName: string | null;
+  agentName: string | null;
+  agentEmail: string | null;
+} {
+  if (agreement.agentName?.trim()) {
+    return {
+      agencyName: agreement.agencyName,
+      agentName: agreement.agentName.trim(),
+      agentEmail: agreement.agentEmail,
+    };
+  }
+
+  if (agreement.jobId) {
+    const job = getJobDetail(db, agreement.jobId);
+    if (job?.agentName?.trim()) {
+      return {
+        agencyName: job.realEstate?.trim() || agreement.agencyName,
+        agentName: job.agentName.trim(),
+        agentEmail: job.agentEmail?.trim().toLowerCase() || agreement.agentEmail,
+      };
+    }
+  }
+
+  return {
+    agencyName: agreement.agencyName,
+    agentName: agreement.agentName,
+    agentEmail: agreement.agentEmail,
+  };
+}
+
+function resolveAgentSigningContext(db: SqlDatabase, agreement: AgreementDetail) {
+  const agentCtx = getAvailableAgentContext(db, agreement);
+  if (agentCtx.agentName) {
+    return {
+      signerRole: 'AGENT' as const,
+      agencyName: agentCtx.agencyName,
+      agentName: agentCtx.agentName,
+      agentEmail: agentCtx.agentEmail,
+    };
+  }
+
+  return {
+    signerRole: agreement.signerRole,
+    agencyName: agreement.agencyName,
+    agentName: agreement.agentName,
+    agentEmail: agreement.agentEmail,
+  };
+}
+
+export function syncAgentDetailsFromJob(db: SqlDatabase, agreementId: string): void {
+  const agreement = getAgreement(db, agreementId);
+  if (!agreement?.jobId) return;
+  const job = getJobDetail(db, agreement.jobId);
+  if (!job?.agentName?.trim()) return;
+
+  db.run(
+    `UPDATE agreements SET
+       agency_name = ?,
+       agent_name = ?,
+       agent_email = ?,
+       updated_at = datetime('now')
+     WHERE id = ?`,
+    [
+      job.realEstate?.trim() || agreement.agencyName,
+      job.agentName.trim(),
+      job.agentEmail?.trim().toLowerCase() || agreement.agentEmail,
+      agreementId,
+    ],
+  );
+}
+
+export function resolveAgreementAgentView(
+  db: SqlDatabase,
+  agreement: AgreementDetail,
+): AgreementDetail {
+  const agentCtx = getAvailableAgentContext(db, agreement);
+  return {
+    ...agreement,
+    agencyName: agentCtx.agencyName,
+    agentName: agentCtx.agentName,
+    agentEmail: agentCtx.agentEmail,
+  };
+}
+
+function resolveCreateAgentFields(
+  db: SqlDatabase,
+  input: CreateAgreementInput,
+): {
+  signerRole: AgreementSignerRole;
+  agencyName: string | null;
+  agentName: string | null;
+  agentEmail: string | null;
+} {
+  if (input.agentName?.trim()) {
+    return {
+      signerRole: input.signerRole ?? 'AGENT',
+      agencyName: input.agencyName?.trim() || null,
+      agentName: input.agentName.trim(),
+      agentEmail: input.agentEmail?.trim().toLowerCase() || null,
+    };
+  }
+
+  if (input.jobId) {
+    const job = getJobDetail(db, input.jobId);
+    if (job?.agentName?.trim()) {
+      return {
+        signerRole: 'CLIENT',
+        agencyName: job.realEstate?.trim() || null,
+        agentName: job.agentName.trim(),
+        agentEmail: job.agentEmail?.trim().toLowerCase() || null,
+      };
+    }
+  }
+
+  return {
+    signerRole: input.signerRole ?? 'CLIENT',
+    agencyName: input.agencyName?.trim() || null,
+    agentName: null,
+    agentEmail: null,
+  };
 }
 
 export function sendAgreement(db: SqlDatabase, agreementId: string): { signingUrl: string; accessToken: string } {
@@ -354,6 +601,8 @@ export function sendAgreement(db: SqlDatabase, agreementId: string): { signingUr
   if (!['DRAFT', 'SENT', 'VIEWED'].includes(agreement.status)) {
     throw new Error('This agreement cannot be sent.');
   }
+
+  syncAgentDetailsFromJob(db, agreementId);
 
   const accessToken = agreement.accessToken ?? generateAccessToken();
   db.run(
@@ -376,6 +625,23 @@ export function getPublicAgreement(db: SqlDatabase, token: string): PublicAgreem
   const agreement = findByToken(db, token);
   if (!agreement) return null;
 
+  const agentCtx = getAvailableAgentContext(db, agreement);
+  const agentSigningAvailable = Boolean(agentCtx.agentName?.trim());
+
+  let legalSections = resolveLegalSections(agreement.legalSections, agreement.inspectionType);
+  legalSections = {
+    sections: legalSections.sections.filter((section) => section.id !== 'agent-authority'),
+  };
+
+  const agentAuthoritySection = agentSigningAvailable
+    ? buildAgentAuthoritySection({
+        agentName: agentCtx.agentName!,
+        agencyName: agentCtx.agencyName,
+        clientName: agreement.clientName,
+        propertyAddress: agreement.propertyAddress,
+      })
+    : null;
+
   return {
     id: agreement.id,
     agreementNumber: agreement.agreementNumber,
@@ -389,8 +655,13 @@ export function getPublicAgreement(db: SqlDatabase, token: string): PublicAgreem
         companyWebsite: branding.website,
         companyEmail: branding.email,
         companyAbn: branding.abn,
+        companyLogoUrl: getReportLogoPreviewDataUrl(),
       };
     })(),
+    signerRole: agreement.signerRole,
+    agencyName: agentCtx.agencyName,
+    agentName: agentCtx.agentName,
+    agentEmail: agentCtx.agentEmail,
     clientName: agreement.clientName,
     clientEmail: agreement.clientEmail,
     propertyAddress: agreement.propertyAddress,
@@ -398,8 +669,10 @@ export function getPublicAgreement(db: SqlDatabase, token: string): PublicAgreem
     gstCents: agreement.gstCents,
     totalCents: agreement.totalCents,
     agreementDate: agreement.agreementDate,
-    legalSections: resolveLegalSections(agreement.legalSections, agreement.inspectionType),
+    legalSections,
     canSign: agreement.status === 'SENT' || agreement.status === 'VIEWED',
+    agentSigningAvailable,
+    agentAuthoritySection,
   };
 }
 
@@ -424,35 +697,73 @@ export async function signAgreement(
   if (agreement.status !== 'SENT' && agreement.status !== 'VIEWED') {
     throw new Error('This agreement cannot be signed.');
   }
+
+  syncAgentDetailsFromJob(db, agreement.id);
+  const refreshed = getAgreement(db, agreement.id)!;
+  const agentCtx = getAvailableAgentContext(db, refreshed);
+  const agentAvailable = Boolean(agentCtx.agentName?.trim());
+  const signingParty: AgreementSignerRole =
+    input.signingParty === 'AGENT' && agentAvailable ? 'AGENT' : 'CLIENT';
+
   if (!input.signatureName.trim()) throw new Error('Signature name is required.');
   if (!input.signatureData.trim()) throw new Error('Please sign in the signature box.');
+  if (!input.declarationsAccepted) throw new Error('You must accept the agreement declarations.');
+  if (signingParty === 'AGENT') {
+    if (!input.agentAuthorityAccepted) {
+      throw new Error('You must confirm the Agent Authority Declaration before signing.');
+    }
+  }
+
+  const signedOnBehalfOf = signingParty === 'AGENT' ? agreement.clientName.trim() : null;
+  const agentAuthorityAccepted = signingParty === 'AGENT' ? 1 : 0;
 
   db.run(
     `UPDATE agreements SET
        status = 'SIGNED',
+       signer_role = ?,
+       agency_name = ?,
+       agent_name = ?,
+       agent_email = ?,
        signature_name = ?,
        signature_data = ?,
+       signed_on_behalf_of = ?,
+       agent_authority_accepted = ?,
        signed_at = datetime('now'),
        updated_at = datetime('now')
      WHERE id = ?`,
-    [input.signatureName.trim(), input.signatureData, agreement.id],
+    [
+      signingParty,
+      agentCtx.agencyName,
+      agentCtx.agentName,
+      agentCtx.agentEmail,
+      input.signatureName.trim(),
+      input.signatureData,
+      signedOnBehalfOf,
+      agentAuthorityAccepted,
+      agreement.id,
+    ],
   );
 
   syncJobAgreementStatus(db, agreement.jobId, 'SIGNED');
 
-  const signed = getAgreement(db, agreement.id)!;
+  let signed = getAgreement(db, agreement.id)!;
   await generateAgreementPdfFile(db, signed);
 
-  if (signed.jobId) {
+  let jobId = signed.jobId;
+  if (!jobId) {
+    const created = await createJobFromSignedAgreement(db, agreement.id);
+    jobId = created.job.id;
+    signed = created.agreement;
+  } else {
     const { generateInvoicePdfForJob } = await import('./invoices.service.js');
     try {
-      await generateInvoicePdfForJob(db, signed.jobId);
+      await generateInvoicePdfForJob(db, jobId);
     } catch {
       // Invoice can be generated later from the client or job screen
     }
   }
 
-  return { agreementNumber: signed.agreementNumber, jobId: signed.jobId };
+  return { agreementNumber: signed.agreementNumber, jobId };
 }
 
 export function cancelAgreement(db: SqlDatabase, agreementId: string): void {
@@ -605,6 +916,10 @@ async function generateAgreementPdfFile(db: SqlDatabase, agreement: AgreementDet
     signatureName: agreement.signatureName,
     signatureData: agreement.signatureData,
     signedAt: agreement.signedAt,
+    signerRole: agreement.signerRole,
+    signedOnBehalfOf: agreement.signedOnBehalfOf,
+    agentName: agreement.agentName,
+    agencyName: agreement.agencyName,
     notes: agreement.notes,
     footerText: SITESCOP_PDF_FOOTER_TEXT,
     primaryColor: DEFAULT_REPORT_SETTINGS.primaryColor,

@@ -24,6 +24,10 @@ export interface AgreementPdfContext {
   signatureName?: string | null;
   signatureData?: string | null;
   signedAt?: string | null;
+  signerRole?: 'CLIENT' | 'AGENT';
+  signedOnBehalfOf?: string | null;
+  agentName?: string | null;
+  agencyName?: string | null;
   notes?: string | null;
   footerText: string;
   primaryColor: string;
@@ -76,17 +80,27 @@ function renderSignatureBlock(ctx: AgreementPdfContext): string {
     return `
 <section class="report-section">
   <h2>Client Signature</h2>
-  <p>Unsigned — awaiting client signature.</p>
+  <p>Unsigned — awaiting signature.</p>
 </section>`;
   }
 
+  const isAgent = ctx.signerRole === 'AGENT' && ctx.signedOnBehalfOf;
+  const heading = isAgent ? 'Agent Signature (on behalf of client)' : 'Client Signature';
+  const signedByLine = isAgent
+    ? `<p><strong>Signed by:</strong> ${escapeHtml(ctx.signatureName)} (authorised agent${
+        ctx.agencyName ? `, ${escapeHtml(ctx.agencyName)}` : ''
+      })</p>
+  <p><strong>On behalf of client:</strong> ${escapeHtml(ctx.signedOnBehalfOf!)}</p>`
+    : `<p><strong>Signed by:</strong> ${escapeHtml(ctx.signatureName)}</p>`;
+
   return `
 <section class="report-section">
-  <h2>Client Signature</h2>
-  <p><strong>Signed by:</strong> ${escapeHtml(ctx.signatureName)}</p>
+  <h2>${heading}</h2>
+  ${signedByLine}
   ${ctx.signedAt ? `<p><strong>Date:</strong> ${escapeHtml(formatDate(new Date(ctx.signedAt)))}</p>` : ''}
+  ${isAgent ? '<p><em>The agent confirmed they held express authority to accept this agreement on behalf of the client named above.</em></p>' : ''}
   <div class="signature-image">
-    <img src="${ctx.signatureData}" alt="Client signature" />
+    <img src="${ctx.signatureData}" alt="Signature" />
   </div>
 </section>`;
 }

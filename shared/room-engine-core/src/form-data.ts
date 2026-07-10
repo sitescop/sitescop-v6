@@ -28,7 +28,7 @@ import type {
   InspectionPhotoRef,
 } from './types.js';
 import type { PestInspectionSections } from './pest-types.js';
-import { createEmptyFormData, normalizeAccessibilityAreas, normalizeCheckboxField, mergeSectionRecord, applyRoomElectricalDefaults, defaultElectricalDisclaimersField, defaultKitchenDisclaimersField, defaultLaundryDisclaimersField, defaultIfEmptyWorkingStatus, defaultSwitchesStatus, applyLaundrySurfaceDefaults } from './defaults.js';
+import { createEmptyFormData, normalizeAccessibilityAreas, normalizeCheckboxField, mergeSectionRecord, applyRoomElectricalDefaults, applySharedInspectionDefaults, defaultElectricalDisclaimersField, defaultKitchenDisclaimersField, defaultLaundryDisclaimersField, defaultIfEmptyWorkingStatus, defaultSwitchesStatus, applyLaundrySurfaceDefaults } from './defaults.js';
 import {
   DEFAULT_INCOMPLETE_CONSTRUCTION,
   DEFAULT_OCCUPANCY_STATUS,
@@ -49,6 +49,8 @@ export const INSPECTION_FORM_VERSION = 2 as const;
 
 export interface InspectionEnrichmentOptions {
   rooms?: MajorDefectRollupRoom[];
+  /** Keep accessibility comment photos exactly as stored while editing; strip only on load/save. */
+  preserveAccessibilityPhotos?: boolean;
 }
 
 /** Shared by building, pest, and combined — Job Information through Roof Space (kitchen excluded). */
@@ -319,6 +321,95 @@ function migrateLegacyJobInformationFields(
   };
 }
 
+export interface JobOrderingPartyContext {
+  orderingPartyType?: string;
+  realEstate?: string;
+  clientName?: string;
+  clientEmail?: string;
+  clientMobile?: string;
+  agentName?: string;
+  agentPhone?: string;
+  agentMobile?: string;
+  agentEmail?: string;
+}
+
+function trimField(value: string | undefined | null): string {
+  return value?.trim() ?? '';
+}
+
+/** Prefer the job's purchaser contact when the form still blank or mirrors agent details. */
+function shouldUseJobClientValue(
+  formClientValue: string | undefined,
+  formAgentValue: string | undefined,
+  jobClientValue: string | undefined,
+): boolean {
+  const formClient = trimField(formClientValue);
+  const formAgent = trimField(formAgentValue);
+  const jobClient = trimField(jobClientValue);
+  if (!jobClient) return false;
+  if (!formClient) return true;
+  if (formAgent && formClient === formAgent && formClient !== jobClient) return true;
+  return false;
+}
+
+/** Prefer the job's agent contact when the form is still blank or mirrors purchaser details. */
+function shouldUseJobAgentValue(
+  formAgentValue: string | undefined,
+  formClientValue: string | undefined,
+  jobAgentValue: string | undefined,
+): boolean {
+  const formAgent = trimField(formAgentValue);
+  const formClient = trimField(formClientValue);
+  const jobAgent = trimField(jobAgentValue);
+  if (!jobAgent) return false;
+  if (!formAgent) return true;
+  if (formClient && formAgent === formClient && formAgent !== jobAgent) return true;
+  return false;
+}
+
+/** Fill Job Information client and ordering-party fields from the job record when appropriate. */
+export function mergeJobContextIntoJobInformation(
+  form: InspectionFormDataV2,
+  context: JobOrderingPartyContext,
+): InspectionFormDataV2 {
+  const jobInfo = form.shared.jobInformation;
+  const patch: Partial<JobInformationSection> = {};
+
+  if (shouldUseJobClientValue(jobInfo.clientName, jobInfo.agentName, context.clientName)) {
+    patch.clientName = trimField(context.clientName);
+  }
+  if (shouldUseJobClientValue(jobInfo.clientMobile, jobInfo.agentMobile, context.clientMobile)) {
+    patch.clientMobile = trimField(context.clientMobile);
+  }
+  if (shouldUseJobClientValue(jobInfo.clientEmail, jobInfo.agentEmail, context.clientEmail)) {
+    patch.clientEmail = trimField(context.clientEmail);
+  }
+
+  if (context.realEstate?.trim() && !jobInfo.agencyName?.trim()) {
+    patch.agencyName = context.realEstate.trim();
+  }
+  if (shouldUseJobAgentValue(jobInfo.agentName, jobInfo.clientName, context.agentName)) {
+    patch.agentName = trimField(context.agentName);
+  }
+  const agentMobile = context.agentMobile?.trim() || context.agentPhone?.trim();
+  if (shouldUseJobAgentValue(jobInfo.agentMobile, jobInfo.clientMobile, agentMobile)) {
+    patch.agentMobile = agentMobile;
+  }
+  if (shouldUseJobAgentValue(jobInfo.agentEmail, jobInfo.clientEmail, context.agentEmail)) {
+    patch.agentEmail = trimField(context.agentEmail);
+  }
+
+  if (Object.keys(patch).length === 0) return form;
+
+  return {
+    ...form,
+    shared: {
+      ...form.shared,
+      jobInformation: { ...jobInfo, ...patch },
+    },
+  };
+}
+
 function finalizeNormalizedForm(
   form: InspectionFormDataV2,
   jobFormKind: InspectionJobFormKind,
@@ -458,15 +549,19 @@ function syncServiceObstructions(shared: SharedInspectionSections): SharedInspec
   const exterior = setObstructionItem(
     setObstructionItem(
       setObstructionItem(
-        normalizeCheckboxField(accessibility.exteriorObstructions),
-        'Air conditioning',
-        services.airConPresent === 'Yes',
+        setObstructionItem(
+          normalizeCheckboxField(accessibility.exteriorObstructions),
+          'Air conditioning',
+          services.airConPresent === 'Yes',
+        ),
+        'Hot water service',
+        hotWaterExternal,
       ),
-      'Hot water service',
-      hotWaterExternal,
+      'Gas storage cylinders',
+      hasLpg,
     ),
-    'Gas storage cylinders',
-    hasLpg,
+    'Rainwater tank',
+    services.rainwaterTankPresent === 'Yes',
   );
 
   const interior = setObstructionItem(
@@ -475,25 +570,47 @@ function syncServiceObstructions(shared: SharedInspectionSections): SharedInspec
     hotWaterInternal,
   );
 
-  const linkedServicePhotos =
-    services.airConPresent === 'Yes' || services.hotWaterPresent === 'Yes' || hasLpg;
-  const serviceObstructionPhotos = [
-    ...services.photos,
-    ...services.hotWaterPhotos,
-    ...services.gasBottlePhotos,
-  ];
-
   return {
     ...shared,
     accessibilityObstructions: {
       ...accessibility,
       interiorObstructions: interior,
       exteriorObstructions: exterior,
-      photos: linkedServicePhotos
-        ? mergePhotoRefs(accessibility.photos, serviceObstructionPhotos)
-        : accessibility.photos,
     },
   };
+}
+
+export function hasLinkedServiceObstructionPhotos(services: ServicesSection): boolean {
+  return (
+    services.airConPresent === 'Yes' ||
+    services.hotWaterPresent === 'Yes' ||
+    services.rainwaterTankPresent === 'Yes' ||
+    hasLpgGasSelected(services)
+  );
+}
+
+export function collectLinkedServiceObstructionPhotos(services: ServicesSection): InspectionPhotoRef[] {
+  if (!hasLinkedServiceObstructionPhotos(services)) return [];
+  return [
+    ...services.photos,
+    ...services.hotWaterPhotos,
+    ...services.gasBottlePhotos,
+    ...services.rainwaterTankPhotos,
+  ];
+}
+
+function photoRefKey(photo: InspectionPhotoRef): string {
+  return `${photo.id ?? ''}|${photo.dataUrl ?? ''}`;
+}
+
+/** Removes service-section photos that were previously auto-merged into accessibility comments. */
+export function stripLinkedServicePhotosFromAccessibility(
+  photos: InspectionPhotoRef[] | undefined,
+  services: ServicesSection,
+): InspectionPhotoRef[] {
+  const linkedKeys = new Set(collectLinkedServiceObstructionPhotos(services).map(photoRefKey));
+  if (linkedKeys.size === 0) return photos ?? [];
+  return (photos ?? []).filter((photo) => !linkedKeys.has(photoRefKey(photo)));
 }
 
 export function createEmptyInspectionFormData(
@@ -600,8 +717,16 @@ function applyBuildingElectricalDefaults(building: BuildingExtensionSections): B
   };
 }
 
-export function enrichSharedSections(shared: SharedInspectionSections): SharedInspectionSections {
-  const synced = syncServiceObstructions(shared);
+export function enrichSharedSections(
+  shared: SharedInspectionSections,
+  options: { preserveAccessibilityPhotos?: boolean } = {},
+): SharedInspectionSections {
+  const sharedDefaults = applySharedInspectionDefaults(shared);
+  const synced = syncServiceObstructions({
+    ...shared,
+    services: sharedDefaults.services,
+    accessibilityObstructions: sharedDefaults.accessibilityObstructions,
+  });
   const accessibility = { ...synced.accessibilityObstructions };
   const noteLines = [...(accessibility.inaccessibleCustomLines ?? [''])];
   while (noteLines.length < 1) noteLines.push('');
@@ -614,10 +739,15 @@ export function enrichSharedSections(shared: SharedInspectionSections): SharedIn
     if (emptyIndex >= 0) noteLines[emptyIndex] = text;
   }
 
+  const accessibilityPhotos = options.preserveAccessibilityPhotos
+    ? (accessibility.photos ?? [])
+    : stripLinkedServicePhotosFromAccessibility(accessibility.photos, synced.services);
+
   return {
     ...synced,
     accessibilityObstructions: applyAccessibilityRiskAssessment({
       ...accessibility,
+      photos: accessibilityPhotos,
       inaccessibleCustomLines: noteLines.slice(0, 1),
       accessibilityAreas: normalizeAccessibilityAreas(accessibility.accessibilityAreas),
     }),
@@ -652,10 +782,20 @@ export function enrichInspectionFormData(
       };
     }
   }
-  const shared = enrichSharedSections(sharedBase);
+  const shared = enrichSharedSections(sharedBase, {
+    preserveAccessibilityPhotos: options?.preserveAccessibilityPhotos,
+  });
   const building = form.building ? enrichBuildingExtension(form.building, shared, options?.rooms) : undefined;
+  const subfloorPresent = resolveSubfloorPresent(
+    shared.propertyDescription,
+    building?.subfloor,
+    shared.accessibilityObstructions,
+  );
+  const subfloorApplicable = isSubfloorApplicable(subfloorPresent);
   let pest = form.pest
-    ? applyPestSectionUpdates(form.pest, shared.accessibilityObstructions, shared.services)
+    ? applyPestSectionUpdates(form.pest, shared.accessibilityObstructions, shared.services, {
+        subfloorApplicable,
+      })
     : undefined;
   if (pest) {
     pest = applyPestConclusionUpdates(pest, building);

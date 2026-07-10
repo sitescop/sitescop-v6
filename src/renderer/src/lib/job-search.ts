@@ -12,6 +12,9 @@ export function filterJobsBySearch(jobs: JobRow[], query: string): JobRow[] {
       job.email,
       job.mobile,
       job.agentName,
+      job.agentPhone,
+      job.agentMobile,
+      job.agentEmail,
       job.realEstate,
       job.notes,
     ]

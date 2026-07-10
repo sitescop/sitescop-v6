@@ -41,7 +41,11 @@ export function NewJobPage() {
   const [inspectionDate, setInspectionDate] = useState(schedulePreset.inspectionDate ?? localDateKey());
   const [inspectionTime, setInspectionTime] = useState(schedulePreset.inspectionTime ?? '09:00');
   const [realEstate, setRealEstate] = useState('');
+  const [agentDetailsOpen, setAgentDetailsOpen] = useState(true);
   const [agentName, setAgentName] = useState('');
+  const [agentPhone, setAgentPhone] = useState('');
+  const [agentMobile, setAgentMobile] = useState('');
+  const [agentEmail, setAgentEmail] = useState('');
   const [priority, setPriority] = useState<JobPriority>('NORMAL');
   const [notes, setNotes] = useState('');
 
@@ -107,6 +111,9 @@ export function NewJobPage() {
       inspectionTime,
       realEstate: realEstate.trim() || undefined,
       agentName: agentName.trim() || undefined,
+      agentPhone: agentPhone.trim() || undefined,
+      agentMobile: agentMobile.trim() || undefined,
+      agentEmail: agentEmail.trim() || undefined,
       notes: notes.trim() || undefined,
       priority,
     });
@@ -128,7 +135,10 @@ export function NewJobPage() {
 
       <form onSubmit={handleSubmit} className="mx-auto max-w-4xl space-y-6">
         <Card className="p-6">
-          <h3 className="mb-4 text-lg font-bold text-primary">Client details</h3>
+          <h3 className="mb-1 text-lg font-bold text-primary">Purchaser details</h3>
+          <p className="mb-4 text-sm text-text-muted">
+            Person buying the property — not the real estate agent.
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
               label="First name *"
@@ -214,7 +224,39 @@ export function NewJobPage() {
         </Card>
 
         <Card className="p-6">
-          <h3 className="mb-4 text-lg font-bold text-primary">Real estate</h3>
+          <h3 className="mb-1 text-lg font-bold text-primary">Real estate &amp; agent</h3>
+          <p className="mb-4 text-sm text-text-muted">
+            Agency and agent who booked the inspection (optional).
+          </p>
+          <div className="mb-4 flex flex-wrap gap-1 border-b border-primary/15" role="tablist" aria-label="Agent details">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={agentDetailsOpen}
+              className={`rounded-t-md px-4 py-2 text-sm font-semibold transition-colors ${
+                agentDetailsOpen
+                  ? 'border border-b-0 border-primary/20 bg-surface text-primary'
+                  : 'text-text-muted hover:bg-secondary/[0.06]'
+              }`}
+              onClick={() => setAgentDetailsOpen(true)}
+            >
+              Add agent details
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!agentDetailsOpen}
+              className={`rounded-t-md px-4 py-2 text-sm font-semibold transition-colors ${
+                !agentDetailsOpen
+                  ? 'border border-b-0 border-primary/20 bg-surface text-primary'
+                  : 'text-text-muted hover:bg-secondary/[0.06]'
+              }`}
+              onClick={() => setAgentDetailsOpen(false)}
+            >
+              Skip
+            </button>
+          </div>
+          {agentDetailsOpen ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
               label="Agency"
@@ -223,12 +265,39 @@ export function NewJobPage() {
               placeholder="Place Real Estate"
             />
             <Input
-              label="Agent"
+              label="Agent name"
               value={agentName}
               onChange={(e) => setAgentName(e.target.value)}
               placeholder="Agent name"
             />
+            <Input
+              label="Agent phone"
+              type="tel"
+              value={agentPhone}
+              onChange={(e) => setAgentPhone(e.target.value)}
+              placeholder="07 3000 0000"
+            />
+            <Input
+              label="Agent mobile"
+              type="tel"
+              value={agentMobile}
+              onChange={(e) => setAgentMobile(e.target.value)}
+              placeholder="0412 345 678"
+            />
+            <Input
+              label="Agent email"
+              type="email"
+              className="sm:col-span-2"
+              value={agentEmail}
+              onChange={(e) => setAgentEmail(e.target.value)}
+              placeholder="agent@agency.com.au"
+            />
           </div>
+          ) : (
+            <p className="text-sm text-text-muted">
+              No agent on this job — click Add agent details to enter agency and agent contact.
+            </p>
+          )}
         </Card>
 
         <Card className="p-6">

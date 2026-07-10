@@ -5,12 +5,13 @@ import {
   type ConclusionSection,
   type InspectionPhotoRef,
 } from '../../room-engine-core/src/index.js';
-import { escapeHtml, renderComments, renderPhotos, renderSectionBlock } from './html-utils.js';
+import { escapeHtml, renderComments, renderHeadingGroup, renderPhotos, renderSectionBlock, renderSectionHeading, renderSupplementBlock } from './html-utils.js';
+import { sharedSectionDataForReport } from './shared-section-report-data.js';
 import { renderInspectorHazardAssessmentBlock, renderInspectorHazardLowConclusionNote } from './hazard-assessment-block.js';
 import {
+  BUILDING_PDF_PART_TITLES,
   buildingPdfPartTitleForKey,
   buildingPdfSectionTitle,
-  renderPdfPartHeading,
 } from './building-pdf-headings.js';
 import { renderCertificationSectionBlock } from './certification-block.js';
 import {
@@ -20,9 +21,10 @@ import {
 import { renderCoverHeader } from './cover-header.js';
 import { loadLegalScheduleHtml } from './legal-loader.js';
 import { renderCoverReferenceMeta } from './report-identifiers.js';
+import { renderPdfNumberedPartBlock } from './report-design.js';
+import { renderRoomSectionBlock, resolveSortedRoomReportLabels } from './room-section-block.js';
 import {
   getBuildingSectionFieldDefs,
-  getRoomFieldDefs,
   getSharedSectionFieldDefs,
 } from './section-fields.js';
 import { reportPrintStyles } from './styles.js';
@@ -34,6 +36,16 @@ const ROOM_SECTION_ORDER: Record<string, number> = {
   BEDROOM: 1,
   LIVING: 2,
   GARAGE: 3,
+};
+
+const SHARED_SECTION_TITLES: Record<string, string> = {
+  services: 'Services & Utilities',
+  propertyDescription: 'Property Description',
+  accessibilityObstructions: 'Accessibility & Obstructions',
+  siteConditions: 'Site Conditions',
+  external: 'External Building Elements',
+  roofExterior: 'Roof Exterior',
+  roofSpace: 'Roof Space',
 };
 
 function sortInspectionRooms(rooms: ReportRoomInfo[]): ReportRoomInfo[] {
@@ -64,32 +76,64 @@ function renderRecommendationsBlock(data: Record<string, unknown>): string {
 
   return `
 <section class="report-section">
-  <h3 class="report-section-heading">${escapeHtml(buildingPdfSectionTitle('recommendations'))}</h3>
-  ${listHtml}
-  ${renderComments(comments)}
-  ${renderPhotos(photos as InspectionPhotoRef[])}
+  <div class="report-section-block">
+    ${renderHeadingGroup(renderSectionHeading(buildingPdfSectionTitle('recommendations')), listHtml, false)}
+    ${renderSupplementBlock(renderComments(comments), renderPhotos(photos as InspectionPhotoRef[]))}
+  </div>
 </section>`;
 }
 
-function maybeRenderPartHeading(sections: string[], key: string, renderedParts: Set<string>): void {
-  const partTitle = buildingPdfPartTitleForKey(key);
-  if (!partTitle || renderedParts.has(partTitle)) return;
-  renderedParts.add(partTitle);
-  sections.push(renderPdfPartHeading(partTitle));
+class BuildingPartCollector {
+  private readonly partBlocks: string[] = [];
+  private activePartTitle: string | null = null;
+  private buffer: string[] = [];
+  private hasPriorParts = false;
+
+  flush(): void {
+    if (this.activePartTitle && this.buffer.length) {
+      this.partBlocks.push(
+        renderPdfNumberedPartBlock(this.activePartTitle, this.buffer.join('\n'), {
+          startNewPage: this.hasPriorParts,
+          endWithPageBreak: true,
+        }),
+      );
+      this.hasPriorParts = true;
+    } else if (!this.activePartTitle && this.buffer.length) {
+      this.partBlocks.push(this.buffer.join('\n'));
+    }
+    this.buffer = [];
+    this.activePartTitle = null;
+  }
+
+  startPart(title: string): void {
+    if (this.activePartTitle === title) return;
+    this.flush();
+    this.activePartTitle = title;
+  }
+
+  push(html: string): void {
+    if (html.trim()) this.buffer.push(html);
+  }
+
+  finish(): string[] {
+    this.flush();
+    return this.partBlocks;
+  }
 }
 
 function renderBuildingSection(
-  sections: string[],
+  collector: BuildingPartCollector,
   key: string,
   data: Record<string, unknown>,
-  hazardNote?: string,
-  renderedParts?: Set<string>,
 ): void {
-  if (renderedParts) maybeRenderPartHeading(sections, key, renderedParts);
+  const partTitle = buildingPdfPartTitleForKey(key);
+  if (partTitle) {
+    collector.flush();
+    collector.startPart(partTitle);
+  }
 
   if (key === 'recommendations') {
-    const block = renderRecommendationsBlock(data);
-    if (block) sections.push(block);
+    collector.push(renderRecommendationsBlock(data));
     return;
   }
   if (key === 'riskAssessment' || key === 'thermalImaging') {
@@ -97,44 +141,40 @@ function renderBuildingSection(
   }
 
   if (key === 'inspectorDeclaration') {
-    const block = renderCertificationSectionBlock(
-      buildingPdfSectionTitle('inspectorDeclaration'),
-      data,
-      BUILDING_FIELD_LABEL_OVERRIDES.inspectorDeclaration,
-      getBuildingSectionFieldDefs('inspectorDeclaration'),
+    collector.push(
+      renderCertificationSectionBlock(
+        buildingPdfSectionTitle('inspectorDeclaration'),
+        data,
+        BUILDING_FIELD_LABEL_OVERRIDES.inspectorDeclaration,
+        getBuildingSectionFieldDefs('inspectorDeclaration'),
+        { startNewPage: true },
+      ),
     );
-    if (block) sections.push(block);
     return;
   }
 
   if (key === 'conclusion') {
-    const conclusion = data as unknown as ConclusionSection;
-    const block = renderConclusionNarrativeBlock(conclusion, hazardNote);
-    if (block) sections.push(block);
     return;
   }
 
-  const block = renderSectionBlock(
-    buildingPdfSectionTitle(key),
-    data,
-    new Set(),
-    BUILDING_FIELD_LABEL_OVERRIDES[key],
-    getBuildingSectionFieldDefs(key),
+  collector.push(
+    renderSectionBlock(
+      buildingPdfSectionTitle(key),
+      data,
+      new Set(),
+      BUILDING_FIELD_LABEL_OVERRIDES[key],
+      getBuildingSectionFieldDefs(key),
+    ),
   );
-  if (block) sections.push(block);
 }
 
-function renderInspectionRooms(sections: string[], rooms: ReportRoomInfo[]): void {
-  for (const room of sortInspectionRooms(rooms)) {
-    const block = renderSectionBlock(
-      room.label,
-      room.data,
-      new Set(),
-      undefined,
-      getRoomFieldDefs(room.roomType, room.roomIndex),
-    );
-    if (block) sections.push(block);
-  }
+function renderInspectionRooms(collector: BuildingPartCollector, rooms: ReportRoomInfo[]): void {
+  const sorted = sortInspectionRooms(rooms);
+  const resolvedLabels = resolveSortedRoomReportLabels(sorted);
+
+  sorted.forEach((room, index) => {
+    collector.push(renderRoomSectionBlock(room, resolvedLabels, index));
+  });
 }
 
 const BUILDING_FIELD_LABEL_OVERRIDES: Record<string, Record<string, string>> = {};
@@ -177,32 +217,42 @@ ${loadBuildingLegalScheduleHtml()}
 }
 
 export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
-  const sections: string[] = [];
-  const renderedParts = new Set<string>();
+  const collector = new BuildingPartCollector();
   const reportTitle = resolveBuildingReportTitle(ctx);
 
-  maybeRenderPartHeading(sections, 'jobInformation', renderedParts);
-  const propertyDetailsBlock = renderPropertyReportDetailsBlock(ctx);
-  if (propertyDetailsBlock) sections.push(propertyDetailsBlock);
+  collector.startPart(BUILDING_PDF_PART_TITLES.jobInformation);
+  collector.push(renderPropertyReportDetailsBlock(ctx));
 
   if (ctx.formData.building) {
     const summaryBlock = renderInspectionFindingsSummaryBlock(ctx);
-    if (summaryBlock) sections.push(summaryBlock);
+    if (summaryBlock) {
+      collector.flush();
+      collector.startPart(BUILDING_PDF_PART_TITLES.inspectionSummary);
+      collector.push(summaryBlock);
+      collector.flush();
+    }
   }
 
   for (const key of SHARED_INSPECTION_SECTION_KEYS) {
     if (key === 'jobInformation') continue;
 
-    maybeRenderPartHeading(sections, key, renderedParts);
-    const data = ctx.formData.shared[key] as unknown as Record<string, unknown>;
-    const block = renderSectionBlock(
-      buildingPdfSectionTitle(key),
-      data,
-      new Set(),
-      BUILDING_FIELD_LABEL_OVERRIDES[key],
-      getSharedSectionFieldDefs(key),
+    const partTitle = buildingPdfPartTitleForKey(key);
+    if (partTitle) {
+      collector.flush();
+      collector.startPart(partTitle);
+    }
+
+    const data = sharedSectionDataForReport(key, ctx.formData.shared);
+    collector.push(
+      renderSectionBlock(
+        SHARED_SECTION_TITLES[key] ?? buildingPdfSectionTitle(key),
+        data,
+        new Set(),
+        BUILDING_FIELD_LABEL_OVERRIDES[key],
+        getSharedSectionFieldDefs(key),
+        { startNewPage: key === 'services' || key === 'propertyDescription' },
+      ),
     );
-    if (block) sections.push(block);
   }
 
   if (ctx.formData.building) {
@@ -211,23 +261,34 @@ export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
 
     for (const key of BUILDING_EXTENSION_SECTION_KEYS) {
       if (key === 'electricalGeneral') continue;
-      if (key === 'conclusion') {
-        const hazardBlock = renderInspectorHazardAssessmentBlock(hazard);
-        if (hazardBlock) sections.push(hazardBlock);
-      }
+
       const data = ctx.formData.building[key] as unknown as Record<string, unknown>;
-      renderBuildingSection(sections, key, data, key === 'conclusion' ? hazardLowNote : undefined, renderedParts);
+
+      if (key === 'conclusion') {
+        collector.flush();
+        collector.startPart(BUILDING_PDF_PART_TITLES.conclusion);
+        const hazardBlock = renderInspectorHazardAssessmentBlock(hazard);
+        if (hazardBlock) collector.push(hazardBlock);
+        collector.push(
+          renderConclusionNarrativeBlock(data as unknown as ConclusionSection, hazardLowNote),
+        );
+        continue;
+      }
+
+      renderBuildingSection(collector, key, data);
       if (key === 'laundry') {
-        renderInspectionRooms(sections, ctx.rooms);
+        renderInspectionRooms(collector, ctx.rooms);
       }
     }
   }
 
+  const partBlocks = collector.finish();
+
   if (settingsFooter(ctx)) {
-    sections.push(`<section class="report-section"><p>${escapeHtml(ctx.settings.reportFooter!)}</p></section>`);
+    partBlocks.push(`<section class="report-section"><p>${escapeHtml(ctx.settings.reportFooter!)}</p></section>`);
   }
 
-  return wrapDocument(ctx, sections.join('\n'), reportTitle);
+  return wrapDocument(ctx, partBlocks.join('\n'), reportTitle);
 }
 
 function settingsFooter(ctx: ReportRenderContext): boolean {

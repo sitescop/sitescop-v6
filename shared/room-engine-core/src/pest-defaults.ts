@@ -1,6 +1,6 @@
 import { emptySectionBase, emptyCheckboxField, normalizeCheckboxField } from './defaults.js';
-import type { PrefillJobContext } from './types.js';
-import type { D13ConduciveConditionsSection, PestInspectionSections } from './pest-types.js';
+import type { CheckboxFieldState, PrefillJobContext } from './types.js';
+import type { D13ConduciveConditionsSection, D9SubfloorVentilationSection, PestInspectionSections } from './pest-types.js';
 import {
   CONDUCIVE_RECOMMENDATION_PRESETS,
   EVIDENCE_FOUND,
@@ -9,7 +9,9 @@ import {
   MOISTURE_STAINS_DISCLAIMER,
   NO_EVIDENCE_FOUND,
   PEST_CONCLUSION_RECOMMENDATIONS,
+  SUBFLOOR_VENTILATION_NOT_APPLICABLE,
 } from './pest-options.js';
+import { DEFAULT_TIMBER_PEST_UNDETECTED_RISK } from './risk-assessment.js';
 
 export function defaultConduciveRecommendationPresets() {
   return {
@@ -32,6 +34,19 @@ export function applyD13ConduciveDefaults(section: D13ConduciveConditionsSection
 
 function migrateEvidenceValue(value: string): string {
   return formatPestEvidenceAnswer(value) || value;
+}
+
+/** D9 previously defaulted to N/A; untouched legacy rows migrate to No Evidence Found. */
+function migrateD9SubfloorVentilationAnswer(section: D9SubfloorVentilationSection): string {
+  const migrated = migrateEvidenceValue(section.answer).trim();
+  if (!migrated) return NO_EVIDENCE_FOUND;
+  if (migrated !== SUBFLOOR_VENTILATION_NOT_APPLICABLE) return migrated;
+
+  const untouched =
+    !section.locationNarrative?.trim() &&
+    (section.photos?.length ?? 0) === 0 &&
+    !section.comments?.trim();
+  return untouched ? NO_EVIDENCE_FOUND : migrated;
 }
 
 /** Normalize legacy bare/sentence answers into professional Evidence Found wording. */
@@ -65,7 +80,7 @@ export function migratePestEvidenceAnswers(pest: PestInspectionSections): PestIn
     },
     d9SubfloorVentilation: {
       ...pest.d9SubfloorVentilation,
-      answer: migrateEvidenceValue(pest.d9SubfloorVentilation.answer),
+      answer: migrateD9SubfloorVentilationAnswer(pest.d9SubfloorVentilation),
     },
     d10ExcessiveMoisture: {
       ...pest.d10ExcessiveMoisture,
@@ -80,6 +95,20 @@ export function migratePestEvidenceAnswers(pest: PestInspectionSections): PestIn
       summaryDuringInspection: migrateEvidenceValue(pest.d13ConduciveConditions.summaryDuringInspection),
       otherEvidenceAnswer: migrateEvidenceValue(pest.d13ConduciveConditions.otherEvidenceAnswer),
     },
+    d14MajorSafetyHazards: {
+      ...pest.d14MajorSafetyHazards,
+      hazardItems: migrateD14HazardItems(pest.d14MajorSafetyHazards.hazardItems),
+    },
+  };
+}
+
+function migrateD14HazardItems(items: CheckboxFieldState): CheckboxFieldState {
+  const normalized = normalizeCheckboxField(items);
+  return {
+    selected: normalized.selected.map((item) =>
+      item === 'Asbestos Suspected' ? 'Friable Asbestos Suspected' : item,
+    ),
+    custom: normalized.custom,
   };
 }
 
@@ -87,6 +116,11 @@ export function applyPestSectionDefaults(pest: PestInspectionSections): PestInsp
   const migrated = migratePestEvidenceAnswers(pest);
   return {
     ...migrated,
+    undetectedTimberPestRisk: {
+      ...migrated.undetectedTimberPestRisk,
+      riskLevel:
+        migrated.undetectedTimberPestRisk.riskLevel?.trim() || DEFAULT_TIMBER_PEST_UNDETECTED_RISK,
+    },
     d13ConduciveConditions: applyD13ConduciveDefaults(migrated.d13ConduciveConditions),
   };
 }
@@ -96,7 +130,7 @@ export function createEmptyPestSections(prefill?: PrefillJobContext): PestInspec
   return {
     undetectedTimberPestRisk: {
       ...base,
-      riskLevel: 'Low',
+      riskLevel: DEFAULT_TIMBER_PEST_UNDETECTED_RISK,
       riskExplanation: '',
     },
     d1ActiveTermites: {
@@ -150,7 +184,7 @@ export function createEmptyPestSections(prefill?: PrefillJobContext): PestInspec
     },
     d9SubfloorVentilation: {
       ...base,
-      answer: 'Not applicable due to construction design.',
+      answer: NO_EVIDENCE_FOUND,
       locationNarrative: '',
     },
     d10ExcessiveMoisture: {

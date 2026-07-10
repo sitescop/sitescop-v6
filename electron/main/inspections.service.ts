@@ -14,6 +14,7 @@ import {
   createEmptyInspectionFormData,
   enrichInspectionFormData,
   jobTypeToFormKind,
+  mergeJobContextIntoJobInformation,
   normalizeInspectionFormData,
   patchSectionData,
 } from '../../shared/room-engine-core/src/form-data.js';
@@ -59,9 +60,10 @@ function buildPrefill(job: NonNullable<Awaited<ReturnType<typeof getJobDetail>>>
     clientName: job.clientName,
     clientEmail: job.email ?? '',
     clientPhone: job.mobile ?? '',
+    agencyName: job.realEstate ?? '',
     agentName: job.agentName ?? '',
-    agentPhone: '',
-    agentEmail: '',
+    agentPhone: job.agentMobile?.trim() || job.agentPhone?.trim() || '',
+    agentEmail: job.agentEmail ?? '',
     propertyAddress: job.propertyAddress,
     scheduledDate: job.inspectionDate,
     scheduledTime: job.inspectionTime,
@@ -160,16 +162,32 @@ function mapDetail(
     : {};
   const inspectionId = String(inspectionRow.id);
   const rooms = loadRooms(db, inspectionId);
-  const formData = enrichInspectionFormData(
+  let formData = enrichInspectionFormData(
     normalizeInspectionFormData(rawForm, formKind),
     { rooms: roomsForMajorDefectRollup(rooms) },
   );
+
+  const jobId = String(inspectionRow.job_id);
+  const job = getJobDetail(db, jobId);
+  if (job) {
+    formData = mergeJobContextIntoJobInformation(formData, {
+      orderingPartyType: job.orderingPartyType,
+      realEstate: job.realEstate,
+      clientName: job.clientName,
+      clientEmail: job.email,
+      clientMobile: job.mobile,
+      agentName: job.agentName,
+      agentPhone: job.agentPhone,
+      agentMobile: job.agentMobile,
+      agentEmail: job.agentEmail,
+    });
+  }
 
   return {
     id: inspectionId,
     inspectionNumber: String(inspectionRow.inspection_number ?? ''),
     status: inspectionRow.status as InspectionStatus,
-    jobId: String(inspectionRow.job_id),
+    jobId,
     jobNumber: String(inspectionRow.job_number),
     jobType,
     propertyAddress: String(inspectionRow.property_address ?? ''),
@@ -306,12 +324,12 @@ export function updateInspectionSection(
   const formKind = jobTypeToFormKind(jobType);
   const rooms = loadRooms(db, inspectionId);
   const enrichment = { rooms: roomsForMajorDefectRollup(rooms) };
-  const current = enrichInspectionFormData(
-    normalizeInspectionFormData(JSON.parse(String(row.form_data || '{}')), formKind),
-    enrichment,
+  const rawForm = normalizeInspectionFormData(
+    JSON.parse(String(row.form_data || '{}')) as Record<string, unknown>,
+    formKind,
   );
   const patched = enrichInspectionFormData(
-    patchSectionData(current, input.realm, input.section, input.data),
+    patchSectionData(rawForm, input.realm, input.section, input.data),
     enrichment,
   );
   const progressPercent = calculateInspectionProgress(patched);

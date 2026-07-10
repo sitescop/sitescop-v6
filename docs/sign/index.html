@@ -4,11 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>SiteScop — Sign Agreement</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="config.js"></script>
+  <script>
+    (function () {
+      var path = window.location.pathname || '';
+      if (/\/sign$/i.test(path)) {
+        window.location.replace(path + '/' + window.location.search + window.location.hash);
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="./style.css?v=15" />
+  <script src="./config.js"></script>
+  <script src="./logo.js?v=1"></script>
 </head>
 <body>
   <div id="app" class="loading">Loading agreement…</div>
-  <script src="app.js"></script>
+  <script src="./app.js?v=17"></script>
 </body>
 </html>

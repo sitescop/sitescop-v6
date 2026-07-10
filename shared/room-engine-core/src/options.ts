@@ -34,7 +34,21 @@ export const INCOMPLETE_CONSTRUCTION_OPTIONS = [
   'Not inspected',
 ] as const;
 
-export const CLIENT_TYPES = ['Owner', 'Purchaser', 'Agent', 'Other'] as const;
+export const CLIENT_TYPES = ['Owner', 'Purchaser', 'Agent', 'Conveyancer', 'Solicitor', 'Other'] as const;
+
+/** Who ordered the inspection — maps to Job Information client type. */
+export const ORDERING_PARTY_TYPES = [
+  { value: '', label: 'None' },
+  { value: 'Agent', label: 'Real estate agent' },
+  { value: 'Conveyancer', label: 'Conveyancer' },
+  { value: 'Solicitor', label: 'Solicitor' },
+  { value: 'Other', label: 'Other' },
+] as const;
+
+export function isOrderingPartyClientType(clientType: string | undefined | null): boolean {
+  const value = clientType?.trim() ?? '';
+  return value === 'Agent' || value === 'Conveyancer' || value === 'Solicitor' || value === 'Other';
+}
 
 export const WATER_SUPPLY_OPTIONS = ['Town Water', 'Tank Water', 'Bore Water'] as const;
 export const SEWER_OPTIONS = ['Town Sewer', 'Septic', 'Aerated System'] as const;
@@ -384,7 +398,7 @@ export const BUILDING_CONDITIONS_CONDUCIVE = [
 ] as const;
 
 export const BUILDING_MAJOR_SAFETY_HAZARDS = [
-  'Asbestos Suspected',
+  'Friable Asbestos Suspected',
   'Electrical Hazard',
   'Exposed electrical components',
   'Structural Hazard',

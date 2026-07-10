@@ -7,6 +7,8 @@ import {
   SITESCOP_COMPANY_NAME,
   SITESCOP_COMPANY_PHONE,
 } from '../../shared/company-branding.js';
+import { getAgreement } from './agreements.service.js';
+import { getActiveSigningUrl } from './github-agreements.service.js';
 import { getJobDetail } from './jobs.service.js';
 
 export interface ComposeEmailResult {
@@ -250,6 +252,7 @@ export async function composeReportEmailToClient(
   stmt.free();
 
   const jobId = String(row.job_id);
+  assertJobPaidForReportDelivery(db, jobId);
   const clientEmail = resolveClientEmail(db, jobId, String(row.client_email));
   const filePath = String(row.file_path);
 
@@ -269,4 +272,54 @@ export async function composeReportEmailToClient(
   });
 
   return promptAndOpenEmail({ clientEmail, subject, body, pdfPath: filePath });
+}
+
+function agreementSigningEmailBody(params: {
+  clientName: string;
+  propertyAddress: string;
+  agreementNumber: string;
+  signingUrl: string;
+}): string {
+  const firstName = params.clientName.split(' ')[0] || 'Client';
+  return `Dear ${firstName},
+
+Please review and sign your inspection agreement for ${params.propertyAddress}.
+
+Agreement: ${params.agreementNumber}
+
+Sign here:
+${params.signingUrl}
+
+If you have any questions before signing, reply to this email or call us on ${SITESCOP_COMPANY_PHONE}.
+
+Kind regards,
+${SITESCOP_COMPANY_NAME}`;
+}
+
+export async function composeAgreementSigningEmail(
+  db: SqlDatabase,
+  agreementId: string,
+  _user: SessionUser,
+): Promise<ComposeEmailResult> {
+  const agreement = getAgreement(db, agreementId);
+  if (!agreement) throw new Error('Agreement not found');
+  if (!agreement.accessToken) {
+    throw new Error('No signing link yet. Use Send to client or Resend / get link first.');
+  }
+
+  const clientEmail = firstValidClientEmail(agreement.clientEmail);
+  if (!clientEmail) {
+    throw new Error('No client email on this agreement. Add the client email and try again.');
+  }
+
+  const { url: signingUrl } = getActiveSigningUrl(agreement.accessToken);
+  const subject = `Please sign your inspection agreement — ${agreement.agreementNumber}`;
+  const body = agreementSigningEmailBody({
+    clientName: agreement.clientName,
+    propertyAddress: agreement.propertyAddress,
+    agreementNumber: agreement.agreementNumber,
+    signingUrl,
+  });
+
+  return promptAndOpenEmail({ clientEmail, subject, body });
 }

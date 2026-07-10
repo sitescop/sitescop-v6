@@ -15,6 +15,7 @@ interface CombinedInspectionFormProps {
   rooms: InspectionRoomDetail[];
   onRoomPatch: (roomId: string, partial: Record<string, unknown>) => void;
   onRoomDataChange: (roomId: string, data: Record<string, unknown>) => void;
+  workflowStorageKey?: string;
 }
 
 export function CombinedInspectionForm({
@@ -24,6 +25,7 @@ export function CombinedInspectionForm({
   rooms,
   onRoomPatch,
   onRoomDataChange,
+  workflowStorageKey,
 }: CombinedInspectionFormProps) {
   const subfloorApplicable = isSubfloorApplicable(
     resolveSubfloorPresent(
@@ -47,7 +49,11 @@ export function CombinedInspectionForm({
 
   return (
     <InspectionFormProvider>
-      <InspectionAccordion defaultOpenId="inspector-hazard" routeIds={routeIds}>
+      <InspectionAccordion
+        defaultOpenId="inspector-hazard"
+        routeIds={routeIds}
+        workflowStorageKey={workflowStorageKey}
+      >
         <BuildingInspectionForm
           formData={formData}
           onSectionChange={onSectionChange}

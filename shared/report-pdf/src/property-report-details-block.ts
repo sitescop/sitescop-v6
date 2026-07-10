@@ -110,7 +110,17 @@ export function buildPropertyReportDetailsData(ctx: ReportRenderContext): Record
 export function renderPropertyReportDetailsBlock(ctx: ReportRenderContext): string {
   const data = buildPropertyReportDetailsData(ctx);
   const clientType = String(data.clientType ?? '').trim();
-  const showAgentFields = clientType === 'Agent';
+  const showAgentFields =
+    clientType === 'Agent' ||
+    clientType === 'Conveyancer' ||
+    clientType === 'Solicitor' ||
+    clientType === 'Other' ||
+    Boolean(
+      String(data.agencyName ?? '').trim() ||
+        String(data.agentName ?? '').trim() ||
+        String(data.agentMobile ?? '').trim() ||
+        String(data.agentEmail ?? '').trim(),
+    );
 
   const fieldDefs = PROPERTY_REPORT_DETAILS_FIELDS.filter((def) => {
     if (!showAgentFields && ['agencyName', 'agentName', 'agentMobile', 'agentEmail'].includes(def.key)) {

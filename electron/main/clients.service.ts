@@ -4,7 +4,45 @@ import type {
   ClientDetailJob,
   ClientDetailJobReport,
   ClientRow,
+  UpdateClientInput,
+  UpdateClientAgentInput,
 } from '../../shared/api-types.js';
+
+function findOtherClientByContact(
+  db: SqlDatabase,
+  email: string | undefined,
+  mobile: string | undefined,
+  excludeClientId: string,
+): string | null {
+  if (email?.trim()) {
+    const stmt = db.prepare(
+      `SELECT id FROM clients WHERE lower(email) = lower(?) AND id != ? LIMIT 1`,
+    );
+    stmt.bind([email.trim(), excludeClientId]);
+    if (stmt.step()) {
+      const row = stmt.getAsObject() as { id: string };
+      stmt.free();
+      return row.id;
+    }
+    stmt.free();
+  }
+
+  if (mobile?.trim()) {
+    const normalized = mobile.replace(/\s/g, '');
+    const stmt = db.prepare(
+      `SELECT id FROM clients WHERE replace(mobile, ' ', '') = ? AND id != ? LIMIT 1`,
+    );
+    stmt.bind([normalized, excludeClientId]);
+    if (stmt.step()) {
+      const row = stmt.getAsObject() as { id: string };
+      stmt.free();
+      return row.id;
+    }
+    stmt.free();
+  }
+
+  return null;
+}
 
 function mapClientRow(row: Record<string, unknown>): ClientRow {
   return {
@@ -166,7 +204,13 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
         LIMIT 1
       ) AS agreementPdfPath,
       j.invoice_path AS invoicePdfPath,
-      j.has_invoice AS hasInvoice
+      j.has_invoice AS hasInvoice,
+      j.ordering_party_type AS orderingPartyType,
+      j.real_estate AS realEstate,
+      j.agent_name AS agentName,
+      j.agent_phone AS agentPhone,
+      j.agent_mobile AS agentMobile,
+      j.agent_email AS agentEmail
     FROM jobs j
     LEFT JOIN inspections i ON i.job_id = j.id
     WHERE j.client_id = ?
@@ -196,6 +240,12 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
       agreementPdfPath: row.agreementPdfPath ? String(row.agreementPdfPath) : null,
       invoicePdfPath: row.invoicePdfPath ? String(row.invoicePdfPath) : null,
       hasInvoice: Boolean(row.hasInvoice),
+      orderingPartyType: row.orderingPartyType ? String(row.orderingPartyType) : null,
+      realEstate: row.realEstate ? String(row.realEstate) : null,
+      agentName: row.agentName ? String(row.agentName) : null,
+      agentPhone: row.agentPhone ? String(row.agentPhone) : null,
+      agentMobile: row.agentMobile ? String(row.agentMobile) : null,
+      agentEmail: row.agentEmail ? String(row.agentEmail) : null,
       reports: [],
     });
   }
@@ -220,4 +270,132 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
     propertyAddresses,
     jobs,
   };
+}
+
+export function updateClient(
+  db: SqlDatabase,
+  clientId: string,
+  input: UpdateClientInput,
+): ClientDetail {
+  const existing = getClientById(db, clientId);
+  if (!existing) {
+    throw new Error('Client not found');
+  }
+
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  if (!firstName || !lastName) {
+    throw new Error('First name and last name are required');
+  }
+
+  const email = input.email?.trim().toLowerCase() || null;
+  const mobile = input.mobile?.trim() || null;
+
+  const duplicateId = findOtherClientByContact(db, email ?? undefined, mobile ?? undefined, clientId);
+  if (duplicateId) {
+    throw new Error('Another client already uses this email or mobile number');
+  }
+
+  const clientName = `${firstName} ${lastName}`.trim();
+
+  db.run('BEGIN TRANSACTION');
+
+  try {
+    db.run(
+      `UPDATE clients SET first_name = ?, last_name = ?, email = ?, mobile = ? WHERE id = ?`,
+      [firstName, lastName, email, mobile, clientId],
+    );
+
+    db.run(
+      `
+      UPDATE agreements
+      SET client_name = ?, client_email = ?, client_phone = ?, updated_at = datetime('now')
+      WHERE job_id IN (
+        SELECT id FROM jobs WHERE client_id = ? AND IFNULL(deleted_at, '') = ''
+      )
+      `,
+      [clientName, email ?? '', mobile, clientId],
+    );
+
+    db.run('COMMIT');
+  } catch (error) {
+    db.run('ROLLBACK');
+    throw error;
+  }
+
+  const updated = getClientById(db, clientId);
+  if (!updated) {
+    throw new Error('Client not found after update');
+  }
+  return updated;
+}
+
+export function updateClientAgent(
+  db: SqlDatabase,
+  clientId: string,
+  input: UpdateClientAgentInput,
+): ClientDetail {
+  const existing = getClientById(db, clientId);
+  if (!existing) {
+    throw new Error('Client not found');
+  }
+  if (existing.jobs.length === 0) {
+    throw new Error('Add a job for this client before saving agent details');
+  }
+
+  const realEstate = input.realEstate?.trim() || null;
+  const agentName = input.agentName?.trim() || null;
+  const agentPhone = input.agentPhone?.trim() || null;
+  const agentMobile = input.agentMobile?.trim() || null;
+  const agentEmail = input.agentEmail?.trim().toLowerCase() || null;
+  const hasAgent = Boolean(realEstate || agentName || agentPhone || agentMobile || agentEmail);
+  const orderingPartyType = hasAgent ? 'Agent' : null;
+
+  db.run('BEGIN TRANSACTION');
+
+  try {
+    db.run(
+      `
+      UPDATE jobs
+      SET
+        real_estate = ?,
+        agent_name = ?,
+        agent_phone = ?,
+        agent_mobile = ?,
+        agent_email = ?,
+        ordering_party_type = ?,
+        updated_at = datetime('now')
+      WHERE client_id = ? AND IFNULL(deleted_at, '') = ''
+      `,
+      [realEstate, agentName, agentPhone, agentMobile, agentEmail, orderingPartyType, clientId],
+    );
+
+    db.run(
+      `
+      UPDATE agreements
+      SET
+        agency_name = ?,
+        agent_name = ?,
+        agent_email = ?,
+        updated_at = datetime('now')
+      WHERE job_id IN (
+        SELECT id FROM jobs WHERE client_id = ? AND IFNULL(deleted_at, '') = ''
+      )
+        AND status != 'CANCELLED'
+        AND IFNULL(deleted_at, '') = ''
+      `,
+      [realEstate, agentName, agentEmail ?? '', clientId],
+    );
+
+    db.run('COMMIT');
+  } catch (error) {
+    db.run('ROLLBACK');
+    throw error;
+  }
+
+  const updated = getClientById(db, clientId);
+  if (!updated) {
+    throw new Error('Client not found after update');
+  }
+  return updated;
 }

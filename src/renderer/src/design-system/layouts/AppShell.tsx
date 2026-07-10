@@ -9,6 +9,7 @@ import {
   LogOut,
   Plus,
   Recycle,
+  Calculator,
 } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/modules/auth/auth-store';
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/jobs/new', label: 'Create New Job', icon: Plus, accent: true },
   { to: '/jobs/in-progress', label: 'In Progress', icon: ClipboardList },
   { to: '/jobs/completed', label: 'Completed', icon: CheckCircle2 },
+  { to: '/accounting', label: 'Accounting', icon: Calculator },
   { to: '/agreements', label: 'Agreements', icon: FileText },
   { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/recycle-bin', label: 'Recycle Bin', icon: Recycle },
@@ -39,7 +41,10 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   '/calendar': { title: 'Calendar', subtitle: 'Monthly schedule and rescheduling' },
   '/recycle-bin': { title: 'Recycle Bin', subtitle: 'Restore or permanently delete removed jobs and agreements' },
   '/clients': { title: 'Clients', subtitle: 'Client contacts from your jobs and agreements' },
-  '/invoices/outstanding': { title: 'Outstanding Invoices', subtitle: 'Jobs flagged for invoicing' },
+  '/accounting': { title: 'Accounting', subtitle: 'Payments, invoices, and client balances' },
+  '/accounting/awaiting': { title: 'Accounting', subtitle: 'Signed jobs awaiting payment' },
+  '/accounting/paid': { title: 'Accounting', subtitle: 'Paid inspection jobs' },
+  '/accounting/clients': { title: 'Accounting', subtitle: 'Payment totals by client' },
   '/settings': { title: 'Settings', subtitle: 'Inspector, voice dictation, company, reports, login, and GitHub signing' },
   '/jobs/:jobId/inspection': { title: 'Inspection workspace', subtitle: 'Building & pest inspection form' },
 };
@@ -47,6 +52,9 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
 function resolveHeader(pathname: string) {
   if (pathname.includes('/inspection')) {
     return PAGE_TITLES['/jobs/:jobId/inspection'];
+  }
+  if (pathname.startsWith('/accounting/')) {
+    return PAGE_TITLES[pathname] ?? PAGE_TITLES['/accounting'];
   }
   if (pathname.startsWith('/clients/') && pathname !== '/clients') {
     return { title: 'Client details', subtitle: 'Contact, jobs, agreements, and PDF reports' };

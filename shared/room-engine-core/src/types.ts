@@ -17,6 +17,8 @@ export interface CheckboxFieldState {
 export interface SectionBase {
   comments: string;
   photos: InspectionPhotoRef[];
+  /** When true, detailed fields are collapsed in workflow and omitted from PDF tables. */
+  noMajorDefectObserved?: boolean;
 }
 
 export interface JobInformationSection extends SectionBase {
@@ -65,6 +67,9 @@ export interface ServicesSection extends SectionBase {
   airConTypeOther: string;
   airConOperating: string;
   gasBottlePhotos: InspectionPhotoRef[];
+  rainwaterTankPresent: string;
+  rainwaterTankPhotos: InspectionPhotoRef[];
+  rainwaterTankComments: string;
 }
 
 export interface PropertyDescriptionSection extends SectionBase {
@@ -92,6 +97,10 @@ export interface AccessibilityObstructionsSection extends SectionBase {
   exteriorObstructions: CheckboxFieldState;
   roofSpaceObstructions: CheckboxFieldState;
   subfloorObstructions: CheckboxFieldState;
+  interiorObstructionPhotos: InspectionPhotoRef[];
+  exteriorObstructionPhotos: InspectionPhotoRef[];
+  roofSpaceObstructionPhotos: InspectionPhotoRef[];
+  subfloorObstructionPhotos: InspectionPhotoRef[];
   inaccessibleAreas: CheckboxFieldState;
   inaccessibleCustomLines: string[];
   undetectedStructuralRisk: string;
@@ -479,6 +488,8 @@ export interface PrefillJobContext {
   agentName: string;
   agentPhone: string;
   agentEmail: string;
+  agencyName: string;
+  clientType: string;
   propertyAddress: string;
   scheduledDate: string | null;
   scheduledTime: string | null;

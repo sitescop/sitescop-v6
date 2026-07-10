@@ -116,7 +116,31 @@
   }
 
   .inspection-form .inspection-photo-field {
-    @apply rounded-lg border border-primary/15 bg-[#F8FAFC] p-3 shadow-sm md:p-4;
+    @apply rounded-xl border-2 border-primary/20 bg-gradient-to-br from-sky-50/90 via-white to-violet-50/70 p-3 shadow-[0_2px_10px_rgba(59,130,246,0.12)] md:p-4;
+  }
+
+  .inspection-photo-field .inspection-photo-actions {
+    @apply flex flex-wrap gap-2.5;
+  }
+
+  .inspection-photo-field .inspection-photo-btn {
+    @apply inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg border-0 px-4 py-2 text-sm font-bold text-white shadow-md transition-all duration-200 hover:brightness-110 hover:shadow-lg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:brightness-100 disabled:active:scale-100;
+  }
+
+  .inspection-photo-field .inspection-photo-btn-camera {
+    @apply bg-gradient-to-br from-sky-500 to-blue-600 shadow-sky-500/35;
+  }
+
+  .inspection-photo-field .inspection-photo-btn-upload {
+    @apply bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/35;
+  }
+
+  .inspection-photo-field .inspection-photo-btn-view {
+    @apply bg-gradient-to-br from-violet-500 to-purple-600 shadow-violet-500/35;
+  }
+
+  .inspection-photo-field .inspection-photo-btn-view:disabled {
+    @apply bg-gradient-to-br from-slate-300 to-slate-400 text-slate-600 shadow-none;
   }
 
   .inspection-form .inspection-comments-textarea {

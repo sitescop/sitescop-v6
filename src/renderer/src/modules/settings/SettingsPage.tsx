@@ -6,6 +6,7 @@ import {
   Cloud,
   DollarSign,
   ImageIcon,
+  Link2,
   Lock,
   Mic,
   Recycle,
@@ -21,13 +22,14 @@ import type {
   InspectorProfileInput,
   InspectionType,
   ReportSettingsInput,
+  XeroSettingsInput,
 } from '@shared/api-types';
 import { getSettingsApi } from '@/lib/sitescop-api';
 import { useAuthStore } from '@/modules/auth/auth-store';
 import { VoiceDictationSettingsCard } from '@/modules/settings/VoiceDictationSettingsCard';
 import { Button, Card, Input, Textarea } from '@/design-system/components';
 
-type SettingsTab = 'inspector' | 'voice' | 'company' | 'billing' | 'reports' | 'security' | 'github';
+type SettingsTab = 'inspector' | 'voice' | 'company' | 'billing' | 'reports' | 'security' | 'github' | 'xero';
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
   { id: 'inspector', label: 'Inspector', icon: User },
@@ -37,6 +39,7 @@ const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
   { id: 'reports', label: 'Reports & PDF', icon: ImageIcon },
   { id: 'security', label: 'Login & Password', icon: Lock },
   { id: 'github', label: 'GitHub Signing', icon: Cloud },
+  { id: 'xero', label: 'Xero & MYOB', icon: Link2 },
 ];
 
 function centsToPriceInput(cents: number): string {
@@ -78,6 +81,11 @@ export function SettingsPage() {
   const githubQuery = useQuery({
     queryKey: ['settings-github'],
     queryFn: () => getSettingsApi().getGitHub(),
+  });
+
+  const xeroQuery = useQuery({
+    queryKey: ['settings-xero'],
+    queryFn: () => getSettingsApi().getXero(),
   });
 
   const [profile, setProfile] = useState<InspectorProfileInput>({
@@ -139,6 +147,12 @@ export function SettingsPage() {
   });
   const [personalAccessToken, setPersonalAccessToken] = useState('');
   const [testResult, setTestResult] = useState<GitHubTestConnectionResult | null>(null);
+  const [xeroForm, setXeroForm] = useState<XeroSettingsInput>({
+    enabled: false,
+    clientId: '',
+    salesAccountCode: '200',
+  });
+  const [xeroClientSecret, setXeroClientSecret] = useState('');
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
   useEffect(() => {
@@ -176,6 +190,15 @@ export function SettingsPage() {
       publicRelayUrl: githubQuery.data.publicRelayUrl,
     });
   }, [githubQuery.data]);
+
+  useEffect(() => {
+    if (!xeroQuery.data) return;
+    setXeroForm({
+      enabled: xeroQuery.data.enabled,
+      clientId: xeroQuery.data.clientId,
+      salesAccountCode: xeroQuery.data.salesAccountCode,
+    });
+  }, [xeroQuery.data]);
 
   function clearStatus() {
     setMessage('');
@@ -308,6 +331,49 @@ export function SettingsPage() {
       setMessage('');
       setError(e instanceof Error ? e.message : 'Connection failed');
     },
+  });
+
+  const saveXeroMutation = useMutation({
+    mutationFn: () =>
+      getSettingsApi().saveXero({
+        ...xeroForm,
+        clientSecret: xeroClientSecret.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setXeroClientSecret('');
+      clearStatus();
+      setMessage('Xero settings saved.');
+      void queryClient.invalidateQueries({ queryKey: ['settings-xero'] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not save Xero settings'),
+  });
+
+  const connectXeroMutation = useMutation({
+    mutationFn: async () => {
+      const settingsApi = getSettingsApi();
+      await settingsApi.saveXero({
+        ...xeroForm,
+        clientSecret: xeroClientSecret.trim() || undefined,
+      });
+      return settingsApi.connectXero();
+    },
+    onSuccess: (result) => {
+      setXeroClientSecret('');
+      clearStatus();
+      setMessage(`Connected to Xero — ${result.tenantName}`);
+      void queryClient.invalidateQueries({ queryKey: ['settings-xero'] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not connect to Xero'),
+  });
+
+  const disconnectXeroMutation = useMutation({
+    mutationFn: () => getSettingsApi().disconnectXero(),
+    onSuccess: () => {
+      clearStatus();
+      setMessage('Disconnected from Xero.');
+      void queryClient.invalidateQueries({ queryKey: ['settings-xero'] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not disconnect from Xero'),
   });
 
   return (
@@ -589,6 +655,94 @@ export function SettingsPage() {
             <Button variant="secondary" onClick={() => testGithubMutation.mutate()} disabled={testGithubMutation.isPending}>
               {testGithubMutation.isPending ? 'Testing…' : 'Test Connection'}
             </Button>
+          </div>
+        </Card>
+      )}
+
+      {tab === 'xero' && (
+        <Card className="space-y-5 p-6">
+          <div>
+            <h3 className="font-bold text-text">Xero accounting sync</h3>
+            <p className="mt-1 text-sm text-text-light">
+              Send signed job invoices from Accounting to your Xero organisation.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm font-medium text-text">
+            <input
+              type="checkbox"
+              checked={xeroForm.enabled}
+              onChange={(e) => setXeroForm((current) => ({ ...current, enabled: e.target.checked }))}
+            />
+            Enable Xero sync
+          </label>
+
+          <div className="rounded-lg border border-border bg-background/60 p-4 text-sm text-text-light">
+            <p className="font-medium text-text">Setup steps</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>Create a Xero app at developer.xero.com</li>
+              <li>Add redirect URI: <code className="rounded bg-surface px-1">{xeroQuery.data?.redirectUri ?? 'http://localhost:53682/xero/callback'}</code></li>
+              <li>Paste Client ID and Secret below, save, then connect</li>
+              <li>Use <strong>Send to Xero</strong> on Accounting jobs</li>
+            </ol>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Xero Client ID"
+              value={xeroForm.clientId}
+              onChange={(e) => setXeroForm((current) => ({ ...current, clientId: e.target.value }))}
+            />
+            <Input
+              label="Sales account code"
+              value={xeroForm.salesAccountCode}
+              onChange={(e) => setXeroForm((current) => ({ ...current, salesAccountCode: e.target.value }))}
+              placeholder="200"
+            />
+          </div>
+          <Input
+            label="Xero Client Secret"
+            type="password"
+            value={xeroClientSecret}
+            onChange={(e) => setXeroClientSecret(e.target.value)}
+            placeholder={xeroQuery.data?.hasClientSecret ? 'Saved securely — enter only to replace' : 'From your Xero app'}
+          />
+
+          {xeroQuery.data?.connected ? (
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-sm">
+              <p className="font-semibold text-success">Connected to {xeroQuery.data.tenantName}</p>
+              <p className="mt-1 text-text-light">Invoices can be sent from Accounting → Awaiting payment or Paid.</p>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => saveXeroMutation.mutate()} disabled={saveXeroMutation.isPending}>
+              {saveXeroMutation.isPending ? 'Saving…' : 'Save Xero settings'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => connectXeroMutation.mutate()}
+              disabled={connectXeroMutation.isPending || !xeroForm.enabled}
+            >
+              {connectXeroMutation.isPending ? 'Connecting…' : 'Connect to Xero'}
+            </Button>
+            {xeroQuery.data?.connected ? (
+              <Button
+                variant="secondary"
+                onClick={() => disconnectXeroMutation.mutate()}
+                disabled={disconnectXeroMutation.isPending}
+              >
+                {disconnectXeroMutation.isPending ? 'Disconnecting…' : 'Disconnect'}
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="rounded-lg border border-dashed border-border bg-surface-muted/40 p-4">
+            <h4 className="font-semibold text-text">MYOB</h4>
+            <p className="mt-1 text-sm text-text-light">
+              MYOB sync is planned for a future update. For now, use <strong>Export CSV</strong> on the Accounting
+              screens and import into MYOB, or continue using SiteScop invoices.
+            </p>
           </div>
         </Card>
       )}

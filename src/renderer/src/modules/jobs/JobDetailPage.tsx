@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Play, ClipboardCheck, Trash2, FileText } from 'lucide-react';
+import { ArrowLeft, Play, ClipboardCheck, Trash2, FileText, CircleDollarSign } from 'lucide-react';
 import { getSitescopApi } from '@/lib/sitescop-api';
+import { cn } from '@/lib/cn';
 import { Button, Card, PageHeader } from '@/design-system/components';
 import { formatDisplayDate } from '@/lib/dates';
-import { INSPECTION_TYPE_LABELS, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
+import { INSPECTION_TYPE_LABELS, PaymentBadge, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
 import { JobQuickActions } from '@/modules/jobs/components/JobQuickActions';
 import { useJobDelete } from '@/modules/jobs/hooks/useJobDelete';
 
@@ -46,6 +47,24 @@ export function JobDetailPage() {
     },
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: () => getSitescopApi().jobs.markPaid(jobId),
+    onSuccess: (updatedJob) => {
+      queryClient.setQueryData(['job', jobId], updatedJob);
+      void queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs-in-progress'] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs-outstanding-invoices'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-awaiting'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-paid'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-by-client'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    },
+    onError: (error) => {
+      window.alert(error instanceof Error ? error.message : 'Could not mark job as paid.');
+    },
+  });
+
   if (isLoading) {
     return <p className="text-text-light">Loading job...</p>;
   }
@@ -62,6 +81,14 @@ export function JobDetailPage() {
   }
 
   const backLabel = isCompleted ? 'Completed' : 'In Progress';
+  const agreementSigned = job.agreementStatus === 'SIGNED';
+  const showPaymentBadge = agreementSigned;
+  const canMarkPaid = agreementSigned && !job.paymentReceived;
+  const agreementStatusClass = cn(
+    agreementSigned
+      ? 'border-success/35 bg-success/5 text-success hover:bg-success/10'
+      : 'border-danger/35 bg-danger/5 text-danger hover:bg-danger/10',
+  );
 
   return (
     <div>
@@ -88,11 +115,17 @@ export function JobDetailPage() {
           <div className="flex flex-wrap items-center gap-2">
             <TypeBadge type={job.inspectionType} />
             <StatusBadge status={job.status} />
+            {showPaymentBadge && (
+              <PaymentBadge
+                agreementStatus={job.agreementStatus}
+                paymentReceived={job.paymentReceived}
+              />
+            )}
           </div>
 
           <dl className="grid gap-4 sm:grid-cols-2">
             <div>
-              <dt className="text-xs font-bold uppercase text-text-muted">Client</dt>
+              <dt className="text-xs font-bold uppercase text-text-muted">Purchaser</dt>
               <dd className="mt-1 font-medium text-text">{job.clientName}</dd>
             </div>
             <div>
@@ -113,9 +146,17 @@ export function JobDetailPage() {
               <dt className="text-xs font-bold uppercase text-text-muted">Property</dt>
               <dd className="mt-1 text-text">{job.propertyAddress}</dd>
             </div>
+            {job.orderingPartyType && (
+              <div>
+                <dt className="text-xs font-bold uppercase text-text-muted">Ordering party</dt>
+                <dd className="mt-1 text-text">
+                  {job.orderingPartyType === 'Agent' ? 'Real estate agent' : job.orderingPartyType}
+                </dd>
+              </div>
+            )}
             {job.realEstate && (
               <div>
-                <dt className="text-xs font-bold uppercase text-text-muted">Real estate</dt>
+                <dt className="text-xs font-bold uppercase text-text-muted">Agency / firm</dt>
                 <dd className="mt-1 text-text">{job.realEstate}</dd>
               </div>
             )}
@@ -123,6 +164,28 @@ export function JobDetailPage() {
               <div>
                 <dt className="text-xs font-bold uppercase text-text-muted">Agent</dt>
                 <dd className="mt-1 text-text">{job.agentName}</dd>
+              </div>
+            )}
+            {job.agentPhone && (
+              <div>
+                <dt className="text-xs font-bold uppercase text-text-muted">Agent phone</dt>
+                <dd className="mt-1 text-text">{job.agentPhone}</dd>
+              </div>
+            )}
+            {job.agentMobile && (
+              <div>
+                <dt className="text-xs font-bold uppercase text-text-muted">Agent mobile</dt>
+                <dd className="mt-1 text-text">{job.agentMobile}</dd>
+              </div>
+            )}
+            {job.agentEmail && (
+              <div>
+                <dt className="text-xs font-bold uppercase text-text-muted">Agent email</dt>
+                <dd className="mt-1 text-text">
+                  <a href={`mailto:${job.agentEmail}`} className="text-primary hover:underline">
+                    {job.agentEmail}
+                  </a>
+                </dd>
               </div>
             )}
             {job.notes && (
@@ -146,6 +209,7 @@ export function JobDetailPage() {
             {(job.agreementStatus === 'NONE' || job.agreementStatus === 'DRAFT') && (
               <Button
                 variant="secondary"
+                className={agreementStatusClass}
                 onClick={() => agreementMutation.mutate()}
                 disabled={agreementMutation.isPending}
               >
@@ -154,15 +218,41 @@ export function JobDetailPage() {
               </Button>
             )}
             {job.agreementStatus === 'SENT' && (
-              <Button variant="secondary" onClick={() => navigate('/agreements?status=SENT')}>
+              <Button
+                variant="secondary"
+                className={agreementStatusClass}
+                onClick={() => navigate('/agreements?status=SENT')}
+              >
                 <FileText className="h-4 w-4" />
                 Agreement sent
               </Button>
             )}
             {job.agreementStatus === 'SIGNED' && (
-              <Button variant="secondary" onClick={() => navigate('/agreements?status=SIGNED')}>
+              <Button
+                variant="secondary"
+                className={agreementStatusClass}
+                onClick={() => navigate('/agreements?status=SIGNED')}
+              >
                 <FileText className="h-4 w-4" />
                 Agreement signed
+              </Button>
+            )}
+            {canMarkPaid && (
+              <Button
+                variant="accent"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Mark ${job.jobNumber} as paid? The client can then receive inspection reports.`,
+                    )
+                  ) {
+                    markPaidMutation.mutate();
+                  }
+                }}
+                disabled={markPaidMutation.isPending}
+              >
+                <CircleDollarSign className="h-4 w-4" />
+                {markPaidMutation.isPending ? 'Updating…' : 'Mark as paid'}
               </Button>
             )}
             <Button

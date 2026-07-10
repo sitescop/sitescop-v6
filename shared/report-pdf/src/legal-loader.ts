@@ -8,6 +8,7 @@ const LEGAL_FILES = [
   'terms-conditions.html',
   'privacy-policy.html',
   'client-declaration.html',
+  'agent-authority.html',
 ] as const;
 
 let legalBasePath: string | null = null;

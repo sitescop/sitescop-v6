@@ -73,6 +73,8 @@ export interface CopyPdfResult {
   count: number;
   message: string;
 }
+
+export interface LoginResult {
   success: boolean;
   user?: SessionUser;
   error?: string;
@@ -131,11 +133,15 @@ export interface AgreementLegalSection {
   id: string;
   title: string;
   content: string;
+  /** Sanitized HTML for client signing (callouts, headings, lists). */
+  contentHtml?: string;
 }
 
 export interface AgreementLegalContent {
   sections: AgreementLegalSection[];
 }
+
+export type AgreementSignerRole = 'CLIENT' | 'AGENT';
 
 export interface AgreementRow {
   id: string;
@@ -144,6 +150,12 @@ export interface AgreementRow {
   jobNumber: string | null;
   status: AgreementStatus;
   inspectionType: InspectionType;
+  signerRole: AgreementSignerRole;
+  agencyName: string | null;
+  agentName: string | null;
+  agentEmail: string | null;
+  signedOnBehalfOf: string | null;
+  agentAuthorityAccepted: boolean;
   clientName: string;
   clientEmail: string;
   clientPhone: string | null;
@@ -177,6 +189,11 @@ export interface PublicAgreementView {
   companyWebsite: string;
   companyEmail: string;
   companyAbn: string;
+  companyLogoUrl: string | null;
+  signerRole: AgreementSignerRole;
+  agencyName: string | null;
+  agentName: string | null;
+  agentEmail: string | null;
   clientName: string;
   clientEmail: string;
   propertyAddress: string;
@@ -186,11 +203,19 @@ export interface PublicAgreementView {
   agreementDate: string;
   legalSections: AgreementLegalContent;
   canSign: boolean;
+  /** True when a linked agent is on file — the signing page lets the visitor choose client or agent. */
+  agentSigningAvailable: boolean;
+  /** Agent Authority section (inserted when the visitor chooses agent signing). */
+  agentAuthoritySection: AgreementLegalSection | null;
 }
 
 export interface CreateAgreementInput {
   jobId?: string;
   inspectionType: InspectionType;
+  signerRole?: AgreementSignerRole;
+  agencyName?: string;
+  agentName?: string;
+  agentEmail?: string;
   clientName: string;
   clientEmail: string;
   clientPhone?: string;
@@ -206,6 +231,10 @@ export interface SignAgreementInput {
   signatureName: string;
   signatureData: string;
   declarationsAccepted: boolean;
+  /** Who is signing — chosen on the client signing page when an agent is on file. */
+  signingParty?: AgreementSignerRole;
+  /** Required when signingParty is AGENT — agent confirms authority to bind the client. */
+  agentAuthorityAccepted?: boolean;
 }
 
 export interface SendAgreementResult {
@@ -250,6 +279,30 @@ export interface GitHubSyncResult {
   failed: boolean;
 }
 
+export interface XeroSettingsPublic {
+  enabled: boolean;
+  clientId: string;
+  hasClientSecret: boolean;
+  salesAccountCode: string;
+  connected: boolean;
+  tenantName: string;
+  redirectUri: string;
+}
+
+export interface XeroSettingsInput {
+  enabled: boolean;
+  clientId: string;
+  clientSecret?: string;
+  salesAccountCode: string;
+}
+
+export interface PushToXeroResult {
+  invoiceId: string;
+  invoiceNumber: string;
+  tenantName: string;
+  message: string;
+}
+
 export interface CalendarEvent {
   id: string;
   jobNumber: string;
@@ -282,9 +335,16 @@ export interface JobRow {
   agreementStatus: 'NONE' | 'DRAFT' | 'SENT' | 'SIGNED';
   hasInvoice: boolean;
   hasReport: boolean;
+  paymentReceived: boolean;
+  paidAt?: string;
   realEstate?: string;
+  orderingPartyType?: string;
   agentName?: string;
+  agentPhone?: string;
+  agentMobile?: string;
+  agentEmail?: string;
   notes?: string;
+  xeroInvoiceId?: string | null;
 }
 
 export type TodayJobRow = JobRow;
@@ -300,7 +360,11 @@ export interface CreateJobInput {
   inspectionDate: string;
   inspectionTime: string;
   realEstate?: string;
+  orderingPartyType?: string;
   agentName?: string;
+  agentPhone?: string;
+  agentMobile?: string;
+  agentEmail?: string;
   notes?: string;
   priority?: JobPriority;
 }
@@ -372,6 +436,12 @@ export interface ClientDetailJob {
   agreementPdfPath: string | null;
   invoicePdfPath: string | null;
   hasInvoice: boolean;
+  orderingPartyType: string | null;
+  realEstate: string | null;
+  agentName: string | null;
+  agentPhone: string | null;
+  agentMobile: string | null;
+  agentEmail: string | null;
   reports: ClientDetailJobReport[];
 }
 
@@ -385,6 +455,44 @@ export interface ClientDetail {
   primaryPropertyAddress: string | null;
   propertyAddresses: string[];
   jobs: ClientDetailJob[];
+}
+
+export interface UpdateClientInput {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  mobile?: string;
+}
+
+export interface UpdateClientAgentInput {
+  realEstate?: string;
+  agentName?: string;
+  agentPhone?: string;
+  agentMobile?: string;
+  agentEmail?: string;
+}
+
+export interface AccountingJobRow extends JobRow {
+  clientId: string;
+  totalCents: number | null;
+  signedAt: string | null;
+}
+
+export interface AccountingSummary {
+  revenueThisWeekCents: number;
+  revenueThisMonthCents: number;
+  overdueJobCount: number;
+  overdueAmountCents: number;
+  readyToSendCount: number;
+}
+
+export interface ClientAccountingRow {
+  clientId: string;
+  clientName: string;
+  unpaidJobCount: number;
+  paidJobCount: number;
+  amountOwedCents: number;
+  amountPaidCents: number;
 }
 
 export type {
@@ -432,6 +540,7 @@ export interface SitescopApi {
     get: (jobId: string) => Promise<JobDetail | null>;
     delete: (jobId: string, input: DeleteJobInput) => Promise<void>;
     start: (jobId: string) => Promise<void>;
+    markPaid: (jobId: string) => Promise<JobDetail>;
     emailClient: (jobId: string) => Promise<ComposeEmailResult>;
   };
   inspections: {
@@ -463,6 +572,7 @@ export interface SitescopApi {
     get: (agreementId: string) => Promise<AgreementDetail | null>;
     create: (input: CreateAgreementInput) => Promise<AgreementDetail>;
     createFromJob: (jobId: string) => Promise<AgreementDetail>;
+    createJobFromSigned: (agreementId: string) => Promise<CreateJobResult & { agreement: AgreementDetail }>;
     update: (agreementId: string, input: UpdateAgreementInput) => Promise<AgreementDetail>;
     send: (agreementId: string) => Promise<SendAgreementResult>;
     getSigningPortalBase: () => Promise<{ baseUrl: string; mode: 'github' | 'local' }>;
@@ -476,15 +586,25 @@ export interface SitescopApi {
     getPublic: (token: string) => Promise<PublicAgreementView | null>;
     markViewed: (token: string) => Promise<void>;
     sign: (token: string, input: SignAgreementInput) => Promise<{ agreementNumber: string; jobId: string | null }>;
+    emailSigningLink: (agreementId: string) => Promise<ComposeEmailResult>;
   };
   calendar: {
     listEvents: (startDate: string, endDate: string) => Promise<CalendarEvent[]>;
     listUpcoming: () => Promise<CalendarEvent[]>;
     reschedule: (jobId: string, input: RescheduleJobInput) => Promise<CalendarEvent>;
   };
+  accounting: {
+    listAwaitingPayment: () => Promise<AccountingJobRow[]>;
+    listPaid: () => Promise<AccountingJobRow[]>;
+    listByClient: () => Promise<ClientAccountingRow[]>;
+    getSummary: () => Promise<AccountingSummary>;
+    pushToXero: (jobId: string) => Promise<PushToXeroResult>;
+  };
   clients: {
     list: (search?: string) => Promise<ClientRow[]>;
     get: (clientId: string) => Promise<ClientDetail>;
+    update: (clientId: string, input: UpdateClientInput) => Promise<ClientDetail>;
+    updateAgent: (clientId: string, input: UpdateClientAgentInput) => Promise<ClientDetail>;
     openAgreementPdf: (agreementId: string) => Promise<void>;
     openInvoicePdf: (jobId: string) => Promise<void>;
     copyAgreementPdf: (agreementId: string) => Promise<CopyPdfResult>;
@@ -494,6 +614,7 @@ export interface SitescopApi {
   shell: {
     openExternal: (url: string) => Promise<void>;
     copyFilesToClipboard: (filePaths: string[]) => Promise<CopyPdfResult>;
+    copyTextToClipboard: (text: string) => Promise<{ message: string }>;
   };
   geo: {
     captureCurrentPosition: () => Promise<GeoCaptureResult>;
@@ -518,6 +639,10 @@ export interface SitescopApi {
     getGitHub: () => Promise<GitHubSettingsPublic>;
     saveGitHub: (input: GitHubSettingsInput) => Promise<GitHubSettingsPublic>;
     testGitHub: () => Promise<GitHubTestConnectionResult>;
+    getXero: () => Promise<XeroSettingsPublic>;
+    saveXero: (input: XeroSettingsInput) => Promise<XeroSettingsPublic>;
+    connectXero: () => Promise<{ tenantName: string }>;
+    disconnectXero: () => Promise<XeroSettingsPublic>;
   };
   recycleBin: {
     list: () => Promise<RecycleBinItem[]>;

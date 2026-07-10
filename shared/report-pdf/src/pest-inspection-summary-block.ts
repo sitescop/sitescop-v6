@@ -4,7 +4,7 @@ import {
   isPestEvidenceFound,
   isPestPresenceUndetermined,
 } from '../../room-engine-core/src/index.js';
-import { escapeHtml } from './html-utils.js';
+import { escapeHtml, renderHeadingGroup, renderSectionHeading } from './html-utils.js';
 
 const SUMMARY_DISCLAIMER =
   'This summary highlights key inspection outcomes only and is not a substitute for the full report. ' +
@@ -24,22 +24,22 @@ const CONDUCIVE_ITEM_KEYS: { item: string; read: (pest: PestInspectionSections) 
 ];
 
 function presenceSummaryAnswer(value: string | undefined, itemRef: string): string {
-  if (isPestEvidenceFound(value)) return `was found — see Item ${itemRef}`;
+  if (isPestEvidenceFound(value)) return `Evidence found — see Item ${itemRef}`;
   if (isPestPresenceUndetermined(value)) return `presence was undetermined — see Item ${itemRef}`;
-  return 'was not found.';
+  return 'No evidence found.';
 }
 
 function majorHazardSummaryAnswer(answer: string | undefined): string {
-  return answer?.trim() === 'Hazard Found' ? 'was found — see Item D14' : 'was not found.';
+  return answer?.trim() === 'Hazard Found' ? 'Evidence found — see Item D14' : 'No evidence found.';
 }
 
 function resolveConduciveSummary(pest: PestInspectionSections): string {
   const foundItems = CONDUCIVE_ITEM_KEYS.filter(({ read }) => isPestEvidenceFound(read(pest))).map(
     ({ item }) => item,
   );
-  if (!foundItems.length) return 'was not found.';
-  if (foundItems.length === 1) return `was found — see Item ${foundItems[0]}`;
-  return `was found — see Items ${foundItems.join(', ')}`;
+  if (!foundItems.length) return 'No evidence found.';
+  if (foundItems.length === 1) return `Evidence found — see Item ${foundItems[0]}`;
+  return `Evidence found — see Items ${foundItems.join(', ')}`;
 }
 
 function renderSummaryRow(label: string, value: string): string {
@@ -108,12 +108,18 @@ export function renderPestInspectionSummaryBlock(pest: PestInspectionSections): 
 
   const riskNarrative = appendAccessibilityCrossReference(pest.undetectedTimberPestRisk.riskExplanation);
 
+  const riskBlock = riskNarrative
+    ? `<div class="pest-summary-risk">${renderNarrativeParagraphs(riskNarrative)}</div>`
+    : '';
+
   return `
 <section class="report-section inspection-findings-summary pest-inspection-summary">
   <p class="pest-summary-disclaimer">${escapeHtml(SUMMARY_DISCLAIMER)}</p>
-  <h3 class="report-section-heading">Significant Items</h3>
-  <table class="field-table inspection-summary-ratings pest-summary-table">${rows}</table>
-  ${riskNarrative ? `<div class="pest-summary-risk">${renderNarrativeParagraphs(riskNarrative)}</div>` : ''}
+  ${renderHeadingGroup(
+    renderSectionHeading('Significant Items'),
+    `<table class="field-table inspection-summary-ratings pest-summary-table">${rows}</table>${riskBlock}`,
+    true,
+  )}
   <p class="pest-summary-note">${escapeHtml(URGENCY_NOTICE)}</p>
 </section>`;
 }

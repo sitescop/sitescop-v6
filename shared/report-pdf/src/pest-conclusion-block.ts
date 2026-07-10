@@ -1,9 +1,8 @@
 import type { InspectorHazardAssessmentSection, PestInspectionSections } from '../../room-engine-core/src/index.js';
 import { formatPestFutureInspectionFrequency } from '../../room-engine-core/src/index.js';
-import { escapeHtml, formatDate } from './html-utils.js';
+import { escapeHtml, formatDate, renderHeadingGroup, renderSectionHeading } from './html-utils.js';
 import { renderCertificationIntroHtml } from './certification-block.js';
 import { renderInspectorHazardLowConclusionNote } from './hazard-assessment-block.js';
-import { renderPdfLetterPartHeading } from './report-design.js';
 
 function renderSignatureImage(dataUrl: string | undefined): string {
   if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image')) {
@@ -62,25 +61,29 @@ export function renderPestConclusionBlock(
   const nextInspectionHighlight = renderNextInspectionHighlight(pest);
 
   return `
-${renderPdfLetterPartHeading('Section E — Conclusion & Certification')}
 <section class="report-section conclusion-section">
-  <div class="conclusion-narrative">
-    <h3 class="report-section-heading">Conclusion</h3>
-    ${conclusionText ? renderConclusionParagraphs(conclusionText) : '<p>—</p>'}
+  ${renderHeadingGroup(
+    renderSectionHeading('Conclusion'),
+    `${conclusionText ? renderConclusionParagraphs(conclusionText) : '<p>—</p>'}
     ${nextInspectionHighlight}
-    ${hazardLowNote}
-  </div>
-  <div class="recommendations-block">
-    <h3 class="report-section-heading">Recommendations</h3>
-    ${renderRecommendationsList(recommendations)}
-  </div>
-  <div class="declaration-block certification-section">
-    <h3 class="report-section-heading">Certification</h3>
-    ${renderCertificationIntroHtml()}
+    ${hazardLowNote}`,
+    false,
+  )}
+  ${renderHeadingGroup(
+    renderSectionHeading('Recommendations'),
+    renderRecommendationsList(recommendations),
+    false,
+  )}
+  <div class="declaration-block certification-section report-section-new-page">
+    ${renderHeadingGroup(
+      renderSectionHeading('Certification'),
+      `${renderCertificationIntroHtml()}
     <table class="field-table">
       <tr><th>Inspector Name</th><td>${escapeHtml(inspectorName)}</td></tr>
       <tr><th>Declaration Date</th><td>${escapeHtml(declarationDate)}</td></tr>
-    </table>
+    </table>`,
+      false,
+    )}
     <div class="signature-block">
       <strong>Inspector Signature</strong>
       ${renderSignatureImage(conclusion.signatureData)}

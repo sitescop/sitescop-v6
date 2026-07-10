@@ -17,7 +17,12 @@ function splitClientName(firstName: string, lastName: string) {
   return `${firstName.trim()} ${lastName.trim()}`.trim();
 }
 
+function truthyFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
 function mapJobRow(row: Record<string, unknown>): JobRow {
+  const paymentValue = row.paymentReceived ?? row.payment_received;
   return {
     id: String(row.id),
     jobNumber: String(row.jobNumber),
@@ -31,11 +36,18 @@ function mapJobRow(row: Record<string, unknown>): JobRow {
     status: row.status as JobStatus,
     priority: row.priority as JobPriority,
     agreementStatus: row.agreementStatus as JobRow['agreementStatus'],
-    hasInvoice: Boolean(row.hasInvoice),
-    hasReport: Boolean(row.hasReport),
+    hasInvoice: truthyFlag(row.hasInvoice ?? row.has_invoice),
+    hasReport: truthyFlag(row.hasReport ?? row.has_report),
+    paymentReceived: truthyFlag(paymentValue),
+    paidAt: (row.paidAt ?? row.paid_at) ? String(row.paidAt ?? row.paid_at) : undefined,
     realEstate: row.realEstate ? String(row.realEstate) : undefined,
+    orderingPartyType: row.orderingPartyType ? String(row.orderingPartyType) : undefined,
     agentName: row.agentName ? String(row.agentName) : undefined,
+    agentPhone: row.agentPhone ? String(row.agentPhone) : undefined,
+    agentMobile: row.agentMobile ? String(row.agentMobile) : undefined,
+    agentEmail: row.agentEmail ? String(row.agentEmail) : undefined,
     notes: row.notes ? String(row.notes) : undefined,
+    xeroInvoiceId: row.xeroInvoiceId ? String(row.xeroInvoiceId) : null,
   };
 }
 
@@ -52,8 +64,15 @@ const JOB_SELECT = `
     j.agreement_status AS agreementStatus,
     j.has_invoice AS hasInvoice,
     j.has_report AS hasReport,
+    j.payment_received AS paymentReceived,
+    j.paid_at AS paidAt,
+    j.xero_invoice_id AS xeroInvoiceId,
     j.real_estate AS realEstate,
+    j.ordering_party_type AS orderingPartyType,
     j.agent_name AS agentName,
+    j.agent_phone AS agentPhone,
+    j.agent_mobile AS agentMobile,
+    j.agent_email AS agentEmail,
     j.notes,
     c.first_name || ' ' || c.last_name AS clientName,
     COALESCE(c.mobile, '') AS mobile,
@@ -168,11 +187,22 @@ export function createJob(db: SqlDatabase, input: CreateJobInput): CreateJobResu
       );
     }
 
+    const orderingPartyType =
+      input.orderingPartyType?.trim() ||
+      (input.realEstate?.trim() ||
+      input.agentName?.trim() ||
+      input.agentPhone?.trim() ||
+      input.agentMobile?.trim() ||
+      input.agentEmail?.trim()
+        ? 'Agent'
+        : undefined);
+
     db.run(
       `INSERT INTO jobs (
          id, job_number, client_id, inspection_type, inspection_date, inspection_time,
-         property_address, status, priority, agreement_status, real_estate, agent_name, notes, deleted_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'NEW', ?, 'NONE', ?, ?, ?, NULL)`,
+         property_address, status, priority, agreement_status, real_estate, ordering_party_type, agent_name,
+         agent_phone, agent_mobile, agent_email, notes, deleted_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'NEW', ?, 'NONE', ?, ?, ?, ?, ?, ?, ?, NULL)`,
       [
         jobId,
         jobNumber,
@@ -183,7 +213,11 @@ export function createJob(db: SqlDatabase, input: CreateJobInput): CreateJobResu
         fullAddress,
         input.priority ?? 'NORMAL',
         input.realEstate?.trim() || null,
+        orderingPartyType || null,
         input.agentName?.trim() || null,
+        input.agentPhone?.trim() || null,
+        input.agentMobile?.trim() || null,
+        input.agentEmail?.trim() || null,
         input.notes?.trim() || null,
       ],
     );
@@ -230,10 +264,36 @@ export function listOutstandingInvoiceJobs(db: SqlDatabase): JobRow[] {
   return queryJobRows(
     db,
     `${JOB_SELECT}
-     AND j.has_invoice = 1
+     AND j.agreement_status = 'SIGNED'
+     AND j.payment_received = 0
      AND j.status != 'ARCHIVED'
      ORDER BY j.inspection_date DESC, j.inspection_time DESC, j.job_number DESC`,
   );
+}
+
+export async function markJobAsPaid(db: SqlDatabase, jobId: string): Promise<JobDetail> {
+  const job = getJobDetail(db, jobId);
+  if (!job) throw new Error('Job not found.');
+  if (job.paymentReceived) return job;
+
+  db.run(
+    `UPDATE jobs SET payment_received = 1, paid_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
+    [jobId],
+  );
+
+  try {
+    const { generateInvoicePdfForJob } = await import('./invoices.service.js');
+    await generateInvoicePdfForJob(db, jobId);
+  } catch {
+    // Invoice can be regenerated later from the job or client screen.
+  }
+
+  const updated = getJobDetail(db, jobId);
+  if (!updated) throw new Error('Job not found.');
+  if (!updated.paymentReceived) {
+    throw new Error('Payment could not be saved. Close SiteScop, run START-SITESCOP.bat, and try again.');
+  }
+  return updated;
 }
 
 export function getJobDetail(db: SqlDatabase, jobId: string): JobDetail | null {
@@ -320,8 +380,15 @@ const DELETED_JOB_SELECT = `
     j.agreement_status AS agreementStatus,
     j.has_invoice AS hasInvoice,
     j.has_report AS hasReport,
+    j.payment_received AS paymentReceived,
+    j.paid_at AS paidAt,
+    j.xero_invoice_id AS xeroInvoiceId,
     j.real_estate AS realEstate,
+    j.ordering_party_type AS orderingPartyType,
     j.agent_name AS agentName,
+    j.agent_phone AS agentPhone,
+    j.agent_mobile AS agentMobile,
+    j.agent_email AS agentEmail,
     j.notes,
     j.deleted_at AS deletedAt,
     j.cancel_reason AS cancelReason,

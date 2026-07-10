@@ -10,7 +10,7 @@ import {
   createEmptyLivingRoom,
 } from '../../room-engine-core/src/index.js';
 
-const SKIP_FIELD_KEYS = new Set(['photos', 'comments', 'sectionReviewed', 'licenceNumber', 'clientSignatureData', 'reportComplete']);
+const SKIP_FIELD_KEYS = new Set(['photos', 'comments', 'sectionReviewed', 'licenceNumber', 'clientSignatureData', 'reportComplete', 'noMajorDefectObserved']);
 
 /** Human-readable labels matching the inspection form UI. */
 const FIELD_LABEL_OVERRIDES: Record<string, string> = {
@@ -60,11 +60,18 @@ const FIELD_LABEL_OVERRIDES: Record<string, string> = {
   airConTypeOther: 'Air Conditioning Type (Other)',
   airConOperating: 'Air Conditioning Operating',
   gasBottlePhotos: 'LPG / Gas Bottle Photos',
+  rainwaterTankPresent: 'Rainwater Tank Present',
+  rainwaterTankPhotos: 'Rainwater Tank Photos',
+  rainwaterTankComments: 'Rainwater Tank Comments',
   accessibilityAreas: 'Accessibility Areas',
   interiorObstructions: 'Interior Obstructions',
   exteriorObstructions: 'Exterior Obstructions',
   roofSpaceObstructions: 'Roof Space Obstructions',
   subfloorObstructions: 'Subfloor Obstructions',
+  interiorObstructionPhotos: 'A — Interior Obstruction Photos',
+  exteriorObstructionPhotos: 'B — Exterior Obstruction Photos',
+  roofSpaceObstructionPhotos: 'C — Roof Space Obstruction Photos',
+  subfloorObstructionPhotos: 'D — Subfloor Obstruction Photos',
   inaccessibleAreas: 'Inaccessible Areas',
   inaccessibleCustomLines: 'Inaccessible Area Notes',
   undetectedStructuralRisk: 'Undetected Structural Damage Risk',

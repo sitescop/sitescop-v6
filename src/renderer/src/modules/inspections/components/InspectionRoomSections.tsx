@@ -1,13 +1,15 @@
+import { useMemo } from 'react';
 import type { BathroomRoomData, BedroomRoomData, GarageRoomData, LivingRoomData } from '@sitescop/room-engine-core';
-import { GARAGE_DEFECTS, NO_ISSUES_OBSERVED_COMMENT } from '@sitescop/room-engine-core';
+import { GARAGE_DEFECTS, buildNoMajorDefectPatch, resolveRoomReportLabels } from '@sitescop/room-engine-core';
 import { InspectionRoomType } from '@shared/inspection-types';
 import type { InspectionRoomDetail } from '@shared/inspection-types';
 import { BathroomRoomForm } from './BathroomRoomForm';
 import { BedroomRoomForm } from './BedroomRoomForm';
 import { LivingRoomForm } from './LivingRoomForm';
+import { RoomIdentityFields } from './RoomIdentityFields';
 import { InspectionAccordionSection } from './InspectionAccordion';
 import { CheckboxGroupField, InspectionSubsectionHeading, SectionComments } from './InspectionFields';
-import { SectionQuickActions } from './SectionQuickActions';
+import { NoMajorDefectSectionWrapper } from './NoMajorDefectSectionWrapper';
 import type { SectionCompletionStatus } from './section-completion';
 
 interface InspectionRoomSectionsProps {
@@ -16,6 +18,19 @@ interface InspectionRoomSectionsProps {
   statuses: Record<string, SectionCompletionStatus>;
   onRoomDataChange: (roomId: string, data: Record<string, unknown>) => void;
   onRoomPatch: (roomId: string, partial: Record<string, unknown>) => void;
+}
+
+function roomNoMajorDefectActive(data: Record<string, unknown>): boolean {
+  return data.noMajorDefectObserved === true;
+}
+
+function roomLabelInputs(rooms: InspectionRoomDetail[]) {
+  return rooms.map((room) => ({
+    roomType: room.roomType,
+    roomIndex: room.roomIndex,
+    label: room.label,
+    data: room.data,
+  }));
 }
 
 export function InspectionRoomSections({
@@ -31,6 +46,19 @@ export function InspectionRoomSections({
   const living = rooms.filter((r) => r.roomType === InspectionRoomType.LIVING);
   const garages = rooms.filter((r) => r.roomType === InspectionRoomType.GARAGE);
 
+  const bathroomLabels = useMemo(
+    () => resolveRoomReportLabels(roomLabelInputs(bathrooms)),
+    [bathrooms],
+  );
+  const bedroomLabels = useMemo(
+    () => resolveRoomReportLabels(roomLabelInputs(bedrooms)),
+    [bedrooms],
+  );
+  const livingLabels = useMemo(
+    () => resolveRoomReportLabels(roomLabelInputs(living)),
+    [living],
+  );
+
   if (bathrooms.length + bedrooms.length + living.length + garages.length === 0) {
     return null;
   }
@@ -39,13 +67,36 @@ export function InspectionRoomSections({
     <>
       {bathrooms.length > 0 && (
         <InspectionAccordionSection id="bathrooms" title="Bathrooms" status={statuses.bathrooms ?? 'not_started'}>
-          {bathrooms.map((room) => (
+          {bathrooms.map((room, index) => (
             <div key={room.id} className="inspection-subpanel mb-3 last:mb-0">
-              <InspectionSubsectionHeading as="h4" className="mb-3">{room.label}</InspectionSubsectionHeading>
-              <BathroomRoomForm
+              <InspectionSubsectionHeading as="h4" className="mb-3">
+                {bathroomLabels[index]}
+              </InspectionSubsectionHeading>
+              <RoomIdentityFields
+                roomType={InspectionRoomType.BATHROOM}
+                data={room.data}
                 disabled={disabled}
-                data={room.data as unknown as BathroomRoomData}
-                onPatch={(partial) => onRoomPatch(room.id, partial as Record<string, unknown>)}
+                onPatch={(partial) => onRoomPatch(room.id, partial)}
+              />
+              <NoMajorDefectSectionWrapper
+                disabled={disabled}
+                active={roomNoMajorDefectActive(room.data)}
+                onApply={() => onRoomPatch(room.id, buildNoMajorDefectPatch())}
+                onReportDefects={() => onRoomPatch(room.id, { noMajorDefectObserved: false, comments: '' })}
+              >
+                <BathroomRoomForm
+                  disabled={disabled}
+                  data={room.data as unknown as BathroomRoomData}
+                  onPatch={(partial) => onRoomPatch(room.id, partial as Record<string, unknown>)}
+                />
+              </NoMajorDefectSectionWrapper>
+              <SectionComments
+                sectionId={`bathroom-${room.id}`}
+                disabled={disabled}
+                comments={String((room.data as { comments?: string }).comments ?? '')}
+                photos={(room.data as { photos?: BathroomRoomData['photos'] }).photos ?? []}
+                onCommentsChange={(comments) => onRoomPatch(room.id, { comments })}
+                onPhotosChange={(photos) => onRoomPatch(room.id, { photos })}
               />
             </div>
           ))}
@@ -54,13 +105,36 @@ export function InspectionRoomSections({
 
       {bedrooms.length > 0 && (
         <InspectionAccordionSection id="bedrooms" title="Bedrooms" status={statuses.bedrooms ?? 'not_started'}>
-          {bedrooms.map((room) => (
+          {bedrooms.map((room, index) => (
             <div key={room.id} className="inspection-subpanel mb-3 last:mb-0">
-              <InspectionSubsectionHeading as="h4" className="mb-3">{room.label}</InspectionSubsectionHeading>
-              <BedroomRoomForm
+              <InspectionSubsectionHeading as="h4" className="mb-3">
+                {bedroomLabels[index]}
+              </InspectionSubsectionHeading>
+              <RoomIdentityFields
+                roomType={InspectionRoomType.BEDROOM}
+                data={room.data}
                 disabled={disabled}
-                data={room.data as unknown as BedroomRoomData}
-                onChange={(roomData) => onRoomDataChange(room.id, roomData as unknown as Record<string, unknown>)}
+                onPatch={(partial) => onRoomPatch(room.id, partial)}
+              />
+              <NoMajorDefectSectionWrapper
+                disabled={disabled}
+                active={roomNoMajorDefectActive(room.data)}
+                onApply={() => onRoomPatch(room.id, buildNoMajorDefectPatch())}
+                onReportDefects={() => onRoomPatch(room.id, { noMajorDefectObserved: false, comments: '' })}
+              >
+                <BedroomRoomForm
+                  disabled={disabled}
+                  data={room.data as unknown as BedroomRoomData}
+                  onChange={(roomData) => onRoomDataChange(room.id, roomData as unknown as Record<string, unknown>)}
+                />
+              </NoMajorDefectSectionWrapper>
+              <SectionComments
+                sectionId={`bedroom-${room.id}`}
+                disabled={disabled}
+                comments={String((room.data as { comments?: string }).comments ?? '')}
+                photos={(room.data as { photos?: BedroomRoomData['photos'] }).photos ?? []}
+                onCommentsChange={(comments) => onRoomPatch(room.id, { comments })}
+                onPhotosChange={(photos) => onRoomPatch(room.id, { photos })}
               />
             </div>
           ))}
@@ -69,15 +143,38 @@ export function InspectionRoomSections({
 
       {living.length > 0 && (
         <InspectionAccordionSection id="living-areas" title="Living Areas" status={statuses['living-areas'] ?? 'not_started'}>
-          {living.map((room) => {
+          {living.map((room, index) => {
             const livingData = room.data as unknown as LivingRoomData;
             return (
               <div key={room.id} className="inspection-subpanel mb-3 last:mb-0">
-                <InspectionSubsectionHeading as="h4" className="mb-3">{livingData.areaName || room.label}</InspectionSubsectionHeading>
-                <LivingRoomForm
+                <InspectionSubsectionHeading as="h4" className="mb-3">
+                  {livingLabels[index]}
+                </InspectionSubsectionHeading>
+                <RoomIdentityFields
+                  roomType={InspectionRoomType.LIVING}
+                  data={room.data}
                   disabled={disabled}
-                  data={livingData}
-                  onChange={(roomData) => onRoomDataChange(room.id, roomData as unknown as Record<string, unknown>)}
+                  onPatch={(partial) => onRoomPatch(room.id, partial)}
+                />
+                <NoMajorDefectSectionWrapper
+                  disabled={disabled}
+                  active={roomNoMajorDefectActive(room.data)}
+                  onApply={() => onRoomPatch(room.id, buildNoMajorDefectPatch())}
+                  onReportDefects={() => onRoomPatch(room.id, { noMajorDefectObserved: false, comments: '' })}
+                >
+                  <LivingRoomForm
+                    disabled={disabled}
+                    data={livingData}
+                    onChange={(roomData) => onRoomDataChange(room.id, roomData as unknown as Record<string, unknown>)}
+                  />
+                </NoMajorDefectSectionWrapper>
+                <SectionComments
+                  sectionId={`living-${room.id}`}
+                  disabled={disabled}
+                  comments={livingData.comments ?? ''}
+                  photos={livingData.photos ?? []}
+                  onCommentsChange={(comments) => onRoomPatch(room.id, { comments })}
+                  onPhotosChange={(photos) => onRoomPatch(room.id, { photos })}
                 />
               </div>
             );
@@ -92,28 +189,31 @@ export function InspectionRoomSections({
             return (
               <div key={room.id} className="inspection-subpanel mb-3 space-y-3 last:mb-0">
                 <InspectionSubsectionHeading as="h4">{room.label}</InspectionSubsectionHeading>
-                <SectionQuickActions
+                <NoMajorDefectSectionWrapper
                   disabled={disabled}
-                  label="No damage observed"
-                  onNoIssues={() =>
+                  active={roomNoMajorDefectActive(room.data)}
+                  onApply={() =>
                     onRoomPatch(room.id, {
-                      comments: NO_ISSUES_OBSERVED_COMMENT,
+                      ...buildNoMajorDefectPatch(),
+                      defects: { selected: [], custom: [] },
                       damageObserved: { selected: [], custom: [] },
                     })
                   }
-                />
-                <CheckboxGroupField disabled={disabled}
-                  label="Defects"
-                  options={GARAGE_DEFECTS}
-                  value={garageData.defects}
-                  onChange={(defects) => onRoomPatch(room.id, { defects })}
-                />
-                <CheckboxGroupField disabled={disabled}
-                  label="Damage Observed"
-                  options={['Cracking', 'Moisture Damage', 'Corrosion']}
-                  value={garageData.damageObserved}
-                  onChange={(damageObserved) => onRoomPatch(room.id, { damageObserved })}
-                />
+                  onReportDefects={() => onRoomPatch(room.id, { noMajorDefectObserved: false, comments: '' })}
+                >
+                  <CheckboxGroupField disabled={disabled}
+                    label="Defects"
+                    options={GARAGE_DEFECTS}
+                    value={garageData.defects}
+                    onChange={(defects) => onRoomPatch(room.id, { defects })}
+                  />
+                  <CheckboxGroupField disabled={disabled}
+                    label="Damage Observed"
+                    options={['Cracking', 'Moisture Damage', 'Corrosion']}
+                    value={garageData.damageObserved}
+                    onChange={(damageObserved) => onRoomPatch(room.id, { damageObserved })}
+                  />
+                </NoMajorDefectSectionWrapper>
                 <SectionComments sectionId="garage" disabled={disabled}
                   comments={garageData.comments}
                   photos={garageData.photos}

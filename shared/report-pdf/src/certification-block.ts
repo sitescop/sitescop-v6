@@ -1,5 +1,5 @@
 import { INSPECTOR_CERTIFICATION_STATEMENT } from '../../room-engine-core/src/certification.js';
-import { escapeHtml, renderFieldRows } from './html-utils.js';
+import { escapeHtml, renderFieldRows, renderHeadingGroup, renderSectionHeading } from './html-utils.js';
 import type { SectionFieldDef } from './section-fields.js';
 
 function renderSignatureImage(dataUrl: string | undefined, label: string): string {
@@ -18,17 +18,24 @@ export function renderCertificationSectionBlock(
   data: Record<string, unknown>,
   fieldLabels?: Record<string, string>,
   fieldDefs?: SectionFieldDef[],
+  options: { startNewPage?: boolean } = {},
 ): string {
   const skip = new Set(['clientSignatureData', 'licenceNumber', 'reportComplete', 'sectionReviewed', 'signatureData']);
   const rows = renderFieldRows(data, skip, fieldLabels, fieldDefs);
   const signature = typeof data.signatureData === 'string' ? data.signatureData : '';
   if (!rows && !signature.trim()) return '';
 
+  const heading = renderSectionHeading(title);
+  const intro = renderCertificationIntroHtml();
+  const tableHtml = rows ? `<table class="field-table">${rows}</table>` : '';
+  const primaryBody = `${intro}${tableHtml}`.trim();
+  const sectionClass = options.startNewPage
+    ? 'report-section certification-section report-section-new-page'
+    : 'report-section certification-section';
+
   return `
-<section class="report-section certification-section">
-  <h3 class="report-section-heading">${escapeHtml(title)}</h3>
-  ${renderCertificationIntroHtml()}
-  ${rows ? `<table class="field-table">${rows}</table>` : ''}
+<section class="${sectionClass}">
+  ${renderHeadingGroup(heading, primaryBody, Boolean(tableHtml))}
   ${renderSignatureImage(signature, 'Inspector Signature')}
 </section>`;
 }

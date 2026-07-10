@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Copy, Download, ExternalLink, Send, Trash2 } from 'lucide-react';
+import { ArrowLeft, Copy, Download, ExternalLink, Send, Trash2, CircleDollarSign } from 'lucide-react';
 import { getSettingsApi, getSitescopApi } from '@/lib/sitescop-api';
+import { cn } from '@/lib/cn';
 import { Button, Card, Modal } from '@/design-system/components';
 import {
   AgreementCloudSigningStatus,
@@ -26,6 +27,7 @@ export function AgreementDetailPage() {
   const [copyMessage, setCopyMessage] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [syncFailed, setSyncFailed] = useState(false);
+  const [republishing, setRepublishing] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: ['settings-github'],
@@ -47,20 +49,35 @@ export function AgreementDetailPage() {
     },
   });
 
+  const linkedJobId = agreement?.jobId;
+  const { data: linkedJob } = useQuery({
+    queryKey: ['job', linkedJobId],
+    queryFn: () => getSitescopApi().jobs.get(linkedJobId!),
+    enabled: Boolean(linkedJobId),
+  });
+
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: ['agreement', agreementId] });
     void queryClient.invalidateQueries({ queryKey: ['agreements'] });
     void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
     void queryClient.invalidateQueries({ queryKey: ['jobs-in-progress'] });
+    void queryClient.invalidateQueries({ queryKey: ['accounting-awaiting'] });
+    void queryClient.invalidateQueries({ queryKey: ['accounting-paid'] });
+    void queryClient.invalidateQueries({ queryKey: ['accounting-by-client'] });
+    void queryClient.invalidateQueries({ queryKey: ['accounting-summary'] });
+    void queryClient.invalidateQueries({ queryKey: ['jobs-outstanding-invoices'] });
   }
 
   useEffect(() => {
     if (!githubEnabled || !agreement) return;
-    if (agreement.status !== 'SENT' && agreement.status !== 'VIEWED') return;
 
-    void getSitescopApi()
-      .agreements.republishToGitHub(agreementId)
-      .catch(() => {});
+    if (agreement.status === 'SIGNED') {
+      setUploadError(null);
+      setSyncFailed(false);
+      return;
+    }
+
+    if (agreement.status !== 'SENT' && agreement.status !== 'VIEWED') return;
 
     let cancelled = false;
 
@@ -109,6 +126,37 @@ export function AgreementDetailPage() {
     },
   });
 
+  const paidCreateJobMutation = useMutation({
+    mutationFn: () => getSitescopApi().agreements.createJobFromSigned(agreementId),
+    onSuccess: (result) => {
+      invalidate();
+      void queryClient.invalidateQueries({ queryKey: ['job', result.job.id] });
+      navigate('/jobs/in-progress', {
+        state: {
+          createdJobNumber: result.job.jobNumber,
+          createdClientName: result.job.clientName,
+        },
+      });
+    },
+    onError: (e) => {
+      setCopyMessage(e instanceof Error ? e.message : 'Could not create job from agreement.');
+      setTimeout(() => setCopyMessage(''), 6000);
+    },
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: (linkedJobId: string) => getSitescopApi().jobs.markPaid(linkedJobId),
+    onSuccess: (updatedJob) => {
+      queryClient.setQueryData(['job', updatedJob.id], updatedJob);
+      invalidate();
+      void queryClient.invalidateQueries({ queryKey: ['job', updatedJob.id] });
+    },
+    onError: (e) => {
+      setCopyMessage(e instanceof Error ? e.message : 'Could not mark job as paid.');
+      setTimeout(() => setCopyMessage(''), 6000);
+    },
+  });
+
   const cancelMutation = useMutation({
     mutationFn: () => getSitescopApi().agreements.cancel(agreementId),
     onSuccess: () => {
@@ -148,15 +196,59 @@ export function AgreementDetailPage() {
     },
   });
 
+  async function refreshCloudSigningPage() {
+    if (!githubEnabled || !agreementId) return;
+    setRepublishing(true);
+    setUploadError(null);
+    try {
+      await getSitescopApi().agreements.republishToGitHub(agreementId);
+      invalidate();
+      setCopyMessage('Cloud signing page updated. Ask the client to hard-refresh the link (Ctrl+F5).');
+      setTimeout(() => setCopyMessage(''), 6000);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Could not update the cloud signing page.');
+    } finally {
+      setRepublishing(false);
+    }
+  }
+
   async function copySigningLink() {
     let url = signingUrl;
     if (!url && agreement?.accessToken) {
       url = await buildClientSigningUrl(agreement.accessToken);
+      setSigningUrl(url);
     }
-    if (!url) return;
-    await navigator.clipboard.writeText(url);
-    setCopyMessage('Signing link copied to clipboard.');
-    setTimeout(() => setCopyMessage(''), 3000);
+    if (!url) {
+      setCopyMessage('No signing link available yet. Try Resend / get link first.');
+      setTimeout(() => setCopyMessage(''), 4000);
+      return;
+    }
+
+    try {
+      const result = await getSitescopApi().shell.copyTextToClipboard(url);
+      setCopyMessage(result.message || 'Signing link copied to clipboard.');
+    } catch {
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopyMessage('Signing link copied to clipboard.');
+      } catch {
+        setCopyMessage('Could not copy automatically — select the link below and press Ctrl+C.');
+      }
+    }
+    setTimeout(() => setCopyMessage(''), 5000);
+  }
+
+  async function sendSigningLinkEmail() {
+    if (!agreementId) return;
+    try {
+      const result = await getSitescopApi().agreements.emailSigningLink(agreementId);
+      if (result.cancelled) return;
+      setCopyMessage(result.message || `Email opened for ${result.clientEmail}.`);
+      setTimeout(() => setCopyMessage(''), 6000);
+    } catch (e) {
+      setCopyMessage(e instanceof Error ? e.message : 'Could not open email.');
+      setTimeout(() => setCopyMessage(''), 6000);
+    }
   }
 
   async function showCopyLinkModal() {
@@ -191,6 +283,10 @@ export function AgreementDetailPage() {
   const canSend = ['DRAFT', 'SENT', 'VIEWED'].includes(agreement.status);
   const canEdit = agreement.status === 'DRAFT';
   const canCancel = agreement.status !== 'SIGNED' && agreement.status !== 'CANCELLED';
+  const canCreateJob = agreement.status === 'SIGNED' && !agreement.jobId;
+  const canMarkPaid = Boolean(
+    agreement.jobId && linkedJob?.agreementStatus === 'SIGNED' && !linkedJob.paymentReceived,
+  );
 
   return (
     <div>
@@ -238,10 +334,16 @@ export function AgreementDetailPage() {
                   : 'Resend / get link'}
             </Button>
           )}
+          {githubEnabled && (agreement.status === 'SENT' || agreement.status === 'VIEWED') && (
+            <Button variant="secondary" onClick={() => void refreshCloudSigningPage()} disabled={republishing}>
+              <ExternalLink className="h-4 w-4" />
+              {republishing ? 'Updating cloud page…' : 'Update cloud page'}
+            </Button>
+          )}
           {agreement.accessToken && (
             <Button variant="secondary" onClick={() => void showCopyLinkModal()}>
-              <Copy className="h-4 w-4" />
-              Copy link
+              <Send className="h-4 w-4" />
+              Send link
             </Button>
           )}
           <Button variant="secondary" onClick={() => pdfMutation.mutate()} disabled={pdfMutation.isPending}>
@@ -256,6 +358,42 @@ export function AgreementDetailPage() {
             <Copy className="h-4 w-4" />
             {copyPdfMutation.isPending ? 'Copying…' : 'Copy PDF'}
           </Button>
+          {canCreateJob && (
+            <Button
+              variant="accent"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Create an unpaid job for ${agreement.clientName} from ${agreement.agreementNumber}?`,
+                  )
+                ) {
+                  paidCreateJobMutation.mutate();
+                }
+              }}
+              disabled={paidCreateJobMutation.isPending}
+            >
+              <CircleDollarSign className="h-4 w-4" />
+              {paidCreateJobMutation.isPending ? 'Creating job…' : 'Create job'}
+            </Button>
+          )}
+          {canMarkPaid && agreement.jobId && (
+            <Button
+              variant="accent"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Mark ${linkedJob?.jobNumber ?? 'this job'} as paid? The client can then receive inspection reports.`,
+                  )
+                ) {
+                  markPaidMutation.mutate(agreement.jobId!);
+                }
+              }}
+              disabled={markPaidMutation.isPending}
+            >
+              <CircleDollarSign className="h-4 w-4" />
+              {markPaidMutation.isPending ? 'Updating…' : 'Mark as paid'}
+            </Button>
+          )}
           {agreement.jobId && (
             <Button variant="accent" onClick={() => navigate(`/jobs/${agreement.jobId}`)}>
               <ExternalLink className="h-4 w-4" />
@@ -320,6 +458,22 @@ export function AgreementDetailPage() {
               <dt className="text-xs font-bold uppercase text-text-muted">Property</dt>
               <dd className="mt-1 text-text">{agreement.propertyAddress}</dd>
             </div>
+            {(agreement.agentName || agreement.signerRole === 'AGENT') && (
+              <div className="sm:col-span-2 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                <dt className="text-xs font-bold uppercase text-primary">Agent on signing link</dt>
+                <dd className="mt-1 font-medium text-text">{agreement.agentName || 'Agent on linked job'}</dd>
+                {agreement.agencyName ? (
+                  <dd className="text-sm text-text-light">{agreement.agencyName}</dd>
+                ) : null}
+                {agreement.agentEmail ? (
+                  <dd className="mt-1 text-sm text-text">{agreement.agentEmail}</dd>
+                ) : null}
+                <p className="mt-2 text-xs text-text-muted">
+                  The signing link lets the client or agent choose who signs. Send the link to whoever
+                  will sign first.
+                </p>
+              </div>
+            )}
             {agreement.jobNumber && (
               <div>
                 <dt className="text-xs font-bold uppercase text-text-muted">Linked job</dt>
@@ -363,7 +517,11 @@ export function AgreementDetailPage() {
           {agreement.signedAt && (
             <p className="pt-2 text-xs text-success">
               Signed {formatDisplayDate(agreement.signedAt.slice(0, 10))}
-              {agreement.signatureName ? ` by ${agreement.signatureName}` : ''}
+              {agreement.signatureName
+                ? agreement.signerRole === 'AGENT' && agreement.signedOnBehalfOf
+                  ? ` by ${agreement.signatureName} on behalf of ${agreement.signedOnBehalfOf}`
+                  : ` by ${agreement.signatureName}`
+                : ''}
             </p>
           )}
         </Card>
@@ -372,24 +530,46 @@ export function AgreementDetailPage() {
       <Modal
         open={showLinkModal}
         onClose={() => setShowLinkModal(false)}
-        title="Client signing link"
-        description="Send this link to your client by email or SMS."
+        title={agreement.signerRole === 'AGENT' && agreement.agentName ? 'Signing link' : 'Client signing link'}
+        description={
+          agreement.signerRole === 'AGENT' && agreement.agentName
+            ? 'Send this link to the agent to sign on behalf of the client. You can also copy it and email the client if they will sign themselves.'
+            : 'Send this link to your client by email or SMS.'
+        }
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowLinkModal(false)}>
               Close
             </Button>
-            <Button onClick={() => void copySigningLink()}>
+            <Button variant="secondary" onClick={() => void copySigningLink()}>
               <Copy className="h-4 w-4" />
               Copy link
+            </Button>
+            <Button onClick={() => void sendSigningLinkEmail()}>
+              <Send className="h-4 w-4" />
+              Send link
             </Button>
           </>
         }
       >
-        <p className="break-all rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text">
-          {signingUrl}
-        </p>
-        {copyMessage && <p className="mt-3 text-sm text-success">{copyMessage}</p>}
+        <input
+          readOnly
+          value={signingUrl}
+          onFocus={(e) => e.currentTarget.select()}
+          onClick={(e) => e.currentTarget.select()}
+          className="w-full break-all rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text"
+          aria-label="Client signing link"
+        />
+        {copyMessage && (
+          <p
+            className={cn(
+              'mt-3 text-sm',
+              copyMessage.includes('Could not') ? 'text-danger' : 'text-success',
+            )}
+          >
+            {copyMessage}
+          </p>
+        )}
         <p className="mt-3 text-xs text-text-muted">
           {signingMode === 'github' ? (
             <>

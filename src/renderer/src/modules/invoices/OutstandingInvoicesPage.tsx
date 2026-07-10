@@ -6,7 +6,7 @@ import { getSitescopApi } from '@/lib/sitescop-api';
 import { filterJobsBySearch } from '@/lib/job-search';
 import { Button, Card } from '@/design-system/components';
 import { formatDisplayDate } from '@/lib/dates';
-import { INSPECTION_TYPE_LABELS, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
+import { INSPECTION_TYPE_LABELS, PaymentBadge, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
 import { JobListSearchBar } from '@/modules/jobs/components/JobListSearchBar';
 import { JobQuickActions } from '@/modules/jobs/components/JobQuickActions';
 
@@ -30,9 +30,9 @@ export function OutstandingInvoicesPage() {
             <Receipt className="h-5 w-5 text-danger" />
           </div>
           <div>
-            <p className="text-sm font-medium text-text">Outstanding invoices</p>
+            <p className="text-sm font-medium text-text">Awaiting payment</p>
             <p className="text-sm text-text-light">
-              Jobs flagged for invoicing — open a job to review details and send to the client
+              Signed jobs not yet marked as paid — open a job to invoice, inspect, or mark as paid
             </p>
           </div>
         </div>
@@ -43,7 +43,7 @@ export function OutstandingInvoicesPage() {
 
       {isError && (
         <div className="mb-6 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-          Could not load invoices: {error instanceof Error ? error.message : 'Unknown error'}
+          Could not load jobs: {error instanceof Error ? error.message : 'Unknown error'}
           <Button variant="secondary" size="sm" className="ml-3" onClick={() => refetch()}>
             Retry
           </Button>
@@ -60,13 +60,13 @@ export function OutstandingInvoicesPage() {
       )}
 
       {isLoading ? (
-        <p className="text-text-light">Loading outstanding invoices…</p>
+        <p className="text-text-light">Loading awaiting payment jobs…</p>
       ) : jobs.length === 0 ? (
         <Card className="p-12 text-center">
           <Receipt className="mx-auto h-12 w-12 text-text-muted" />
-          <p className="mt-4 text-lg font-medium text-text">No outstanding invoices</p>
+          <p className="mt-4 text-lg font-medium text-text">No jobs awaiting payment</p>
           <p className="mt-2 text-sm text-text-light">
-            Jobs appear here when they are marked for invoicing after a signed agreement.
+            Jobs appear here after the client signs the agreement and before you mark them as paid.
           </p>
         </Card>
       ) : filteredJobs.length === 0 ? (
@@ -89,10 +89,16 @@ export function OutstandingInvoicesPage() {
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <TypeBadge type={job.inspectionType} />
                       <StatusBadge status={job.status} />
-                      <span className="inline-flex items-center gap-1 rounded-full bg-danger/10 px-2 py-0.5 text-xs font-semibold text-danger">
-                        <Receipt className="h-3 w-3" />
-                        Invoice outstanding
-                      </span>
+                      <PaymentBadge
+                        agreementStatus={job.agreementStatus}
+                        paymentReceived={job.paymentReceived}
+                      />
+                      {job.hasInvoice && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-danger/10 px-2 py-0.5 text-xs font-semibold text-danger">
+                          <Receipt className="h-3 w-3" />
+                          Invoice ready
+                        </span>
+                      )}
                       {job.hasReport && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
                           <FileText className="h-3 w-3" />

@@ -69,7 +69,19 @@ export async function generateInvoicePdfForJob(db: SqlDatabase, jobId: string): 
   }
   existingStmt.free();
 
-  const isPaid = agreement.status === 'SIGNED';
+  const jobStmt = db.prepare(
+    `SELECT payment_received AS paymentReceived, paid_at AS paidAt FROM jobs WHERE id = ? LIMIT 1`,
+  );
+  jobStmt.bind([jobId]);
+  if (!jobStmt.step()) {
+    jobStmt.free();
+    throw new Error('Job not found.');
+  }
+  const jobRow = jobStmt.getAsObject() as { paymentReceived: number; paidAt?: string };
+  jobStmt.free();
+
+  const isPaid = Boolean(jobRow.paymentReceived);
+  const paidAt = isPaid ? jobRow.paidAt ?? agreement.signedAt ?? agreement.agreementDate : null;
   const issueDate = agreement.signedAt ?? agreement.agreementDate;
   const description = `${inspectionTypeLabel(agreement.inspectionType)} inspection — ${agreement.propertyAddress}`;
   const billing = getBillingSettings();
@@ -86,8 +98,8 @@ export async function generateInvoicePdfForJob(db: SqlDatabase, jobId: string): 
     subtotalCents: agreement.priceCents,
     gstCents: agreement.gstCents,
     totalCents: agreement.totalCents,
-    paidAt: isPaid ? agreement.signedAt : null,
-    paymentMethod: isPaid ? 'Agreement signed' : null,
+    paidAt,
+    paymentMethod: isPaid ? 'Payment received' : null,
     paymentReference: isPaid ? agreement.agreementNumber : null,
     statusLabel: isPaid ? 'Paid' : 'Outstanding',
     bankAccountName: billing.bankAccountName || null,

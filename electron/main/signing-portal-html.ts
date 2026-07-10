@@ -15,16 +15,28 @@ export const SIGNING_PORTAL_HTML = `<!DOCTYPE html>
       --success: #059669;
       --danger: #dc2626;
       --border: #d8e0ea;
+      --warning: #d97706;
+      --warning-bg: #fffbeb;
+      --warning-border: #fcd34d;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.5;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+    .wrap {
+      width: 90%;
+      max-width: none;
+      margin: 0 auto;
+      padding: 12px 0 32px;
+    }
+    @media (min-width: 1024px) {
+      .wrap { width: 75%; padding: 24px 0 48px; }
+    }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -42,6 +54,132 @@ export const SIGNING_PORTAL_HTML = `<!DOCTYPE html>
     .price { font-size: 1.15rem; font-weight: 700; }
     .section + .section { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
     .section p { white-space: pre-wrap; font-size: 0.92rem; margin: 8px 0 0; }
+    .terms-intro {
+      margin: 0 0 14px;
+      padding: 16px 18px;
+      font-size: 1.05rem;
+      font-weight: 800;
+      line-height: 1.5;
+      text-align: center;
+      color: #b91c1c;
+      background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+      border: 2px solid #ef4444;
+      border-radius: 10px;
+      box-shadow: 0 4px 14px rgba(220, 38, 38, 0.18);
+    }
+    .terms-item {
+      border: 2px solid var(--warning-border);
+      border-radius: 10px;
+      background: var(--warning-bg);
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    .terms-item.reviewed {
+      border-color: rgba(5, 150, 105, 0.45);
+      background: rgba(5, 150, 105, 0.1);
+    }
+    .terms-head {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      color: #92400e;
+    }
+    .terms-item.reviewed .terms-head { color: var(--success); }
+    .terms-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fbbf24;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .terms-item.reviewed .terms-icon {
+      background: transparent;
+      color: var(--success);
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .terms-title { flex: 1; font-weight: 700; }
+    .terms-chevron { flex-shrink: 0; transition: transform 0.2s; }
+    .terms-item.open .terms-chevron { transform: rotate(180deg); }
+    .terms-body {
+      border-top: 1px solid rgba(0,0,0,0.08);
+      width: 90%;
+      margin: 0 auto;
+      padding: 16px 0 20px;
+      max-height: min(40vh, 280px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      background: #fff;
+      box-sizing: border-box;
+    }
+    .terms-body p {
+      white-space: pre-wrap;
+      font-size: 1rem;
+      margin: 0;
+      width: 100%;
+      color: #152033;
+      line-height: 1.65;
+      max-width: none;
+    }
+    @media (min-width: 640px) {
+      .terms-body {
+        padding: 20px 0 24px;
+        max-height: min(52vh, 380px);
+      }
+      .terms-body p { font-size: 1.0625rem; line-height: 1.75; }
+    }
+    @media (min-width: 1024px) {
+      .terms-body {
+        padding: 24px 0 28px;
+        min-height: 400px;
+        max-height: 450px;
+      }
+      .terms-body p { font-size: 1.125rem; line-height: 1.8; }
+    }
+    .terms-body p { font-size: 1.125rem; line-height: 1.8; }
+    }
+    .agreement-header { padding: 18px 20px; margin-bottom: 16px; }
+    .agreement-header-row { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+    .agreement-logo { width: 72px; height: 72px; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); padding: 6px; background: #fff; flex-shrink: 0; }
+    .agreement-logo-placeholder { width: 72px; height: 72px; border-radius: 8px; background: #eef4f0; color: #1b4332; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid var(--border); }
+    .agreement-company-name { margin: 0 0 4px; font-size: 0.9rem; font-weight: 600; color: #2d6a4f; }
+    .agreement-page-title { margin: 0 0 6px; font-size: 1.25rem; font-weight: 700; color: var(--text); }
+    .agreement-ref { margin: 0; font-size: 0.88rem; color: var(--muted); }
+    .agreement-summary { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @media (min-width: 560px) { .agreement-summary { grid-template-columns: 1fr 1fr; } }
+    .summary-item { background: #f8faf9; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+    .summary-item-wide { grid-column: 1 / -1; }
+    .summary-value { font-weight: 600; line-height: 1.4; word-break: break-word; }
+    .summary-sub { margin-top: 4px; font-size: 0.88rem; color: var(--muted); }
+    .legal-content .legal-subhead { font-size: 1.05em; font-weight: 700; color: #0b6b53; margin: 1em 0 0.45em; }
+    .legal-content ul, .legal-content ol { margin: 0.5em 0 0.85em; padding-left: 1.35em; }
+    .legal-content li { margin-bottom: 0.35em; }
+    .legal-callout { margin: 0.85em 0; padding: 14px 16px; border-radius: 8px; line-height: 1.65; }
+    .legal-callout-note { background: #eef8ff; border-left: 4px solid #2d6a4f; }
+    .legal-callout-warning { background: #fef2f2; border-left: 4px solid #dc2626; color: #7f1d1d; }
+    .terms-hint {
+      border: 1px solid var(--warning-border);
+      background: var(--warning-bg);
+      color: #92400e;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.9rem;
+      margin-bottom: 12px;
+    }
     label.field { display: block; margin-bottom: 12px; font-size: 0.9rem; font-weight: 600; }
     input[type="text"] {
       width: 100%;
@@ -185,40 +323,125 @@ export const SIGNING_PORTAL_HTML = `<!DOCTYPE html>
       };
     }
 
+    function sectionBodyHtml(section) {
+      if (section.contentHtml && String(section.contentHtml).trim()) {
+        return String(section.contentHtml);
+      }
+      return '<p>' + section.content.replace(/</g, '&lt;') + '</p>';
+    }
+
+    function renderAgreementHeader(agreement) {
+      const logo = agreement.companyLogoUrl
+        ? '<img class="agreement-logo" src="' + agreement.companyLogoUrl.replace(/"/g, '&quot;') + '" alt="' + agreement.companyName.replace(/"/g, '&quot;') + '" />'
+        : '<div class="agreement-logo-placeholder" aria-hidden="true">SS</div>';
+      return (
+        '<div class="card agreement-header">' +
+        '<div class="agreement-header-row">' + logo +
+        '<div><p class="agreement-company-name">' + agreement.companyName.replace(/</g, '&lt;') + '</p>' +
+        '<h1 class="agreement-page-title">Inspection Agreement</h1>' +
+        '<p class="agreement-ref">' + agreement.agreementNumber + ' · ' + (TYPE_LABELS[agreement.inspectionType] || agreement.inspectionType) + '</p></div></div>' +
+        '<div class="agreement-summary">' +
+        '<div class="summary-item"><div class="label">Client</div><div class="summary-value">' + agreement.clientName.replace(/</g, '&lt;') + '</div><div class="summary-sub">' + agreement.clientEmail.replace(/</g, '&lt;') + '</div></div>' +
+        '<div class="summary-item summary-item-wide"><div class="label">Property</div><div class="summary-value">' + agreement.propertyAddress.replace(/</g, '&lt;') + '</div></div>' +
+        '<div class="summary-item"><div class="label">Agreement date</div><div class="summary-value">' + formatDate(agreement.agreementDate) + '</div></div>' +
+        '</div></div>'
+      );
+    }
+
     function renderAgreement(agreement) {
-      const sections = agreement.legalSections.sections.map(function (s) {
-        return '<div class="section"><h2>' + s.title + '</h2><p>' + s.content + '</p></div>';
+      const sectionItems = agreement.legalSections.sections.map(function (s) {
+        return (
+          '<div class="terms-item terms-pending" data-id="' + s.id + '">' +
+          '<button type="button" class="terms-head" data-id="' + s.id + '">' +
+          '<span class="terms-icon">!</span>' +
+          '<span class="terms-title">' + s.title.replace(/</g, '&lt;') + '</span>' +
+          '<span class="terms-chevron">▼</span></button>' +
+          '<div class="terms-body legal-content" hidden>' + sectionBodyHtml(s) + '</div></div>'
+        );
       }).join('');
+
+      const termsBlock =
+        '<div class="card">' +
+        '<h2 style="color:var(--text);margin:0 0 8px">Terms &amp; conditions</h2>' +
+        '<p class="terms-intro">Please read each section. Your signature unlocks after you open the Client Declaration.</p>' +
+        '<div id="terms-accordion">' + sectionItems + '</div></div>';
 
       const signBlock = agreement.canSign
         ? '<div class="card" id="sign-form">' +
           '<h2 style="color:var(--text)">Sign agreement</h2>' +
+          '<div id="terms-hint" class="terms-hint">Please open and read every terms section above before signing.</div>' +
           '<div id="form-error" class="error" hidden></div>' +
           '<label class="field">Full name<input type="text" id="signature-name" value="' + agreement.clientName.replace(/"/g, '&quot;') + '" /></label>' +
           '<p class="label">Signature</p>' +
           '<div class="sig-wrap"><canvas id="signature-canvas"></canvas></div>' +
           '<div class="sig-actions"><button type="button" class="btn-secondary" id="clear-sig">Clear signature</button></div>' +
-          '<label class="checkbox"><input type="checkbox" id="accepted" /><span>I have read and accept the terms, scope, limitations, privacy policy, and client declaration.</span></label>' +
+          '<label class="checkbox"><input type="checkbox" id="accepted" disabled /><span>I have read and accept the terms, scope, limitations, privacy policy, and client declaration.</span></label>' +
           '<button type="button" class="btn-primary" id="submit-btn" disabled>Sign and submit</button>' +
           '</div>'
         : '<div class="card center"><p class="muted">This agreement is already ' + agreement.status.toLowerCase() + ' and cannot be signed again.</p></div>';
 
       document.getElementById('app').innerHTML =
         '<div class="wrap">' +
-        '<div class="card"><p class="muted">' + agreement.companyName + '</p>' +
-        '<h1>Client Inspection Agreement</h1>' +
-        '<p class="muted">' + agreement.agreementNumber + ' · ' + (TYPE_LABELS[agreement.inspectionType] || agreement.inspectionType) + '</p></div>' +
-        '<div class="card"><div class="grid">' +
-        '<div><div class="label">Client</div><div>' + agreement.clientName + '</div><div class="muted">' + agreement.clientEmail + '</div></div>' +
-        '<div><div class="label">Property</div><div>' + agreement.propertyAddress + '</div></div>' +
-        '<div><div class="label">Total (inc. GST)</div><div class="price">' + formatAud(agreement.totalCents) + '</div></div>' +
-        '<div><div class="label">Agreement date</div><div>' + formatDate(agreement.agreementDate) + '</div></div>' +
-        '</div></div>' +
-        '<div class="card">' + sections + '</div>' +
+        renderAgreementHeader(agreement) +
+        termsBlock +
         signBlock +
         '</div>';
 
       if (!agreement.canSign) return;
+
+      const reviewed = {};
+      let expandedId = null;
+      const sections = agreement.legalSections.sections;
+
+      function allTermsReviewed() {
+        return sections.every(function (s) { return reviewed[s.id]; });
+      }
+
+      function markReviewed(id) {
+        reviewed[id] = true;
+        const item = document.querySelector('.terms-item[data-id="' + id + '"]');
+        if (item) {
+          item.classList.add('reviewed');
+          item.classList.remove('terms-pending');
+          item.querySelector('.terms-icon').textContent = '✓';
+        }
+      }
+
+      function updateTermsUi() {
+        const ready = allTermsReviewed();
+        const hint = document.getElementById('terms-hint');
+        if (hint) hint.hidden = ready;
+        accepted.disabled = !ready;
+        if (!ready) accepted.checked = false;
+        validate();
+      }
+
+      document.querySelectorAll('.terms-head').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const id = btn.getAttribute('data-id');
+          const item = btn.closest('.terms-item');
+          const body = item.querySelector('.terms-body');
+          if (expandedId === id) {
+            body.hidden = true;
+            item.classList.remove('open');
+            expandedId = null;
+            markReviewed(id);
+            updateTermsUi();
+            return;
+          }
+          if (expandedId) {
+            const prev = document.querySelector('.terms-item[data-id="' + expandedId + '"]');
+            if (prev) {
+              prev.querySelector('.terms-body').hidden = true;
+              prev.classList.remove('open');
+              markReviewed(expandedId);
+            }
+          }
+          expandedId = id;
+          body.hidden = false;
+          item.classList.add('open');
+        });
+      });
 
       const canvasEl = document.getElementById('signature-canvas');
       const pad = setupSignaturePad(canvasEl);
@@ -228,9 +451,10 @@ export const SIGNING_PORTAL_HTML = `<!DOCTYPE html>
       const formError = document.getElementById('form-error');
 
       function validate() {
-        submitBtn.disabled = !(nameInput.value.trim() && !pad.isEmpty() && accepted.checked);
+        submitBtn.disabled = !(nameInput.value.trim() && !pad.isEmpty() && accepted.checked && allTermsReviewed());
       }
 
+      updateTermsUi();
       nameInput.addEventListener('input', validate);
       accepted.addEventListener('change', validate);
       document.getElementById('clear-sig').addEventListener('click', function () { pad.clear(); validate(); });

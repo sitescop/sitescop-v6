@@ -3,7 +3,7 @@ import {
   isLowInspectorHazardLevel,
   type InspectorHazardAssessmentSection,
 } from '../../room-engine-core/src/index.js';
-import { escapeHtml, renderComments, renderPhotos } from './html-utils.js';
+import { escapeHtml, renderComments, renderHeadingGroup, renderPhotos, renderSupplementBlock } from './html-utils.js';
 import type { InspectionPhotoRef } from '../../room-engine-core/src/index.js';
 
 export function renderInspectorHazardLowConclusionNote(
@@ -40,13 +40,16 @@ export function renderInspectorHazardAssessmentBlock(
 
   return `
 <section class="report-section hazard-assessment-section">
-  <h2>Inspector Hazard Assessment — At Door Before Entry</h2>
-  <table class="field-table">
+  ${renderHeadingGroup(
+    '<h2>Inspector Hazard Assessment — At Door Before Entry</h2>',
+    `<table class="field-table">
     <tr><th>Overall Hazard Level</th><td>${escapeHtml(level)}</td></tr>
     <tr><th>Inspection Outcome</th><td>${escapeHtml(section.inspectionOutcome || '—')}</td></tr>
     <tr><th>Client Advised</th><td>${escapeHtml(section.clientAdvised || '—')}</td></tr>
     <tr><th>Rebooking Required</th><td>${escapeHtml(section.rebookingRequired || '—')}</td></tr>
-  </table>
+  </table>`,
+    true,
+  )}
   <div class="hazard-list-block">
     <strong>Hazards Identified</strong>
     ${hazardList}
@@ -55,7 +58,9 @@ export function renderInspectorHazardAssessmentBlock(
     <strong>Assessment Summary</strong>
     ${summary}
   </div>
-  ${renderComments(section.comments)}
-  ${renderPhotos(section.photos as InspectionPhotoRef[])}
+  ${renderSupplementBlock(
+    renderComments(section.comments),
+    renderPhotos(section.photos as InspectionPhotoRef[]),
+  )}
 </section>`;
 }

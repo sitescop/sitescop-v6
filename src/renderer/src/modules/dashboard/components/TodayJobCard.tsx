@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import type { TodayJobRow } from '@shared/api-types';
 import { Card } from '@/design-system/components/Card';
 import { Button } from '@/design-system/components/Button';
-import { PriorityBadge, StatusBadge, TypeBadge, INSPECTION_TYPE_LABELS } from '@/modules/jobs/job-labels';
+import { PriorityBadge, PaymentBadge, StatusBadge, TypeBadge, INSPECTION_TYPE_LABELS } from '@/modules/jobs/job-labels';
 import { JobQuickActions } from '@/modules/jobs/components/JobQuickActions';
 import { getSitescopApi } from '@/lib/sitescop-api';
 
@@ -53,6 +53,10 @@ export function TodayJobCard({ job, onRefresh, onDelete }: TodayJobCardProps) {
               <TypeBadge type={job.inspectionType} />
               <StatusBadge status={job.status} />
               <PriorityBadge priority={job.priority} />
+              <PaymentBadge
+                agreementStatus={job.agreementStatus}
+                paymentReceived={job.paymentReceived}
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">

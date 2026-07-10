@@ -6,7 +6,6 @@ import {
   BATHROOM_FLOOR_TILE_STATUS,
   BATHROOM_GROUT_CONDITION,
   BATHROOM_JAMB_STATUS,
-  BATHROOM_TYPES,
   BATHROOM_WALL_TILE_STATUS,
   BATHROOM_WATER_POOLING_CAUSES,
   FIXTURE_CONDITION,
@@ -141,15 +140,6 @@ export function BathroomRoomForm({ data, onPatch, disabled = false }: BathroomRo
 
   return (
     <div className="space-y-4 rounded-sm border border-border bg-background p-4">
-      <div className="grid gap-4 md:grid-cols-2">
-        <Select
-          label="Bathroom Type"
-          value={data.bathroomType}
-          onChange={(e) => set('bathroomType', e.target.value)}
-          options={BATHROOM_TYPES.map((v) => ({ value: v, label: v }))}
-        />
-      </div>
-
       <CheckboxGroupField
         disabled={disabled}
         label="Fixtures Present (only selected sections appear below)"

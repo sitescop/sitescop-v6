@@ -206,7 +206,7 @@ function mapInspectorHazardsToSafety(hazards: string[]): string[] {
   const mapped: string[] = [];
   for (const hazard of hazards) {
     const lower = hazard.toLowerCase();
-    if (/asbestos/i.test(hazard)) mapped.push('Asbestos Suspected');
+    if (/asbestos/i.test(hazard)) mapped.push('Friable Asbestos Suspected');
     else if (/electrical/i.test(hazard)) mapped.push('Electrical Hazard');
     else if (/structural|collapse|unsafe/i.test(hazard)) mapped.push('Structural Hazard');
     else if (/trip|slip|fall/i.test(hazard)) mapped.push('Trip Hazard');
@@ -364,48 +364,74 @@ export function collectMajorDefectAutoSuggestions(input: MajorDefectRollupInput)
   };
 }
 
+function migrateSafetyHazardLabels(field: CheckboxFieldState): CheckboxFieldState {
+  const normalized = normalizeCheckboxField(field);
+  return {
+    selected: normalized.selected.map((item) =>
+      item === 'Asbestos Suspected' ? 'Friable Asbestos Suspected' : item,
+    ),
+    custom: normalized.custom.map((item) =>
+      item === 'Asbestos Suspected' ? 'Friable Asbestos Suspected' : item,
+    ),
+  };
+}
+
 export function applyMajorDefectsRollup(
   majorDefects: MajorDefectsSection,
   input: MajorDefectRollupInput,
 ): MajorDefectsSection {
+  const migratedMajorDefects: MajorDefectsSection = {
+    ...majorDefects,
+    safetyHazards: migrateSafetyHazardLabels(majorDefects.safetyHazards),
+    rollupDismissed: {
+      ...normalizeRollupDismissed(majorDefects.rollupDismissed),
+      safetyHazards: normalizeRollupDismissed(majorDefects.rollupDismissed).safetyHazards.map(
+        (item) => (item === 'Asbestos Suspected' ? 'Friable Asbestos Suspected' : item),
+      ),
+    },
+  };
+
   const auto = collectMajorDefectAutoSuggestions(input);
-  const dismissed = normalizeRollupDismissed(majorDefects.rollupDismissed);
+  const dismissed = normalizeRollupDismissed(migratedMajorDefects.rollupDismissed);
 
   const nextMajorDefects: MajorDefectsSection = {
-    ...majorDefects,
+    ...migratedMajorDefects,
     rollupDismissed: dismissed,
     structuralMovement: mergeAutoCheckboxPreservingManual(
-      majorDefects.structuralMovement,
+      migratedMajorDefects.structuralMovement,
       auto.structuralMovement,
       dismissed.structuralMovement,
     ),
     deformation: mergeAutoCheckboxPreservingManual(
-      majorDefects.deformation,
+      migratedMajorDefects.deformation,
       auto.deformation,
       dismissed.deformation,
     ),
     moistureSources: mergeAutoCheckboxPreservingManual(
-      majorDefects.moistureSources,
+      migratedMajorDefects.moistureSources,
       auto.moistureSources,
       dismissed.moistureSources,
     ),
     conditionsConducive: mergeAutoCheckboxPreservingManual(
-      majorDefects.conditionsConducive,
+      migratedMajorDefects.conditionsConducive,
       auto.conditionsConducive,
       dismissed.conditionsConducive,
     ),
     areasNotInspected: mergeAutoCheckboxPreservingManual(
-      majorDefects.areasNotInspected,
+      migratedMajorDefects.areasNotInspected,
       auto.areasNotInspected,
       dismissed.areasNotInspected,
     ),
     safetyHazards: mergeAutoCheckboxPreservingManual(
-      majorDefects.safetyHazards,
+      migratedMajorDefects.safetyHazards,
       auto.safetyHazards,
       dismissed.safetyHazards,
     ),
-    crackingEntries: syncCrackingEntries(majorDefects.crackingEntries, auto.crackingEntries),
-    plumbingDefectPhotos: mergePhotoRefs(majorDefects.plumbingDefectPhotos, auto.plumbingDefectPhotos),
+    crackingEntries: syncCrackingEntries(migratedMajorDefects.crackingEntries, auto.crackingEntries),
+    plumbingDefectPhotos: mergePhotoRefs(
+      migratedMajorDefects.plumbingDefectPhotos,
+      auto.plumbingDefectPhotos,
+    ),
   };
 
   return applyDerivedMajorDefectFields(nextMajorDefects);

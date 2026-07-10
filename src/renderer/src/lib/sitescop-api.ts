@@ -1,6 +1,6 @@
 import type { SitescopApi } from '@shared/api-types';
 
-export const CURRENT_BRIDGE_VERSION = 5;
+export const CURRENT_BRIDGE_VERSION = 6;
 
 /** True when running inside the Electron desktop window (not Chrome/Edge). */
 export function isDesktopApp(): boolean {
@@ -84,11 +84,23 @@ export function hasClientsApi(): boolean {
   return Boolean(
     window.sitescop?.clients?.list &&
       window.sitescop?.clients?.get &&
+      window.sitescop?.clients?.update &&
+      window.sitescop?.clients?.updateAgent &&
       window.sitescop?.clients?.openAgreementPdf &&
       window.sitescop?.clients?.openInvoicePdf &&
       window.sitescop?.clients?.copyAgreementPdf &&
       window.sitescop?.clients?.copyInvoicePdf &&
       window.sitescop?.clients?.copyAllJobDocuments,
+  );
+}
+
+export function hasAccountingApi(): boolean {
+  return Boolean(
+    window.sitescop?.accounting?.listAwaitingPayment &&
+      window.sitescop?.accounting?.listPaid &&
+      window.sitescop?.accounting?.listByClient &&
+      window.sitescop?.accounting?.getSummary &&
+      window.sitescop?.accounting?.pushToXero,
   );
 }
 
@@ -136,6 +148,7 @@ export function isBridgeUpToDate(): boolean {
     version >= CURRENT_BRIDGE_VERSION &&
     hasRecycleBinApi() &&
     hasClientsApi() &&
+    hasAccountingApi() &&
     hasSpeechApi()
   );
 }
@@ -144,6 +157,7 @@ export function getStaleBridgeFeatures(): string[] {
   const missing: string[] = [];
   if (!hasRecycleBinApi()) missing.push('Recycle Bin');
   if (!hasClientsApi()) missing.push('Clients');
+  if (!hasAccountingApi()) missing.push('Accounting');
   if (!window.sitescop?.settings?.getProfile) missing.push('Settings');
   if (!window.sitescop?.speech?.transcribeAudio && !window.sitescop?.speech?.dictate) missing.push('Dictation');
   return missing;

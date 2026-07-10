@@ -1,4 +1,5 @@
 import type {
+  AccessibilityObstructionsSection,
   BathroomRoomData,
   BedroomRoomData,
   BuildingInspectionFormData,
@@ -8,7 +9,9 @@ import type {
   PrefillJobContext,
   RoomCounts,
   RoomEngineType,
+  ServicesSection,
 } from './types.js';
+import { isSubfloorApplicable, resolveSubfloorPresent } from './property-profile.js';
 import {
   ACCESSIBILITY_AREAS,
   DEFAULT_BUILDING_REPORT_TYPE,
@@ -24,8 +27,100 @@ import {
   LIVING_AREA_NAMES,
 } from './options.js';
 
+export const DEFAULT_WATER_SUPPLY_SELECTION = ['Town Water'] as const;
+export const DEFAULT_ELECTRICITY_SELECTION = ['Mains'] as const;
+
+export const DEFAULT_INTERIOR_OBSTRUCTION_SELECTION = [
+  'Wall linings',
+  'Ceiling linings',
+  'Floor coverings',
+  'Window furniture',
+  'Cabinetry',
+  'Appliances',
+  'Storage to cupboards',
+  'Furniture and stored goods will limit access',
+] as const;
+
+export const DEFAULT_EXTERIOR_OBSTRUCTION_SELECTION = [
+  'Landscaping',
+  'Foliage',
+  'Gates and fences',
+  'Stored items',
+] as const;
+
 export function emptyCheckboxField(): CheckboxFieldState {
   return { selected: [], custom: [] };
+}
+
+export function isCheckboxFieldEmpty(value: CheckboxFieldState | string[] | undefined | null): boolean {
+  const field = normalizeCheckboxField(value);
+  return field.selected.length === 0 && field.custom.length === 0;
+}
+
+export function checkboxFieldFromPresets(presets: readonly string[]): CheckboxFieldState {
+  return { selected: [...presets], custom: [] };
+}
+
+export function defaultAccessibilityAreaSelection(subfloorApplicable: boolean): string[] {
+  return ACCESSIBILITY_AREAS.filter((area) => area !== 'Subfloor' || subfloorApplicable);
+}
+
+export function applyServicesDefaults(services: ServicesSection): ServicesSection {
+  return {
+    ...services,
+    waterSupply: isCheckboxFieldEmpty(services.waterSupply)
+      ? checkboxFieldFromPresets(DEFAULT_WATER_SUPPLY_SELECTION)
+      : normalizeCheckboxField(services.waterSupply),
+    electricity: isCheckboxFieldEmpty(services.electricity)
+      ? checkboxFieldFromPresets(DEFAULT_ELECTRICITY_SELECTION)
+      : normalizeCheckboxField(services.electricity),
+    hotWaterPresent: services.hotWaterPresent?.trim() ? services.hotWaterPresent : 'Yes',
+    airConPresent: services.airConPresent?.trim() ? services.airConPresent : 'Yes',
+    rainwaterTankPresent: services.rainwaterTankPresent?.trim() ? services.rainwaterTankPresent : 'Yes',
+  };
+}
+
+export function applyAccessibilityObstructionDefaults(
+  section: AccessibilityObstructionsSection,
+  subfloorApplicable: boolean,
+): AccessibilityObstructionsSection {
+  return {
+    ...section,
+    undetectedStructuralRisk: section.undetectedStructuralRisk?.trim() || 'Moderate',
+    accessibilityAreas: isCheckboxFieldEmpty(section.accessibilityAreas)
+      ? checkboxFieldFromPresets(defaultAccessibilityAreaSelection(subfloorApplicable))
+      : normalizeAccessibilityAreas(section.accessibilityAreas),
+    interiorObstructions: isCheckboxFieldEmpty(section.interiorObstructions)
+      ? checkboxFieldFromPresets(DEFAULT_INTERIOR_OBSTRUCTION_SELECTION)
+      : normalizeCheckboxField(section.interiorObstructions),
+    exteriorObstructions: isCheckboxFieldEmpty(section.exteriorObstructions)
+      ? checkboxFieldFromPresets(DEFAULT_EXTERIOR_OBSTRUCTION_SELECTION)
+      : normalizeCheckboxField(section.exteriorObstructions),
+  };
+}
+
+export function applySharedInspectionDefaults(shared: {
+  propertyDescription: { subfloorPresent?: string };
+  services: ServicesSection;
+  accessibilityObstructions: AccessibilityObstructionsSection;
+}): {
+  services: ServicesSection;
+  accessibilityObstructions: AccessibilityObstructionsSection;
+} {
+  const subfloorApplicable = isSubfloorApplicable(
+    resolveSubfloorPresent(
+      shared.propertyDescription,
+      undefined,
+      shared.accessibilityObstructions,
+    ),
+  );
+  return {
+    services: applyServicesDefaults(shared.services),
+    accessibilityObstructions: applyAccessibilityObstructionDefaults(
+      shared.accessibilityObstructions,
+      subfloorApplicable,
+    ),
+  };
 }
 
 export function defaultElectricalDisclaimersField(): CheckboxFieldState {
@@ -42,6 +137,10 @@ export function defaultLaundryDisclaimersField(): CheckboxFieldState {
 
 export function defaultIfEmptyWorkingStatus(value: string): string {
   return value?.trim() ? value : ELECTRICAL_WORKING;
+}
+
+export function defaultIfEmptySmokeAlarmStatus(value: string): string {
+  return value?.trim() ? value : LICENSED_ELECTRICIAN_INSPECTION;
 }
 
 export function defaultSmokeAlarmStatus(): string {
@@ -110,7 +209,7 @@ export function applyRoomElectricalDefaults(data: Record<string, unknown>): Reco
     next.powerPoints = defaultIfEmptyWorkingStatus(String(next.powerPoints ?? ''));
   }
   if ('smokeAlarm' in next) {
-    next.smokeAlarm = defaultSmokeAlarmStatus();
+    next.smokeAlarm = defaultIfEmptySmokeAlarmStatus(String(next.smokeAlarm ?? ''));
   }
   return next;
 }
@@ -173,7 +272,7 @@ export function normalizeAccessibilityAreas(
 }
 
 export function emptySectionBase() {
-  return { comments: '', photos: [] };
+  return { comments: '', photos: [], noMajorDefectObserved: false };
 }
 
 export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspectionFormData {
@@ -182,7 +281,7 @@ export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspec
     jobInformation: {
       ...base,
       clientType: 'Purchaser',
-      agencyName: prefill?.agentName ? '' : '',
+      agencyName: prefill?.agencyName?.trim() ?? '',
       agentName: prefill?.agentName ?? '',
       agentMobile: prefill?.agentPhone ?? '',
       agentEmail: prefill?.agentEmail ?? '',
@@ -205,25 +304,28 @@ export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspec
     },
     services: {
       ...base,
-      waterSupply: emptyCheckboxField(),
+      waterSupply: checkboxFieldFromPresets(DEFAULT_WATER_SUPPLY_SELECTION),
       waterSupplyOther: '',
       sewer: emptyCheckboxField(),
       sewerOther: '',
-      electricity: emptyCheckboxField(),
+      electricity: checkboxFieldFromPresets(DEFAULT_ELECTRICITY_SELECTION),
       electricityOther: '',
       gas: emptyCheckboxField(),
       gasOther: '',
-      hotWaterPresent: '',
+      hotWaterPresent: 'Yes',
       hotWaterLocation: '',
       hotWaterType: emptyCheckboxField(),
       hotWaterTypeOther: '',
       hotWaterOperating: '',
       hotWaterPhotos: [],
-      airConPresent: '',
+      airConPresent: 'Yes',
       airConType: emptyCheckboxField(),
       airConTypeOther: '',
       airConOperating: '',
       gasBottlePhotos: [],
+      rainwaterTankPresent: 'Yes',
+      rainwaterTankPhotos: [],
+      rainwaterTankComments: '',
     },
     propertyDescription: {
       ...base,
@@ -246,11 +348,15 @@ export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspec
     },
     accessibilityObstructions: {
       ...base,
-      accessibilityAreas: emptyCheckboxField(),
-      interiorObstructions: emptyCheckboxField(),
-      exteriorObstructions: emptyCheckboxField(),
+      accessibilityAreas: checkboxFieldFromPresets(defaultAccessibilityAreaSelection(true)),
+      interiorObstructions: checkboxFieldFromPresets(DEFAULT_INTERIOR_OBSTRUCTION_SELECTION),
+      exteriorObstructions: checkboxFieldFromPresets(DEFAULT_EXTERIOR_OBSTRUCTION_SELECTION),
       roofSpaceObstructions: emptyCheckboxField(),
       subfloorObstructions: emptyCheckboxField(),
+      interiorObstructionPhotos: [],
+      exteriorObstructionPhotos: [],
+      roofSpaceObstructionPhotos: [],
+      subfloorObstructionPhotos: [],
       inaccessibleAreas: emptyCheckboxField(),
       inaccessibleCustomLines: [''],
       undetectedStructuralRisk: 'Moderate',

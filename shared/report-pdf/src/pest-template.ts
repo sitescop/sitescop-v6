@@ -4,12 +4,13 @@ import {
   SHARED_INSPECTION_SECTION_KEYS,
 } from '../../room-engine-core/src/index.js';
 import { escapeHtml, renderSectionBlock } from './html-utils.js';
+import { sharedSectionDataForReport } from './shared-section-report-data.js';
 import { renderCoverHeader } from './cover-header.js';
 import { renderInspectorHazardAssessmentBlock } from './hazard-assessment-block.js';
 import { loadLegalScheduleHtml } from './legal-loader.js';
 import { renderPestConclusionBlock } from './pest-conclusion-block.js';
 import { renderCoverReferenceMeta } from './report-identifiers.js';
-import { renderPdfLetterPartHeading } from './report-design.js';
+import { renderPdfLetterPartBlock } from './report-design.js';
 import { getPestSectionFieldDefs, getSharedSectionFieldDefs } from './section-fields.js';
 import { reportPrintStyles } from './styles.js';
 import { renderPestInspectionSummaryBlock } from './pest-inspection-summary-block.js';
@@ -77,46 +78,73 @@ const PEST_SECTION_FIELD_LABELS: Partial<Record<string, Record<string, string>>>
   },
 };
 
+const SHARED_SECTION_TITLES: Record<string, string> = {
+  services: 'Services & Utilities',
+  propertyDescription: 'Property Description',
+  accessibilityObstructions: 'Accessibility & Obstructions',
+  siteConditions: 'Site Conditions',
+  external: 'External Building Elements',
+  roofExterior: 'Roof Exterior',
+  roofSpace: 'Roof Space',
+};
+
 export { resolvePestReportTitle } from './property-report-details-block.js';
 
 export function renderPestReportHtml(ctx: ReportRenderContext): string {
   const { settings } = ctx;
+  const partBlocks: string[] = [];
+  let hasPriorPart = false;
 
-  const sections: string[] = [];
-
-  sections.push(
-    renderPdfLetterPartHeading('Section A — Property & Engagement Information'),
-    renderPropertyReportDetailsBlock(ctx),
+  partBlocks.push(
+    renderPdfLetterPartBlock(
+      'Section A — Property & Engagement Information',
+      renderPropertyReportDetailsBlock(ctx),
+      { endWithPageBreak: true },
+    ),
   );
+  hasPriorPart = true;
 
   if (ctx.formData.pest) {
-    sections.push(
-      renderPdfLetterPartHeading('Section B — Results of Inspection (Summary)'),
-      renderPestInspectionSummaryBlock(ctx.formData.pest),
+    partBlocks.push(
+      renderPdfLetterPartBlock(
+        'Section B — Results of Inspection (Summary)',
+        renderPestInspectionSummaryBlock(ctx.formData.pest),
+        { startNewPage: hasPriorPart, endWithPageBreak: true },
+      ),
     );
   }
 
-  sections.push(renderPdfLetterPartHeading('Section C — Site & Property Assessment'));
+  const sectionCBlocks: string[] = [];
   for (const key of SHARED_INSPECTION_SECTION_KEYS) {
     if (key === 'jobInformation') continue;
 
-    const data = ctx.formData.shared[key] as unknown as Record<string, unknown>;
+    const data = sharedSectionDataForReport(key, ctx.formData.shared);
     const extraSkip =
       key === 'accessibilityObstructions'
         ? new Set<string>(['undetectedStructuralRisk', 'riskExplanation'])
         : new Set<string>();
     const block = renderSectionBlock(
-      key === 'services' ? 'Services & Utilities' : key === 'propertyDescription' ? 'Property Description' : key === 'accessibilityObstructions' ? 'Accessibility & Obstructions' : key === 'siteConditions' ? 'Site Conditions' : key === 'external' ? 'External Building Elements' : key === 'roofExterior' ? 'Roof Exterior' : 'Roof Space',
+      SHARED_SECTION_TITLES[key] ?? key,
       data,
       extraSkip,
       undefined,
       getSharedSectionFieldDefs(key),
     );
-    if (block) sections.push(block);
+    if (block) sectionCBlocks.push(block);
+  }
+  if (sectionCBlocks.length) {
+    partBlocks.push(
+      renderPdfLetterPartBlock(
+        'Section C — Site & Property Assessment',
+        sectionCBlocks.join('\n'),
+        { startNewPage: hasPriorPart, endWithPageBreak: true },
+      ),
+    );
+    hasPriorPart = true;
   }
 
   if (ctx.formData.pest) {
-    sections.push(renderPdfLetterPartHeading('Section D — Timber Pest Inspection Findings'));
+    const sectionDBlocks: string[] = [];
     for (const key of PEST_INSPECTION_SECTION_KEYS) {
       if (key === 'pestConclusion') continue;
       const data = ctx.formData.pest[key] as unknown as Record<string, unknown>;
@@ -131,29 +159,45 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
         PEST_SECTION_FIELD_LABELS[key],
         fieldDefs,
       );
-      if (block) sections.push(block);
+      if (block) sectionDBlocks.push(block);
     }
 
     const hazardBlock = renderInspectorHazardAssessmentBlock(
       ctx.formData.shared.inspectorHazardAssessment,
     );
-    if (hazardBlock) sections.push(hazardBlock);
+    if (hazardBlock) sectionDBlocks.push(hazardBlock);
 
-    sections.push(
-      renderPestConclusionBlock(
-        ctx.formData.pest,
-        ctx.inspector?.name,
-        ctx.inspection.completedAt ?? ctx.inspection.startedAt,
-        ctx.formData.shared.inspectorHazardAssessment,
+    if (sectionDBlocks.length) {
+      partBlocks.push(
+        renderPdfLetterPartBlock(
+          'Section D — Timber Pest Inspection Findings',
+          sectionDBlocks.join('\n'),
+          { startNewPage: hasPriorPart, endWithPageBreak: true },
+        ),
+      );
+      hasPriorPart = true;
+    }
+
+    partBlocks.push(
+      renderPdfLetterPartBlock(
+        'Section E — Conclusion & Certification',
+        renderPestConclusionBlock(
+          ctx.formData.pest,
+          ctx.inspector?.name,
+          ctx.inspection.completedAt ?? ctx.inspection.startedAt,
+          ctx.formData.shared.inspectorHazardAssessment,
+        ),
+        { startNewPage: hasPriorPart, endWithPageBreak: true },
       ),
     );
+    hasPriorPart = true;
   }
 
   if (settings.reportFooter?.trim()) {
-    sections.push(`<section class="report-section"><p>${escapeHtml(settings.reportFooter)}</p></section>`);
+    partBlocks.push(`<section class="report-section"><p>${escapeHtml(settings.reportFooter)}</p></section>`);
   }
 
-  const body = sections.filter(Boolean).join('\n');
+  const body = partBlocks.filter(Boolean).join('\n');
   const reportTitle = resolvePestReportTitle();
 
   return `<!DOCTYPE html>

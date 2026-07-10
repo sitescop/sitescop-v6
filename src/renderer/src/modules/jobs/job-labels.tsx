@@ -1,4 +1,4 @@
-import type { InspectionType, JobPriority, JobStatus } from '@shared/api-types';
+import type { InspectionType, JobPriority, JobStatus, JobRow } from '@shared/api-types';
 import { cn } from '@/lib/cn';
 
 export const INSPECTION_TYPE_LABELS: Record<InspectionType, string> = {
@@ -53,6 +53,30 @@ export function TypeBadge({ type }: { type: InspectionType }) {
   return (
     <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold uppercase text-primary">
       {INSPECTION_TYPE_LABELS[type]}
+    </span>
+  );
+}
+
+export function PaymentBadge({
+  agreementStatus,
+  paymentReceived,
+}: {
+  agreementStatus: JobRow['agreementStatus'];
+  paymentReceived: boolean;
+}) {
+  if (agreementStatus !== 'SIGNED') return null;
+
+  if (paymentReceived) {
+    return (
+      <span className="rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-semibold text-success">
+        Paid
+      </span>
+    );
+  }
+
+  return (
+    <span className="rounded-full bg-danger/10 px-2.5 py-0.5 text-xs font-semibold text-danger">
+      Not paid
     </span>
   );
 }

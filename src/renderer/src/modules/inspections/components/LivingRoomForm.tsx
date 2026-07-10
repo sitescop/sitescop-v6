@@ -1,11 +1,13 @@
 import type { LivingRoomData } from '@sitescop/room-engine-core';
 import {
+  defaultIfEmptySmokeAlarmStatus,
+  defaultIfEmptyWorkingStatus,
   ELECTRICAL_POINT_STATUS,
   FIXTURE_CONDITION,
   FLOOR_TYPES,
   LICENSED_ELECTRICIAN_INSPECTION,
   LIGHTS_SWITCHES_STATUS,
-  LIVING_AREA_NAMES,
+  SMOKE_ALARM_STATUS,
   WALL_DEFECTS,
 } from '@sitescop/room-engine-core';
 import { Select } from '@/design-system/components';
@@ -27,12 +29,6 @@ export function LivingRoomForm({ data, onChange, disabled = false }: LivingRoomF
   return (
     <div className="space-y-4 rounded-sm border border-border bg-background p-4">
       <div className="grid gap-4 md:grid-cols-2">
-        <Select
-          label="Living Area"
-          value={data.areaName}
-          onChange={(e) => set('areaName', e.target.value)}
-          options={LIVING_AREA_NAMES.map((name) => ({ value: name, label: name }))}
-        />
         <YesNoSelect disabled={disabled} label="Access Available" value={data.accessAvailable} onChange={(v) => set('accessAvailable', v)} />
       </div>
 
@@ -66,8 +62,8 @@ export function LivingRoomForm({ data, onChange, disabled = false }: LivingRoomF
       <div className="grid gap-4 md:grid-cols-2">
         <RatingSelect disabled={disabled} label="Floor Type" value={data.floorType} onChange={(v) => set('floorType', v)} options={FLOOR_TYPES} />
         <RatingSelect disabled={disabled} label="Floor Condition" value={data.floorCondition} onChange={(v) => set('floorCondition', v)} options={['Good', 'Fair', 'Poor', 'Damaged', 'Stained']} />
-        <RatingSelect disabled={disabled} label="Lights Working" value={data.lights} onChange={(v) => set('lights', v)} options={LIGHTS_SWITCHES_STATUS} />
-        <RatingSelect disabled={disabled} label="Power Points Working" value={data.powerPoints} onChange={(v) => set('powerPoints', v)} options={ELECTRICAL_POINT_STATUS} />
+        <RatingSelect disabled={disabled} label="Lights Working" value={defaultIfEmptyWorkingStatus(data.lights)} onChange={(v) => set('lights', v)} options={LIGHTS_SWITCHES_STATUS} />
+        <RatingSelect disabled={disabled} label="Power Points Working" value={defaultIfEmptyWorkingStatus(data.powerPoints)} onChange={(v) => set('powerPoints', v)} options={ELECTRICAL_POINT_STATUS} />
       </div>
 
       <div className="space-y-2 rounded-sm border border-border bg-background p-4 text-sm text-text-muted">
@@ -75,10 +71,13 @@ export function LivingRoomForm({ data, onChange, disabled = false }: LivingRoomF
         <p>{LICENSED_ELECTRICIAN_INSPECTION}</p>
       </div>
 
-      <div className="space-y-2 rounded-sm border border-border bg-background p-4 text-sm text-text-muted">
-        <InspectionSubsectionHeading className="mb-2 border-b-0 pb-0">Smoke Alarm</InspectionSubsectionHeading>
-        <p>{LICENSED_ELECTRICIAN_INSPECTION}</p>
-      </div>
+      <RatingSelect
+        disabled={disabled}
+        label="Smoke Alarm"
+        value={defaultIfEmptySmokeAlarmStatus(data.smokeAlarm)}
+        onChange={(v) => set('smokeAlarm', v)}
+        options={SMOKE_ALARM_STATUS}
+      />
 
       <CheckboxGroupField disabled={disabled} label="Walls" options={WALL_DEFECTS} value={data.walls} onChange={(v) => set('walls', v)} />
       <CheckboxGroupField disabled={disabled} label="Ceiling" options={WALL_DEFECTS} value={data.ceiling} onChange={(v) => set('ceiling', v)} />

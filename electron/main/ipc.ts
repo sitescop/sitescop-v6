@@ -14,8 +14,11 @@ import type {
   SessionUser,
   SignAgreementInput,
   UpdateAgreementInput,
+  UpdateClientInput,
+  UpdateClientAgentInput,
   RescheduleJobInput,
   GitHubSettingsInput,
+  XeroSettingsInput,
 } from '../../shared/api-types.js';
 import type {
   InspectionDetail,
@@ -46,7 +49,10 @@ import {
   saveCompanySettings,
   saveGitHubSettings,
   saveReportSettings,
+  getXeroSettingsPublic,
+  saveXeroSettings,
 } from './settings.service.js';
+import { connectXero, disconnectXero, pushJobInvoiceToXero } from './xero.service.js';
 import { testGitHubConnection } from './github.service.js';
 import type { LocalDatabase } from './database.js';
 import {
@@ -62,7 +68,7 @@ import {
   getJobDetail,
   listCompletedJobs,
   listInProgressJobs,
-  listOutstandingInvoiceJobs,
+  markJobAsPaid,
   softDeleteJob,
   startJob,
 } from './jobs.service.js';
@@ -81,14 +87,17 @@ import {
   cancelAgreement,
   createAgreement,
   createAgreementFromJob,
+  createJobFromSignedAgreement,
   generateAgreementPdfForId,
   getAgreement,
   getPublicAgreement,
   listAgreements,
   markAgreementViewed,
+  resolveAgreementAgentView,
   sendAgreement,
   signAgreement,
   softDeleteAgreement,
+  syncAgentDetailsFromJob,
   updateAgreement,
 } from './agreements.service.js';
 import {
@@ -96,11 +105,25 @@ import {
   purgeRecycleBinItem,
   restoreRecycleBinItem,
 } from './recycle-bin.service.js';
-import { composeClientEmail, composeReportEmailToClient } from './email.service.js';
+import { composeAgreementSigningEmail, composeClientEmail, composeReportEmailToClient } from './email.service.js';
+import {
+  assertJobPaidForReportDelivery,
+  assertReportFilesPaidForDelivery,
+} from './job-payment.service.js';
 import { listCalendarEvents, listUpcomingJobs, rescheduleJob } from './calendar.service.js';
-import { listClients, getClientById } from './clients.service.js';
+import { listClients, getClientById, updateClient, updateClientAgent } from './clients.service.js';
+import {
+  listAwaitingPaymentJobs,
+  listPaidJobs,
+  listAccountingByClient,
+  getAccountingSummary,
+} from './accounting.service.js';
 import { generateInvoicePdfForJob } from './invoices.service.js';
-import { copyFilesToClipboard, copyPdfClipboardMessage } from './clipboard-files.service.js';
+import {
+  copyFilesToClipboard,
+  copyPdfClipboardMessage,
+  copyTextToClipboard,
+} from './clipboard-files.service.js';
 import { localDateKey } from './database.js';
 import { changeInspectorPassword, updateInspectorProfile } from './user.service.js';
 
@@ -196,12 +219,46 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('jobs:listOutstandingInvoices', async () => {
     const db = requireAuth();
-    return listOutstandingInvoiceJobs(db.db);
+    return listAwaitingPaymentJobs(db.db);
+  });
+
+  ipcMain.handle('accounting:listAwaitingPayment', async () => {
+    const db = requireAuth();
+    return listAwaitingPaymentJobs(db.db);
+  });
+
+  ipcMain.handle('accounting:listPaid', async () => {
+    const db = requireAuth();
+    return listPaidJobs(db.db);
+  });
+
+  ipcMain.handle('accounting:listByClient', async () => {
+    const db = requireAuth();
+    return listAccountingByClient(db.db);
+  });
+
+  ipcMain.handle('accounting:getSummary', async () => {
+    const db = requireAuth();
+    return getAccountingSummary(db.db);
+  });
+
+  ipcMain.handle('accounting:pushToXero', async (_event, jobId: string) => {
+    const db = requireAuth();
+    const result = await pushJobInvoiceToXero(db.db, jobId);
+    db.persist();
+    return result;
   });
 
   ipcMain.handle('jobs:get', async (_event, jobId: string) => {
     const db = requireAuth();
     return getJobDetail(db.db, jobId);
+  });
+
+  ipcMain.handle('jobs:markPaid', async (_event, jobId: string) => {
+    const db = requireAuth();
+    const job = await markJobAsPaid(db.db, jobId);
+    db.persist();
+    return job;
   });
 
   ipcMain.handle('jobs:delete', async (_event, jobId: string, input: DeleteJobInput) => {
@@ -297,7 +354,9 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('reports:copyPdf', async (_event, filePath: string) => {
+    const db = requireAuth();
     try {
+      assertReportFilesPaidForDelivery(db.db, [filePath]);
       const count = await copyFilesToClipboard([filePath]);
       return { count, message: copyPdfClipboardMessage(count) };
     } catch (error) {
@@ -307,7 +366,9 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('reports:copyPdfs', async (_event, filePaths: string[]) => {
+    const db = requireAuth();
     try {
+      assertReportFilesPaidForDelivery(db.db, filePaths);
       const count = await copyFilesToClipboard(filePaths);
       return { count, message: copyPdfClipboardMessage(count) };
     } catch (error) {
@@ -343,7 +404,8 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('agreements:get', async (_event, agreementId: string) => {
     const db = requireAuth();
-    return getAgreement(db.db, agreementId);
+    const agreement = getAgreement(db.db, agreementId);
+    return agreement ? resolveAgreementAgentView(db.db, agreement) : null;
   });
 
   ipcMain.handle('agreements:create', async (_event, input: CreateAgreementInput) => {
@@ -358,6 +420,13 @@ export function registerIpcHandlers() {
     const agreement = createAgreementFromJob(db.db, jobId);
     db.persist();
     return agreement;
+  });
+
+  ipcMain.handle('agreements:createJobFromSigned', async (_event, agreementId: string) => {
+    const db = requireAuth();
+    const result = await createJobFromSignedAgreement(db.db, agreementId);
+    db.persist();
+    return result;
   });
 
   ipcMain.handle(
@@ -420,6 +489,17 @@ export function registerIpcHandlers() {
     return getActiveSigningUrl(accessToken);
   });
 
+  ipcMain.handle('agreements:emailSigningLink', async (_event, agreementId: string) => {
+    const db = requireAuth();
+    if (!currentSession) throw new Error('Not authenticated');
+    try {
+      return await composeAgreementSigningEmail(db.db, agreementId, currentSession);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to compose email';
+      throw new Error(message);
+    }
+  });
+
   ipcMain.handle('agreements:syncFromGitHub', async () => {
     const db = requireAuth();
     const result = await syncSignedAgreementsFromGitHub(db.db);
@@ -429,7 +509,10 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('agreements:republishToGitHub', async (_event, agreementId: string) => {
     const db = requireAuth();
+    syncAgentDetailsFromJob(db.db, agreementId);
+    db.persist();
     await pushPendingAgreementToGitHub(db.db, agreementId);
+    db.persist();
   });
 
   ipcMain.handle('agreements:cancel', async (_event, agreementId: string) => {
@@ -470,6 +553,20 @@ export function registerIpcHandlers() {
     const db = requireAuth();
     const client = getClientById(db.db, clientId);
     if (!client) throw new Error('Client not found');
+    return client;
+  });
+
+  ipcMain.handle('clients:update', async (_event, clientId: string, input: UpdateClientInput) => {
+    const db = requireAuth();
+    const client = updateClient(db.db, clientId, input);
+    db.persist();
+    return client;
+  });
+
+  ipcMain.handle('clients:updateAgent', async (_event, clientId: string, input: UpdateClientAgentInput) => {
+    const db = requireAuth();
+    const client = updateClientAgent(db.db, clientId, input);
+    db.persist();
     return client;
   });
 
@@ -537,6 +634,10 @@ export function registerIpcHandlers() {
         paths.push(String((reportStmt.getAsObject() as { filePath: string }).filePath));
       }
       reportStmt.free();
+
+      if (paths.length > 0) {
+        assertJobPaidForReportDelivery(db.db, jobId);
+      }
 
       const agreementStmt = db.db.prepare(
         `SELECT id FROM agreements
@@ -643,6 +744,16 @@ export function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle('shell:copyTextToClipboard', async (_event, text: string) => {
+    try {
+      copyTextToClipboard(text);
+      return { message: 'Copied to clipboard.' };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to copy text';
+      throw new Error(message);
+    }
+  });
+
   ipcMain.handle('settings:getProfile', async () => {
     const db = requireAuth();
     const user = getUserById(db.db, currentSession!.id);
@@ -719,6 +830,27 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:testGitHub', async () => {
     requireAuth();
     return testGitHubConnection(getGitHubSettings());
+  });
+
+  ipcMain.handle('settings:getXero', async () => {
+    requireAuth();
+    return getXeroSettingsPublic();
+  });
+
+  ipcMain.handle('settings:saveXero', async (_event, input: XeroSettingsInput) => {
+    requireAuth();
+    return saveXeroSettings(input);
+  });
+
+  ipcMain.handle('settings:connectXero', async () => {
+    requireAuth();
+    return connectXero();
+  });
+
+  ipcMain.handle('settings:disconnectXero', async () => {
+    requireAuth();
+    disconnectXero();
+    return getXeroSettingsPublic();
   });
 
   ipcMain.handle('geo:captureCurrentPosition', async () => captureCurrentPosition());

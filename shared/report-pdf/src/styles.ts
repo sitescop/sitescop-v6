@@ -3,6 +3,7 @@ import {
   PDF_MARGIN_LEFT,
   PDF_MARGIN_RIGHT,
   PDF_MARGIN_TOP,
+  PDF_SECTION_MIN_REMAINING_MM,
 } from './pdf-layout.js';
 
 export function reportPrintStyles(primaryColor: string, secondaryColor: string): string {
@@ -21,6 +22,8 @@ body {
   color: #222;
   margin: 0;
   max-width: 100%;
+  orphans: 3;
+  widows: 3;
 }
 
 /*
@@ -213,14 +216,99 @@ body {
   font-size: 13pt;
   font-weight: 700;
   color: ${primaryColor};
-  margin: 26px 0 14px;
+  margin: 0 0 12px;
   padding: 0 0 6px;
   border-bottom: 2px solid ${primaryColor};
+  break-after: avoid-page;
   page-break-after: avoid;
 }
 
+.report-part-block {
+  margin-bottom: 4px;
+}
+
+.report-part-block--page-after {
+  break-after: page;
+  page-break-after: always;
+}
+
+.report-part-lead-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.report-part-lead-table td {
+  border: none;
+  padding: 0;
+  vertical-align: top;
+}
+
+.report-part-lead-table--new-page {
+  break-before: page;
+  page-break-before: always;
+}
+
+.report-part-lead-table .report-part-heading {
+  break-after: avoid-page;
+  page-break-after: avoid;
+}
+
+.report-part-lead-table .report-section {
+  break-before: avoid-page;
+  page-break-before: avoid;
+  margin-top: 0;
+}
+
+.report-part-lead--new-page {
+  break-before: page;
+  page-break-before: always;
+}
+
+.report-part-lead {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.report-part-lead > .report-part-heading,
+.report-part-lead > .report-section:first-child {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.report-part-lead > .report-part-heading {
+  break-after: avoid-page;
+  page-break-after: avoid;
+}
+
+.report-part-lead > .report-section {
+  break-before: avoid-page;
+  page-break-before: avoid;
+  margin-top: 0;
+}
+
+.report-part-content > .report-section:first-child {
+  margin-top: 0;
+}
+
+/* ~15% guard between sections inside the same major part (e.g. Site Conditions after Accessibility). */
+.report-part-content > .report-section + .report-section::before {
+  content: "";
+  display: block;
+  height: ${PDF_SECTION_MIN_REMAINING_MM}mm;
+  margin-bottom: -${PDF_SECTION_MIN_REMAINING_MM}mm;
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.report-part-content > *:first-child,
+.report-part-lead > *:first-child {
+  break-before: avoid-page;
+  page-break-before: avoid;
+}
+
 .report-part-heading-letter {
-  margin-top: 20px;
+  margin-top: 0;
 }
 
 .report-part-num {
@@ -259,6 +347,57 @@ body {
   font-size: 12pt;
 }
 
+.report-heading-group {
+  margin-bottom: 14px;
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.report-heading-group--splittable {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.report-heading-group > .report-section-heading,
+.report-heading-group > h2 {
+  break-after: avoid-page;
+  page-break-after: avoid;
+}
+
+.report-heading-group > .field-table,
+.report-heading-group > .comments,
+.report-heading-group > .report-list,
+.report-heading-group > .conclusion-narrative,
+.report-heading-group > .pest-summary-risk,
+.report-heading-group > .certification-statement,
+.report-heading-group > p,
+.report-heading-group > div:not(.conclusion-narrative) {
+  break-before: avoid-page;
+  page-break-before: avoid;
+}
+
+.report-heading-group--splittable > .field-table {
+  break-before: avoid-page;
+  page-break-before: avoid;
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.report-heading-group--splittable > .report-supplement-block {
+  break-before: avoid-page;
+  page-break-before: avoid;
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.report-heading-group > h2 {
+  color: ${primaryColor};
+  font-size: 13pt;
+  border-bottom: 2px solid ${primaryColor};
+  padding-bottom: 4px;
+  margin: 0 0 10px;
+}
+
 .certification-statement {
   margin: 0 0 12px;
   line-height: 1.5;
@@ -269,6 +408,27 @@ body {
   margin-bottom: 18px;
   page-break-inside: auto;
   break-inside: auto;
+}
+
+.report-section-block {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.report-section-block > .report-section-heading {
+  break-after: avoid-page;
+  page-break-after: avoid;
+}
+
+.report-section-block > .field-table,
+.report-section-block > .report-supplement-block {
+  break-before: avoid-page;
+  page-break-before: avoid;
+}
+
+.report-section-new-page {
+  break-before: page;
+  page-break-before: always;
 }
 
 .report-section h2 {
@@ -287,7 +447,41 @@ body {
   break-inside: auto;
 }
 
-.field-table tr {
+.field-table .field-row-group:not(.field-row-group--with-photos) {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.field-table .field-row-group--with-photos {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.field-table .field-row-group--with-photos > tr:not(.field-photo-row) {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+  break-after: avoid-page;
+  page-break-after: avoid;
+}
+
+.field-table tr.field-photo-row {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.field-table tr.field-photo-row--lead {
+  break-before: avoid-page;
+  page-break-before: avoid;
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.field-table tr.field-photo-row--cont {
+  break-before: auto;
+  page-break-before: auto;
+}
+
+.field-table tr:not(.field-photo-row) {
   page-break-inside: avoid;
   break-inside: avoid-page;
 }
@@ -314,23 +508,89 @@ body {
   margin: 8px 0;
 }
 
+.report-supplement-block {
+  margin-top: 8px;
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.report-supplement-block > .comments {
+  break-after: avoid-page;
+  page-break-after: avoid;
+  margin-bottom: 0;
+}
+
+.report-supplement-block > .photo-group--lead {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.report-supplement-block > .comments + .photo-group--lead,
+.report-supplement-block > .photo-group--lead:first-child {
+  break-before: avoid-page;
+  page-break-before: avoid;
+}
+
+.report-supplement-block > .photo-group--cont {
+  break-inside: auto;
+  page-break-inside: auto;
+  break-before: auto;
+  page-break-before: auto;
+  margin-top: 0;
+}
+
+.report-section-block > .report-supplement-block {
+  break-before: avoid-page;
+  page-break-before: avoid;
+}
+
 .comments p {
   margin: 4px 0 0;
   white-space: pre-wrap;
 }
 
 .photo-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: block;
+  margin-top: 6px;
+}
+
+.photo-grid-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-start;
   gap: 10px;
-  margin-top: 10px;
-  page-break-inside: auto;
-  break-inside: auto;
+  margin-bottom: 10px;
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.photo-grid-row:last-child {
+  margin-bottom: 0;
 }
 
 .photo {
   margin: 0;
+  flex: 0 0 auto;
+  max-width: calc(50% - 5px);
+  break-inside: avoid-page;
   page-break-inside: avoid;
+}
+
+.photo-group-label {
+  display: block;
+  margin-bottom: 6px;
+  color: ${primaryColor};
+}
+
+.photo-caption {
+  margin: 6px 0 0;
+  font-size: 9pt;
+  line-height: 1.35;
+  color: #444;
+  font-style: italic;
+  max-width: 100%;
 }
 
 .field-table tr.field-photo-row td {
@@ -345,17 +605,36 @@ body {
 }
 
 .photo img {
-  width: 100%;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
   max-height: 180px;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: left top;
   border: 1px solid #ccc;
 }
 
-.photo-group {
-  margin-top: 10px;
+.field-photo-row--lead .photo-group--lead,
+.photo-group--lead {
+  margin-top: 6px;
+  break-inside: avoid-page;
+  page-break-inside: avoid;
 }
 
-.photo-group strong {
+.field-photo-row--cont .photo-group,
+.photo-group--cont {
+  margin-top: 0;
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.photo-group {
+  margin-top: 6px;
+}
+
+.photo-group strong,
+.photo-group-label {
   display: block;
   margin-bottom: 6px;
 }
@@ -379,14 +658,38 @@ h3 {
   page-break-after: avoid;
 }
 
+.report-section > .field-table,
+.report-section-block > .field-table,
+.report-section > .comments,
+.report-section > .report-list {
+  break-before: avoid-page;
+  page-break-before: avoid;
+}
+
 .comments,
-.photo-group,
 .recommendations-block,
 .declaration-block,
 .hazard-assessment-section,
 .conclusion-narrative {
-  page-break-inside: avoid;
   break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.report-supplement-block .photo-grid-row,
+.photo-group--lead .photo-grid-row,
+.photo-group--cont .photo-grid-row {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+
+.field-section-photos-group.field-row-group--with-photos > tr.field-photo-row--lead {
+  break-before: avoid-page;
+  page-break-before: avoid;
+}
+
+.field-section-photos-group.field-row-group--with-photos > tr.field-photo-row--cont {
+  break-before: auto;
+  page-break-before: auto;
 }
 
 .recommendations-block {
@@ -425,10 +728,17 @@ h3 {
   font-weight: 400;
 }
 
-.pest-inspection-summary .pest-summary-disclaimer {
+.pest-inspection-summary .pest-summary-disclaimer,
+.building-inspection-summary .building-summary-disclaimer {
   margin: 0 0 14px;
   font-size: 10pt;
   color: #444;
+  line-height: 1.5;
+  padding: 10px 12px;
+  background: #f8faf9;
+  border: 1px solid #e2ebe6;
+  border-left: 4px solid ${secondaryColor};
+  border-radius: 4px;
 }
 
 .pest-inspection-summary .pest-summary-note {
@@ -445,12 +755,6 @@ h3 {
   vertical-align: top;
 }
 
-.building-inspection-summary .building-summary-disclaimer {
-  margin: 0 0 14px;
-  font-size: 10pt;
-  color: #444;
-}
-
 .building-inspection-summary .building-summary-note {
   margin: 12px 0 0;
   font-size: 10pt;
@@ -458,7 +762,7 @@ h3 {
 }
 
 .building-inspection-summary .building-summary-recommendations {
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 .building-summary-table th {
@@ -466,7 +770,8 @@ h3 {
 }
 
 .conclusion-section {
-  page-break-before: always;
+  page-break-before: auto;
+  break-before: auto;
 }
 
 .conclusion-narrative {

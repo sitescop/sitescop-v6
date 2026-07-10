@@ -73,3 +73,11 @@ export function copyPdfClipboardMessage(count: number): string {
   }
   return `${count} PDFs copied — switch to your email and press Ctrl+V to attach all.`;
 }
+
+export function copyTextToClipboard(text: string): void {
+  const value = text.trim();
+  if (!value) {
+    throw new Error('Nothing to copy.');
+  }
+  clipboard.writeText(value);
+}

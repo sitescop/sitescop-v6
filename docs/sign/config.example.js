@@ -9,4 +9,5 @@ window.SITESCOP_SIGN_CONFIG = {
   supportWebsite: 'www.sitescop.com.au',
   supportEmail: 'info@sitescop.com.au',
   supportAbn: '67 134 217 039',
+  defaultLogoUrl: './logo.jpeg',
 };

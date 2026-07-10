@@ -1,10 +1,14 @@
 import type { CheckboxFieldState, InspectionPhotoRef } from '../../room-engine-core/src/index.js';
-import { formatPestEvidenceAnswer, normalizeCheckboxField } from '../../room-engine-core/src/index.js';
+import { formatPestEvidenceAnswer, isNoMajorDefectObserved, normalizeCheckboxField } from '../../room-engine-core/src/index.js';
 import type { SectionFieldDef } from './section-fields.js';
 
-const SKIP_KEYS = new Set(['photos', 'comments']);
+const SKIP_KEYS = new Set(['photos', 'comments', 'noMajorDefectObserved']);
 
 const EXTRA_PHOTO_KEYS = [
+  'interiorObstructionPhotos',
+  'exteriorObstructionPhotos',
+  'roofSpaceObstructionPhotos',
+  'subfloorObstructionPhotos',
   'waterPoolingPhotos',
   'moistureMeterPhotos',
   'thermalImages',
@@ -13,6 +17,7 @@ const EXTRA_PHOTO_KEYS = [
   'incompleteConstructionPhotos',
   'hotWaterPhotos',
   'gasBottlePhotos',
+  'rainwaterTankPhotos',
   'plumbingDefectPhotos',
   'deformationPhotos',
   'moistureSourcePhotos',
@@ -21,11 +26,16 @@ const EXTRA_PHOTO_KEYS = [
 
 /** Render these photo fields immediately after the named field row (matches inspection form order). */
 const INLINE_PHOTO_AFTER_FIELD: Partial<Record<string, (typeof EXTRA_PHOTO_KEYS)[number]>> = {
+  interiorObstructions: 'interiorObstructionPhotos',
+  exteriorObstructions: 'exteriorObstructionPhotos',
+  roofSpaceObstructions: 'roofSpaceObstructionPhotos',
+  subfloorObstructions: 'subfloorObstructionPhotos',
   deformationEngineeringRequired: 'deformationPhotos',
   moistureSources: 'moistureSourcePhotos',
   safetyHazards: 'safetyHazardPhotos',
   hotWaterOperating: 'hotWaterPhotos',
   gas: 'gasBottlePhotos',
+  rainwaterTankPresent: 'rainwaterTankPhotos',
   incompleteConstruction: 'incompleteConstructionPhotos',
   evidenceOfWaterPooling: 'waterPoolingPhotos',
   excessiveMoistureEvidence: 'moistureEvidencePhotos',
@@ -192,31 +202,44 @@ export function renderFieldRows(
       .filter((key) => !SKIP_KEYS.has(key) && !extraSkip.has(key))
       .map((key) => ({ key, label: formatLabel(key, fieldLabels) }));
 
-  const rows: string[] = [];
+  const groups: string[] = [];
   for (const def of defs) {
     if (SKIP_KEYS.has(def.key) || extraSkip.has(def.key) || EXTRA_PHOTO_KEYS.includes(def.key as (typeof EXTRA_PHOTO_KEYS)[number])) {
       continue;
     }
-    rows.push(
+    const groupRows: string[] = [
       `<tr><th>${escapeHtml(def.label)}</th><td>${renderValue(def.key, data[def.key])}</td></tr>`,
-    );
+    ];
+    let hasInlinePhotos = false;
 
     if (def.key === 'crackingEntries') {
       const crackingPhotoRows = renderCrackingEntryPhotoRows(data[def.key]);
-      if (crackingPhotoRows) rows.push(crackingPhotoRows);
+      if (crackingPhotoRows) {
+        hasInlinePhotos = true;
+        groupRows.push(crackingPhotoRows);
+      }
     }
 
     const inlinePhotoKey = INLINE_PHOTO_AFTER_FIELD[def.key];
-    if (!inlinePhotoKey || inlinedPhotoKeys.has(inlinePhotoKey)) continue;
-    const photos = data[inlinePhotoKey];
-    if (!Array.isArray(photos) || photos.length === 0) continue;
-    inlinedPhotoKeys.add(inlinePhotoKey);
-    const photoHtml = renderPhotos(photos as InspectionPhotoRef[], labelByKey.get(inlinePhotoKey));
-    if (photoHtml) {
-      rows.push(`<tr class="field-photo-row"><td colspan="2">${photoHtml}</td></tr>`);
+    if (inlinePhotoKey && !inlinedPhotoKeys.has(inlinePhotoKey)) {
+      const inlinePhotos = data[inlinePhotoKey];
+      if (Array.isArray(inlinePhotos) && inlinePhotos.length > 0) {
+        inlinedPhotoKeys.add(inlinePhotoKey);
+        const photoRows = renderInlineFieldPhotoTableRows(
+          inlinePhotos as InspectionPhotoRef[],
+          labelByKey.get(inlinePhotoKey),
+        );
+        if (photoRows.length) {
+          hasInlinePhotos = true;
+          groupRows.push(...photoRows);
+        }
+      }
     }
+
+    const groupClass = hasInlinePhotos ? 'field-row-group field-row-group--with-photos' : 'field-row-group';
+    groups.push(`<tbody class="${groupClass}">${groupRows.join('\n')}</tbody>`);
   }
-  return rows.join('\n');
+  return groups.join('\n');
 }
 
 export function renderComments(comments: string | undefined): string {
@@ -224,15 +247,73 @@ export function renderComments(comments: string | undefined): string {
   return `<div class="comments"><strong>Comments</strong><p>${escapeHtml(comments)}</p></div>`;
 }
 
-export function renderPhotos(photos: InspectionPhotoRef[] | undefined, label?: string): string {
-  if (!photos?.length) return '';
-  const items = photos
-    .map(
-      (photo) =>
-        `<figure class="photo"><img src="${photo.dataUrl}" alt="${escapeHtml(photo.caption ?? 'Inspection photo')}" /></figure>`,
+/** Groups comments and splittable photo rows for a section supplement area. */
+export function renderSupplementBlock(...parts: Array<string | undefined>): string {
+  const content = parts.filter(Boolean).join('\n').trim();
+  if (!content) return '';
+  return `<div class="report-supplement-block">${content}</div>`;
+}
+
+function renderPhotoFigure(
+  photo: InspectionPhotoRef,
+  photoNumber: number,
+  photosLength: number,
+  label?: string,
+): string {
+  const captionText =
+    photo.caption?.trim() ||
+    (photosLength > 1 ? `Photo ${photoNumber}` : label?.trim() || 'Inspection photo');
+  return `<figure class="photo">
+        <img src="${photo.dataUrl}" alt="${escapeHtml(captionText)}" />
+        <figcaption class="photo-caption">${escapeHtml(captionText)}</figcaption>
+      </figure>`;
+}
+
+function renderPhotoGridRowHtml(
+  photos: InspectionPhotoRef[],
+  pairStartIndex: number,
+  label?: string,
+): string {
+  const pair = photos.slice(pairStartIndex, pairStartIndex + 2);
+  const cells = pair
+    .map((photo, pairIndex) =>
+      renderPhotoFigure(photo, pairStartIndex + pairIndex + 1, photos.length, label),
     )
     .join('\n');
-  return `<div class="photo-group">${label ? `<strong>${escapeHtml(label)}</strong>` : ''}<div class="photo-grid">${items}</div></div>`;
+  return `<div class="photo-grid-row">${cells}</div>`;
+}
+
+/** One table row per photo pair; lead row stays with the field label, later rows may break across pages. */
+function renderInlineFieldPhotoTableRows(
+  photos: InspectionPhotoRef[],
+  label?: string,
+): string[] {
+  if (!photos.length) return [];
+  const labelHtml = label ? `<strong class="photo-group-label">${escapeHtml(label)}</strong>` : '';
+  const rows = [
+    `<tr class="field-photo-row field-photo-row--lead"><td colspan="2"><div class="photo-group photo-group--lead">${labelHtml}${renderPhotoGridRowHtml(photos, 0, label)}</div></td></tr>`,
+  ];
+  for (let index = 2; index < photos.length; index += 2) {
+    rows.push(
+      `<tr class="field-photo-row field-photo-row--cont"><td colspan="2"><div class="photo-group photo-group--cont">${renderPhotoGridRowHtml(photos, index, label)}</div></td></tr>`,
+    );
+  }
+  return rows;
+}
+
+/** Label + first photo row stay together; later rows may continue on the following page. */
+export function renderPhotos(photos: InspectionPhotoRef[] | undefined, label?: string): string {
+  if (!photos?.length) return '';
+  const labelHtml = label ? `<strong class="photo-group-label">${escapeHtml(label)}</strong>` : '';
+  const parts = [
+    `<div class="photo-group photo-group--lead">${labelHtml}${renderPhotoGridRowHtml(photos, 0, label)}</div>`,
+  ];
+  for (let index = 2; index < photos.length; index += 2) {
+    parts.push(
+      `<div class="photo-group photo-group--cont">${renderPhotoGridRowHtml(photos, index, label)}</div>`,
+    );
+  }
+  return parts.join('\n');
 }
 
 function renderExtraPhotoFields(
@@ -251,13 +332,35 @@ function renderExtraPhotoFields(
   return parts.join('\n');
 }
 
+/** Keeps a section heading on the same page as the content that follows it. */
+export function renderSectionHeading(title: string): string {
+  return `<h3 class="report-section-heading">${escapeHtml(title)}</h3>`;
+}
+
+export function renderHeadingGroup(
+  headingHtml: string,
+  bodyHtml: string,
+  splittable = false,
+): string {
+  const body = bodyHtml.trim();
+  if (!body) return headingHtml;
+  const modifier = splittable ? ' report-heading-group--splittable' : '';
+  return `<div class="report-heading-group${modifier}">${headingHtml}${body}</div>`;
+}
+
+export interface ReportSectionRenderOptions {
+  startNewPage?: boolean;
+}
+
 export function renderSectionBlock(
   title: string,
   data: Record<string, unknown>,
   extraSkip = new Set<string>(),
   fieldLabels?: Record<string, string>,
   fieldDefs?: SectionFieldDef[],
+  options: ReportSectionRenderOptions = {},
 ): string {
+  const noMajorDefect = isNoMajorDefectObserved(data as { noMajorDefectObserved?: boolean; comments?: string });
   const comments = typeof data.comments === 'string' ? data.comments : '';
   const photos = extraSkip.has('photos')
     ? []
@@ -265,17 +368,41 @@ export function renderSectionBlock(
       ? (data.photos as InspectionPhotoRef[])
       : [];
   const inlinedPhotoKeys = new Set<string>();
-  const rows = renderFieldRows(data, extraSkip, fieldLabels, fieldDefs, inlinedPhotoKeys);
-  const extraPhotos = renderExtraPhotoFields(data, fieldDefs, inlinedPhotoKeys);
-  if (!rows && !comments && !photos.length && !extraPhotos) return '';
+  const rowGroups = noMajorDefect
+    ? ''
+    : renderFieldRows(data, extraSkip, fieldLabels, fieldDefs, inlinedPhotoKeys);
+  const extraPhotos = noMajorDefect
+    ? ''
+    : renderExtraPhotoFields(data, fieldDefs, inlinedPhotoKeys);
+
+  const sectionPhotoRows =
+    photos.length && rowGroups
+      ? `<tbody class="field-row-group field-row-group--with-photos field-section-photos-group">${renderInlineFieldPhotoTableRows(photos, 'Inspection photos').join('\n')}</tbody>`
+      : '';
+
+  const tableHtml = rowGroups || sectionPhotoRows ? `<table class="field-table">${rowGroups}${sectionPhotoRows}</table>` : '';
+  const commentsHtml = comments.trim() ? renderComments(comments) : '';
+  const orphanPhotosHtml =
+    photos.length && !rowGroups ? renderPhotos(photos, 'Inspection photos') : '';
+  const supplementHtml = renderSupplementBlock(extraPhotos, commentsHtml, orphanPhotosHtml);
+
+  const heading = renderSectionHeading(title);
+  const sectionClass = options.startNewPage ? 'report-section report-section-new-page' : 'report-section';
+
+  if (!tableHtml && !supplementHtml) return '';
+
+  const sectionBody =
+    tableHtml && supplementHtml
+      ? `${heading}${tableHtml}${supplementHtml}`
+      : tableHtml
+        ? `${heading}${tableHtml}`
+        : renderHeadingGroup(heading, supplementHtml, true);
 
   return `
-<section class="report-section">
-  <h3 class="report-section-heading">${escapeHtml(title)}</h3>
-  ${rows ? `<table class="field-table">${rows}</table>` : ''}
-  ${renderComments(comments)}
-  ${renderPhotos(photos)}
-  ${extraPhotos}
+<section class="${sectionClass}">
+  <div class="report-section-block">
+    ${sectionBody}
+  </div>
 </section>`;
 }
 

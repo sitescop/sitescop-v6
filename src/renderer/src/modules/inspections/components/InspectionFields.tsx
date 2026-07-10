@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useRef, useState, type ElementType, type ReactNode } from 'react';
+import { memo, useCallback, useContext, useEffect, useRef, useState, type ElementType, type ReactNode } from 'react';
 import { Camera, ChevronLeft, ChevronRight, ImagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
 import {
   appendInspectionComment,
@@ -25,7 +25,10 @@ export function InspectionSubsectionHeading({
 }
 
 function normalizePhotos(photos: InspectionPhotoRef[] | undefined | null): InspectionPhotoRef[] {
-  return Array.isArray(photos) ? photos : [];
+  if (!Array.isArray(photos)) return [];
+  return photos.filter(
+    (photo) => typeof photo?.dataUrl === 'string' && photo.dataUrl.trim().length > 20,
+  );
 }
 
 interface CheckboxGroupFieldProps {
@@ -177,10 +180,20 @@ export function PhotoField({
   const [editorOpen, setEditorOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
 
+  useEffect(() => {
+    setActiveIndex((index) => (safePhotos.length === 0 ? 0 : Math.min(index, safePhotos.length - 1)));
+    if (safePhotos.length === 0) {
+      setViewerOpen(false);
+      setEditorOpen(false);
+    }
+  }, [safePhotos]);
+
   const appendPhotos = useCallback(
     (batch: InspectionPhotoRef[]) => {
       if (disabled) return;
-      onChange([...photosRef.current, ...batch]);
+      const next = [...photosRef.current, ...batch];
+      photosRef.current = next;
+      onChange(next);
     },
     [disabled, onChange],
   );
@@ -193,6 +206,7 @@ export function PhotoField({
   const removePhoto = (id: string) => {
     if (disabled) return;
     const next = safePhotos.filter((photo) => photo.id !== id);
+    photosRef.current = next;
     onChange(next);
     if (activeIndex >= next.length) {
       setActiveIndex(Math.max(0, next.length - 1));
@@ -206,11 +220,11 @@ export function PhotoField({
 
   const saveEditedPhoto = (nextDataUrl: string) => {
     if (!activePhoto || disabled) return;
-    onChange(
-      safePhotos.map((photo) =>
-        photo.id === activePhoto.id ? { ...photo, dataUrl: nextDataUrl } : photo,
-      ),
+    const next = safePhotos.map((photo) =>
+      photo.id === activePhoto.id ? { ...photo, dataUrl: nextDataUrl } : photo,
     );
+    photosRef.current = next;
+    onChange(next);
     setEditorOpen(false);
     setViewerOpen(true);
   };
@@ -222,23 +236,36 @@ export function PhotoField({
         <span className="text-xs text-text-muted">{safePhotos.length} photo{safePhotos.length === 1 ? '' : 's'}</span>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="inspection-photo-actions">
         {!disabled && (
           <>
-            <Button type="button" variant="secondary" size="sm" onClick={() => cameraRef.current?.click()}>
-              <Camera className="mr-1 h-4 w-4" />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="inspection-photo-btn inspection-photo-btn-camera"
+              onClick={() => cameraRef.current?.click()}
+            >
+              <Camera className="h-4 w-4" />
               Camera
             </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={() => uploadRef.current?.click()}>
-              <ImagePlus className="mr-1 h-4 w-4" />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="inspection-photo-btn inspection-photo-btn-upload"
+              onClick={() => uploadRef.current?.click()}
+            >
+              <ImagePlus className="h-4 w-4" />
               Upload
             </Button>
           </>
         )}
         <Button
           type="button"
-          variant="secondary"
+          variant="ghost"
           size="sm"
+          className="inspection-photo-btn inspection-photo-btn-view"
           disabled={safePhotos.length === 0}
           onClick={() => {
             setActiveIndex(0);
@@ -417,7 +444,13 @@ export function SectionComments({
         onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => onCommentsChange(e.target.value)}
         rows={3}
       />
-      <PhotoField photos={photos} onChange={onPhotosChange} disabled={disabled} className="inspection-photo-field" />
+      <PhotoField
+        key={photos.map((photo) => photo.id).join(',') || 'empty'}
+        photos={photos}
+        onChange={onPhotosChange}
+        disabled={disabled}
+        className="inspection-photo-field"
+      />
     </div>
   );
 }

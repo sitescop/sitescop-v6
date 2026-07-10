@@ -105,6 +105,7 @@ export async function htmlToPdfBuffer(
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: 'load', timeout: 120_000 });
+    await page.emulateMediaType('print');
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,

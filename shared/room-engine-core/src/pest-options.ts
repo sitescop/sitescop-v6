@@ -138,7 +138,7 @@ export const CHEMICAL_DELIGNIFICATION_EVIDENCE = [
 ] as const;
 
 export const MAJOR_SAFETY_HAZARD_ITEMS = [
-  'Asbestos Suspected',
+  'Friable Asbestos Suspected',
   'Electrical Hazard',
   'Structural Hazard',
   'Trip Hazard',
@@ -148,11 +148,13 @@ export const MAJOR_SAFETY_HAZARD_ITEMS = [
 export const WOOD_BORER_ANSWERS = PEST_PRESENCE_ANSWERS;
 
 export const SUBFLOOR_VENTILATION_ANSWERS = [
-  'Not applicable due to construction design.',
   NO_EVIDENCE_FOUND,
   EVIDENCE_FOUND,
+  'Not applicable due to construction design.',
   'Undetermined due to access restrictions.',
 ] as const;
+
+export const SUBFLOOR_VENTILATION_NOT_APPLICABLE = 'Not applicable due to construction design.' as const;
 
 export const EXCESSIVE_MOISTURE_ANSWERS = [
   NO_EVIDENCE_FOUND,

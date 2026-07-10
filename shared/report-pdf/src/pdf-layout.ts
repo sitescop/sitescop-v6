@@ -23,6 +23,15 @@ export const PDF_CONTENT_HEIGHT_MM =
   parseFloat(PDF_MARGIN_TOP) -
   parseFloat(PDF_MARGIN_BOTTOM);
 
+/** ~45% of printable height — next major part may start on same page only if at least this much space remains. */
+export const PDF_PART_MIN_REMAINING_MM = Math.round(PDF_CONTENT_HEIGHT_MM * 0.45);
+
+/** ~32% of printable height — part heading + first section need at least this much room to stay on the current page. */
+export const PDF_PART_LEAD_MIN_MM = Math.round(PDF_CONTENT_HEIGHT_MM * 0.32);
+
+/** ~15% of printable height — next section inside a part uses same-page start only when this much space remains. */
+export const PDF_SECTION_MIN_REMAINING_MM = Math.round(PDF_CONTENT_HEIGHT_MM * 0.15);
+
 export function escapePdfTemplateText(value: string): string {
   return value
     .replace(/&/g, '&amp;')

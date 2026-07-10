@@ -15,7 +15,10 @@ import { CalendarPage } from '@/modules/calendar/CalendarPage';
 import { RecycleBinPage } from '@/modules/recycle-bin/RecycleBinPage';
 import { ClientsPage } from '@/modules/clients/ClientsPage';
 import { ClientDetailPage } from '@/modules/clients/ClientDetailPage';
-import { OutstandingInvoicesPage } from '@/modules/invoices/OutstandingInvoicesPage';
+import { AccountingLayout } from '@/modules/accounting/AccountingLayout';
+import { AccountingAwaitingTab } from '@/modules/accounting/AccountingAwaitingTab';
+import { AccountingPaidTab } from '@/modules/accounting/AccountingPaidTab';
+import { AccountingClientsTab } from '@/modules/accounting/AccountingClientsTab';
 import { SettingsPage } from '@/modules/settings/SettingsPage';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { LoadingOverlay } from '@/design-system/components';
@@ -54,7 +57,13 @@ export function AppRouter() {
         <Route path="recycle-bin" element={<RecycleBinPage />} />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="clients/:clientId" element={<ClientDetailPage />} />
-        <Route path="invoices/outstanding" element={<OutstandingInvoicesPage />} />
+        <Route path="accounting" element={<AccountingLayout />}>
+          <Route index element={<Navigate to="awaiting" replace />} />
+          <Route path="awaiting" element={<AccountingAwaitingTab />} />
+          <Route path="paid" element={<AccountingPaidTab />} />
+          <Route path="clients" element={<AccountingClientsTab />} />
+        </Route>
+        <Route path="invoices/outstanding" element={<Navigate to="/accounting/awaiting" replace />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

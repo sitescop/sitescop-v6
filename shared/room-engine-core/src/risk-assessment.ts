@@ -4,7 +4,7 @@ import type { AccessibilityObstructionsSection } from './types.js';
 const LOW_RISK = 'Low';
 
 export const DEFAULT_STRUCTURAL_UNDETECTED_RISK = 'Moderate';
-export const DEFAULT_TIMBER_PEST_UNDETECTED_RISK = LOW_RISK;
+export const DEFAULT_TIMBER_PEST_UNDETECTED_RISK = 'High';
 
 const IGNORED_REASONS = new Set(['Not applicable', 'All areas permitted entry']);
 

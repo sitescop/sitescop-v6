@@ -10,6 +10,7 @@ import {
 } from '../../shared/company-branding.js';
 import { getResolvedCompanyBranding, getResolvedReportSettings } from './settings.service.js';
 import { mergeRoomDataForReport } from '../../shared/room-engine-core/src/defaults.js';
+import { resolveRoomReportLabels } from '../../shared/room-engine-core/src/property-profile.js';
 import { enrichInspectionFormData } from '../../shared/room-engine-core/src/form-data.js';
 import { enrichPestConclusion } from '../../shared/room-engine-core/src/pest-conclusion.js';
 import {
@@ -138,12 +139,18 @@ async function buildRenderContext(
     inspection.inspectorName.trim() || `${user.firstName} ${user.lastName}`.trim();
 
   if (formData.building) {
+    const enrichedRooms = inspection.rooms.map((room) => ({
+      id: room.id,
+      label: room.label,
+      roomType: room.roomType,
+      roomIndex: room.roomIndex,
+      data: mergeRoomDataForReport(room.roomType, room.roomIndex, room.data),
+    }));
+    const roomLabels = resolveRoomReportLabels(enrichedRooms);
     formData = enrichInspectionFormData(formData, {
-      rooms: inspection.rooms.map((room) => ({
-        id: room.id,
-        label: room.label,
-        roomType: room.roomType,
-        data: mergeRoomDataForReport(room.roomType, room.roomIndex, room.data),
+      rooms: enrichedRooms.map((room, index) => ({
+        ...room,
+        label: roomLabels[index],
       })),
     });
   }

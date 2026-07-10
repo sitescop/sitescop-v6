@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { SitescopApi } from '../../shared/api-types.js';
 
-const BRIDGE_VERSION = 5;
+const BRIDGE_VERSION = 7;
 
 const api: SitescopApi = {
   meta: {
@@ -29,6 +29,7 @@ const api: SitescopApi = {
     get: (jobId) => ipcRenderer.invoke('jobs:get', jobId),
     delete: (jobId, input) => ipcRenderer.invoke('jobs:delete', jobId, input),
     start: (jobId) => ipcRenderer.invoke('jobs:start', jobId),
+    markPaid: (jobId) => ipcRenderer.invoke('jobs:markPaid', jobId),
     emailClient: (jobId) => ipcRenderer.invoke('jobs:emailClient', jobId),
   },
   inspections: {
@@ -53,6 +54,8 @@ const api: SitescopApi = {
     get: (agreementId) => ipcRenderer.invoke('agreements:get', agreementId),
     create: (input) => ipcRenderer.invoke('agreements:create', input),
     createFromJob: (jobId) => ipcRenderer.invoke('agreements:createFromJob', jobId),
+    createJobFromSigned: (agreementId) =>
+      ipcRenderer.invoke('agreements:createJobFromSigned', agreementId),
     update: (agreementId, input) => ipcRenderer.invoke('agreements:update', agreementId, input),
     send: (agreementId) => ipcRenderer.invoke('agreements:send', agreementId),
     getSigningPortalBase: () => ipcRenderer.invoke('agreements:getSigningPortalBase'),
@@ -66,15 +69,25 @@ const api: SitescopApi = {
     getPublic: (token) => ipcRenderer.invoke('agreements:getPublic', token),
     markViewed: (token) => ipcRenderer.invoke('agreements:markViewed', token),
     sign: (token, input) => ipcRenderer.invoke('agreements:sign', token, input),
+    emailSigningLink: (agreementId) => ipcRenderer.invoke('agreements:emailSigningLink', agreementId),
   },
   calendar: {
     listEvents: (startDate, endDate) => ipcRenderer.invoke('calendar:listEvents', startDate, endDate),
     listUpcoming: () => ipcRenderer.invoke('calendar:listUpcoming'),
     reschedule: (jobId, input) => ipcRenderer.invoke('calendar:reschedule', jobId, input),
   },
+  accounting: {
+    listAwaitingPayment: () => ipcRenderer.invoke('accounting:listAwaitingPayment'),
+    listPaid: () => ipcRenderer.invoke('accounting:listPaid'),
+    listByClient: () => ipcRenderer.invoke('accounting:listByClient'),
+    getSummary: () => ipcRenderer.invoke('accounting:getSummary'),
+    pushToXero: (jobId) => ipcRenderer.invoke('accounting:pushToXero', jobId),
+  },
   clients: {
     list: (search) => ipcRenderer.invoke('clients:list', search),
     get: (clientId) => ipcRenderer.invoke('clients:get', clientId),
+    update: (clientId, input) => ipcRenderer.invoke('clients:update', clientId, input),
+    updateAgent: (clientId, input) => ipcRenderer.invoke('clients:updateAgent', clientId, input),
     openAgreementPdf: (agreementId) => ipcRenderer.invoke('clients:openAgreementPdf', agreementId),
     openInvoicePdf: (jobId) => ipcRenderer.invoke('clients:openInvoicePdf', jobId),
     copyAgreementPdf: (agreementId) => ipcRenderer.invoke('clients:copyAgreementPdf', agreementId),
@@ -84,6 +97,7 @@ const api: SitescopApi = {
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
     copyFilesToClipboard: (filePaths) => ipcRenderer.invoke('shell:copyFilesToClipboard', filePaths),
+    copyTextToClipboard: (text) => ipcRenderer.invoke('shell:copyTextToClipboard', text),
   },
   geo: {
     captureCurrentPosition: () => ipcRenderer.invoke('geo:captureCurrentPosition'),
@@ -116,6 +130,10 @@ const api: SitescopApi = {
     getGitHub: () => ipcRenderer.invoke('settings:getGitHub'),
     saveGitHub: (input) => ipcRenderer.invoke('settings:saveGitHub', input),
     testGitHub: () => ipcRenderer.invoke('settings:testGitHub'),
+    getXero: () => ipcRenderer.invoke('settings:getXero'),
+    saveXero: (input) => ipcRenderer.invoke('settings:saveXero', input),
+    connectXero: () => ipcRenderer.invoke('settings:connectXero'),
+    disconnectXero: () => ipcRenderer.invoke('settings:disconnectXero'),
   },
   recycleBin: {
     list: () => ipcRenderer.invoke('recycleBin:list'),

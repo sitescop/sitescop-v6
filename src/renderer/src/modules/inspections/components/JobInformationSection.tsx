@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   Briefcase,
   Building2,
@@ -38,6 +39,107 @@ import {
 
 const PEST_INSPECTION_TYPE = 'Timber and Pest Inspection report';
 
+type JobInfoPartyView = 'both' | 'client' | 'agent';
+
+function partyTabClass(active: boolean): string {
+  return cn(
+    'rounded-t-md px-4 py-2 text-sm font-semibold transition-colors',
+    active
+      ? 'border border-b-0 border-primary/20 bg-surface text-primary'
+      : 'text-text-muted hover:bg-secondary/[0.06] hover:text-text',
+  );
+}
+
+function ClientDetailFields({
+  j,
+  onChange,
+}: {
+  j: JobInformationData;
+  onChange: (partial: Partial<JobInformationData>) => void;
+}) {
+  return (
+    <>
+      <InspectionField id="job-client-name" label="Client Name" icon={User}>
+        <Input
+          id="job-client-name"
+          value={j.clientName}
+          onChange={(e) => onChange({ clientName: e.target.value })}
+          className={INSPECTION_INPUT_CLASS}
+        />
+      </InspectionField>
+      <InspectionField id="job-client-mobile" label="Client Mobile" icon={Phone}>
+        <Input
+          id="job-client-mobile"
+          value={j.clientMobile}
+          onChange={(e) => onChange({ clientMobile: e.target.value })}
+          className={INSPECTION_INPUT_CLASS}
+        />
+      </InspectionField>
+      <InspectionField id="job-client-email" label="Client Email" icon={Mail}>
+        <Input
+          id="job-client-email"
+          type="email"
+          value={j.clientEmail}
+          onChange={(e) => onChange({ clientEmail: e.target.value })}
+          className={INSPECTION_INPUT_CLASS}
+        />
+      </InspectionField>
+    </>
+  );
+}
+
+function AgentDetailFields({
+  j,
+  onChange,
+}: {
+  j: JobInformationData;
+  onChange: (partial: Partial<JobInformationData>) => void;
+}) {
+  return (
+    <>
+      <InspectionField id="job-agency-name" label="Agency Name" icon={Building2}>
+        <Input
+          id="job-agency-name"
+          value={j.agencyName}
+          onChange={(e) => onChange({ agencyName: e.target.value })}
+          className={INSPECTION_INPUT_CLASS}
+        />
+      </InspectionField>
+      <InspectionField id="job-agent-name" label="Agent Name" icon={User}>
+        <Input
+          id="job-agent-name"
+          value={j.agentName}
+          onChange={(e) => onChange({ agentName: e.target.value })}
+          className={INSPECTION_INPUT_CLASS}
+        />
+      </InspectionField>
+      <InspectionField id="job-agent-mobile" label="Agent Mobile" icon={Phone}>
+        <Input
+          id="job-agent-mobile"
+          value={j.agentMobile}
+          onChange={(e) => onChange({ agentMobile: e.target.value })}
+          className={INSPECTION_INPUT_CLASS}
+        />
+      </InspectionField>
+      <InspectionField id="job-agent-email" label="Agent Email" icon={Mail}>
+        <Input
+          id="job-agent-email"
+          type="email"
+          value={j.agentEmail}
+          onChange={(e) => onChange({ agentEmail: e.target.value })}
+          className={INSPECTION_INPUT_CLASS}
+        />
+      </InspectionField>
+    </>
+  );
+}
+
+function hasAgentPartyData(j: JobInformationData): boolean {
+  return Boolean(
+    j.agencyName?.trim() || j.agentName?.trim() || j.agentMobile?.trim() || j.agentEmail?.trim(),
+  );
+}
+
 interface JobInformationSectionProps {
   data: JobInformationData;
   disabled: boolean;
@@ -63,6 +165,23 @@ export function JobInformationSection({
   const buildingReportType = j.buildingReportType?.trim() || DEFAULT_BUILDING_REPORT_TYPE;
   const showBuildingInspectionType = formKind === 'BUILDING' || formKind === 'COMBINED';
   const showPestInspectionType = formKind === 'PEST' || formKind === 'COMBINED';
+  const [partyView, setPartyView] = useState<JobInfoPartyView>('client');
+  const [partyViewTouched, setPartyViewTouched] = useState(false);
+  const showClientFields = partyView === 'both' || partyView === 'client';
+  const showAgentFields = partyView === 'both' || partyView === 'agent';
+  const agentDataPresent = hasAgentPartyData(j);
+
+  useEffect(() => {
+    if (partyViewTouched) return;
+    if (agentDataPresent) {
+      setPartyView('both');
+    }
+  }, [agentDataPresent, partyViewTouched]);
+
+  function selectPartyView(view: JobInfoPartyView) {
+    setPartyViewTouched(true);
+    setPartyView(view);
+  }
 
   return (
     <>
@@ -112,69 +231,73 @@ export function JobInformationSection({
           />
         </InspectionField>
 
-        {j.clientType === 'Agent' && (
-          <>
-            <InspectionField id="job-agency-name" label="Agency Name" icon={Building2}>
-              <Input
-                id="job-agency-name"
-                value={j.agencyName}
-                onChange={(e) => onChange({ agencyName: e.target.value })}
-                className={INSPECTION_INPUT_CLASS}
-              />
-            </InspectionField>
-            <InspectionField id="job-agent-name" label="Agent Name" icon={User}>
-              <Input
-                id="job-agent-name"
-                value={j.agentName}
-                onChange={(e) => onChange({ agentName: e.target.value })}
-                className={INSPECTION_INPUT_CLASS}
-              />
-            </InspectionField>
-            <InspectionField id="job-agent-mobile" label="Agent Mobile" icon={Phone}>
-              <Input
-                id="job-agent-mobile"
-                value={j.agentMobile}
-                onChange={(e) => onChange({ agentMobile: e.target.value })}
-                className={INSPECTION_INPUT_CLASS}
-              />
-            </InspectionField>
-            <InspectionField id="job-agent-email" label="Agent Email" icon={Mail} className="md:col-span-2">
-              <Input
-                id="job-agent-email"
-                type="email"
-                value={j.agentEmail}
-                onChange={(e) => onChange({ agentEmail: e.target.value })}
-                className={INSPECTION_INPUT_CLASS}
-              />
-            </InspectionField>
-          </>
-        )}
+        <div className="md:col-span-2">
+          <p className="mb-2 text-xs text-text-muted">
+            Purchaser (person buying the property) on the left, real estate agent on the right.
+          </p>
+          <div className="flex flex-wrap gap-1 border-b border-primary/15" role="tablist" aria-label="Show purchaser and agent details">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={partyView === 'both'}
+              className={partyTabClass(partyView === 'both')}
+              onClick={() => selectPartyView('both')}
+            >
+              Both
+              {agentDataPresent ? (
+                <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-success" aria-hidden />
+              ) : null}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={partyView === 'client'}
+              className={partyTabClass(partyView === 'client')}
+              onClick={() => selectPartyView('client')}
+            >
+              Purchaser
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={partyView === 'agent'}
+              className={partyTabClass(partyView === 'agent')}
+              onClick={() => selectPartyView('agent')}
+            >
+              Agent
+              {agentDataPresent ? (
+                <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-success" aria-hidden />
+              ) : null}
+            </button>
+          </div>
+        </div>
 
-        <InspectionField id="job-client-name" label="Client Name" icon={User}>
-          <Input
-            id="job-client-name"
-            value={j.clientName}
-            onChange={(e) => onChange({ clientName: e.target.value })}
-            className={INSPECTION_INPUT_CLASS}
-          />
-        </InspectionField>
-        <InspectionField id="job-client-mobile" label="Client Mobile" icon={Phone}>
-          <Input
-            id="job-client-mobile"
-            value={j.clientMobile}
-            onChange={(e) => onChange({ clientMobile: e.target.value })}
-            className={INSPECTION_INPUT_CLASS}
-          />
-        </InspectionField>
-        <InspectionField id="job-client-email" label="Client Email" icon={Mail} className="md:col-span-2">
-          <Input
-            id="job-client-email"
-            type="email"
-            value={j.clientEmail}
-            onChange={(e) => onChange({ clientEmail: e.target.value })}
-            className={INSPECTION_INPUT_CLASS}
-          />
-        </InspectionField>
+        <div className="md:col-span-2">
+          <div
+            className={cn(
+              'grid gap-4 md:gap-6',
+              showClientFields && showAgentFields ? 'md:grid-cols-2' : 'grid-cols-1',
+            )}
+          >
+            {showClientFields ? (
+              <div className="space-y-3 rounded-lg border border-secondary/25 bg-secondary/[0.04] p-3 md:p-4">
+                <h4 className="text-sm font-bold text-secondary">Purchaser</h4>
+                <div className="space-y-3">
+                  <ClientDetailFields j={j} onChange={onChange} />
+                </div>
+              </div>
+            ) : null}
+            {showAgentFields ? (
+              <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3 md:p-4">
+                <h4 className="text-sm font-bold text-primary">Agent</h4>
+                <div className="space-y-3">
+                  <AgentDetailFields j={j} onChange={onChange} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
         <InspectionField id="job-inspection-date" label="Inspection Date" icon={CalendarDays}>
           <Input
             id="job-inspection-date"

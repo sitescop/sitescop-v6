@@ -13,7 +13,7 @@ import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { getAdjacentRouteSection } from './inspection-route';
 import { InspectionSectionNav } from './InspectionSectionNav';
-import type { SectionCompletionStatus } from './section-completion';
+import { resolveWorkflowSectionStatus, type SectionCompletionStatus } from './section-completion';
 
 interface InspectionAccordionContextValue {
   openId: string | null;
@@ -21,11 +21,45 @@ interface InspectionAccordionContextValue {
   toggle: (id: string) => void;
   routeIds: string[];
   goToAdjacent: (currentId: string, direction: 'next' | 'previous') => string | null;
+  resolveSectionStatus: (sectionId: string) => SectionCompletionStatus;
 }
 
 const InspectionAccordionContext = createContext<InspectionAccordionContextValue | null>(null);
 
 const ACCORDION_SCROLL_OFFSET = 76;
+
+interface WorkflowSnapshot {
+  visited: string[];
+  completed: string[];
+}
+
+function loadWorkflowSnapshot(storageKey: string | undefined): WorkflowSnapshot {
+  if (!storageKey) return { visited: [], completed: [] };
+  try {
+    const raw = sessionStorage.getItem(storageKey);
+    if (!raw) return { visited: [], completed: [] };
+    const parsed = JSON.parse(raw) as WorkflowSnapshot;
+    return {
+      visited: Array.isArray(parsed.visited) ? parsed.visited : [],
+      completed: Array.isArray(parsed.completed) ? parsed.completed : [],
+    };
+  } catch {
+    return { visited: [], completed: [] };
+  }
+}
+
+function saveWorkflowSnapshot(
+  storageKey: string | undefined,
+  visitedIds: ReadonlySet<string>,
+  completedIds: ReadonlySet<string>,
+): void {
+  if (!storageKey) return;
+  const snapshot: WorkflowSnapshot = {
+    visited: [...visitedIds],
+    completed: [...completedIds],
+  };
+  sessionStorage.setItem(storageKey, JSON.stringify(snapshot));
+}
 
 function scrollHeaderIntoPlace(sectionId: string) {
   const header = document.getElementById(`inspection-section-header-${sectionId}`);
@@ -42,22 +76,91 @@ export function InspectionAccordion({
   defaultOpenId,
   className,
   routeIds = [],
+  workflowStorageKey,
 }: {
   children: ReactNode;
   defaultOpenId?: string;
   className?: string;
   routeIds?: string[];
+  /** Persists visited/completed section colours for this inspection session. */
+  workflowStorageKey?: string;
 }) {
-  const [openId, setOpenId] = useState<string | null>(defaultOpenId ?? null);
+  const storageKey = workflowStorageKey
+    ? `sitescop-inspection-section-workflow:${workflowStorageKey}`
+    : undefined;
+  const initialWorkflow = useMemo(() => loadWorkflowSnapshot(storageKey), [storageKey]);
+  const [openId, setOpenIdState] = useState<string | null>(defaultOpenId ?? null);
+  const [visitedIds, setVisitedIds] = useState<Set<string>>(() => new Set(initialWorkflow.visited));
+  const [completedIds, setCompletedIds] = useState<Set<string>>(() => new Set(initialWorkflow.completed));
 
-  const toggle = useCallback((id: string) => {
-    setOpenId((current) => (current === id ? null : id));
+  const markVisited = useCallback((id: string) => {
+    setVisitedIds((current) => {
+      if (current.has(id)) return current;
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
   }, []);
+
+  const markCompleted = useCallback((id: string) => {
+    setCompletedIds((current) => {
+      if (current.has(id)) return current;
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!defaultOpenId) return;
+    markVisited(defaultOpenId);
+  }, [defaultOpenId, markVisited]);
+
+  useEffect(() => {
+    saveWorkflowSnapshot(storageKey, visitedIds, completedIds);
+  }, [storageKey, visitedIds, completedIds]);
+
+  const setOpenId = useCallback(
+    (id: string | null) => {
+      setOpenIdState((current) => {
+        if (current && current !== id) {
+          markCompleted(current);
+        }
+        if (id) {
+          markVisited(id);
+        }
+        return id;
+      });
+    },
+    [markCompleted, markVisited],
+  );
+
+  const toggle = useCallback(
+    (id: string) => {
+      setOpenIdState((current) => {
+        if (current === id) {
+          markCompleted(id);
+          return null;
+        }
+        if (current) {
+          markCompleted(current);
+        }
+        markVisited(id);
+        return id;
+      });
+    },
+    [markCompleted, markVisited],
+  );
 
   const goToAdjacent = useCallback(
     (currentId: string, direction: 'next' | 'previous') =>
       getAdjacentRouteSection(routeIds, currentId, direction),
     [routeIds],
+  );
+
+  const resolveSectionStatus = useCallback(
+    (sectionId: string) => resolveWorkflowSectionStatus(sectionId, openId, visitedIds, completedIds),
+    [openId, visitedIds, completedIds],
   );
 
   useEffect(() => {
@@ -79,8 +182,8 @@ export function InspectionAccordion({
   }, [openId]);
 
   const value = useMemo(
-    () => ({ openId, setOpenId, toggle, routeIds, goToAdjacent }),
-    [openId, toggle, routeIds, goToAdjacent],
+    () => ({ openId, setOpenId, toggle, routeIds, goToAdjacent, resolveSectionStatus }),
+    [openId, setOpenId, toggle, routeIds, goToAdjacent, resolveSectionStatus],
   );
 
   return (
@@ -129,6 +232,7 @@ export function InspectionAccordionSection({
   const fallbackId = useId();
   const sectionId = id || fallbackId;
   const isOpen = ctx ? ctx.openId === sectionId : true;
+  const displayStatus = ctx ? ctx.resolveSectionStatus(sectionId) : status;
   const openedRef = useRef(false);
 
   useEffect(() => {
@@ -150,9 +254,9 @@ export function InspectionAccordionSection({
       id={`inspection-section-${sectionId}`}
       className={cn(
         'inspection-accordion-section overflow-hidden rounded-lg border shadow-card transition-colors duration-200',
-        status === 'completed'
+        displayStatus === 'completed'
           ? 'border-success/35 bg-success/[0.03]'
-          : status === 'in_progress'
+          : displayStatus === 'in_progress'
             ? 'border-accent/30 bg-accent/[0.02]'
             : 'border-secondary/35 bg-secondary/[0.06]',
         className,
@@ -163,13 +267,13 @@ export function InspectionAccordionSection({
         type="button"
         className={cn(
           'inspection-accordion-header flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors md:px-5',
-          status === 'not_started' && 'hover:bg-secondary/[0.08]',
-          status === 'in_progress' && 'hover:bg-accent/[0.06]',
-          status === 'completed' && 'hover:bg-success/[0.05]',
+          displayStatus === 'not_started' && 'hover:bg-secondary/[0.08]',
+          displayStatus === 'in_progress' && 'hover:bg-accent/[0.06]',
+          displayStatus === 'completed' && 'hover:bg-success/[0.05]',
           isOpen &&
-            (status === 'not_started'
+            (displayStatus === 'not_started'
               ? 'border-b border-secondary/20 bg-secondary/[0.08]'
-              : status === 'in_progress'
+              : displayStatus === 'in_progress'
                 ? 'border-b border-accent/20 bg-accent/[0.04]'
                 : 'border-b border-success/20 bg-success/[0.04]'),
         )}
@@ -180,21 +284,21 @@ export function InspectionAccordionSection({
           handleToggle();
         }}
       >
-        <StatusBadge status={status} />
+        <StatusBadge status={displayStatus} />
         <span
           className={cn(
             'min-w-0 flex-1 text-base font-bold md:text-lg',
-            status === 'completed'
+            displayStatus === 'completed'
               ? 'text-success'
-              : status === 'in_progress'
+              : displayStatus === 'in_progress'
                 ? 'text-primary'
                 : 'text-secondary',
           )}
         >
           {title}
         </span>
-        <span className="sr-only">{statusLabel(status)}</span>
-        {status === 'completed' ? (
+        <span className="sr-only">{statusLabel(displayStatus)}</span>
+        {displayStatus === 'completed' ? (
           <Check className="hidden h-4 w-4 shrink-0 text-success sm:block" strokeWidth={3} aria-hidden />
         ) : null}
         <ChevronDown

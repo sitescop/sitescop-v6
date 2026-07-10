@@ -132,6 +132,9 @@ export function AgreementsPage() {
                     <p className="mt-1 text-xs text-text-muted">
                       {INSPECTION_TYPE_LABELS[agreement.inspectionType]}
                       {agreement.jobNumber ? ` · ${agreement.jobNumber}` : ''}
+                      {agreement.signerRole === 'AGENT' && agreement.agentName
+                        ? ` · Agent: ${agreement.agentName}`
+                        : ''}
                     </p>
                   </div>
                   <div className="text-right">
