@@ -3,26 +3,26 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Building2 } from 'lucide-react';
 import type { InspectionType } from '@shared/api-types';
+import { gstPricePairFromExCents } from '@shared/gst-pricing';
 import { getSettingsApi, getSitescopApi } from '@/lib/sitescop-api';
+import { GstPriceFieldPair } from '@/modules/billing/GstPriceFieldPair';
 import { Button, Card, Input, Select, Textarea } from '@/design-system/components';
-import { INSPECTION_TYPE_OPTIONS } from '@/modules/agreements/agreement-labels';
+import { AgreementStatusBadge, INSPECTION_TYPE_OPTIONS } from '@/modules/agreements/agreement-labels';
 
 function priceFromBilling(
   inspectionType: InspectionType,
   billing?: { buildingPriceCents: number; pestPriceCents: number; combinedPriceCents: number },
-): string {
-  if (!billing) {
-    if (inspectionType === 'PEST') return '350';
-    if (inspectionType === 'COMBINED') return '850';
-    return '550';
-  }
-  const cents =
-    inspectionType === 'PEST'
+): { ex: string; inc: string } {
+  const fallbackCents =
+    inspectionType === 'PEST' ? 35000 : inspectionType === 'COMBINED' ? 85000 : 55000;
+  const cents = !billing
+    ? fallbackCents
+    : inspectionType === 'PEST'
       ? billing.pestPriceCents
       : inspectionType === 'COMBINED'
         ? billing.combinedPriceCents
         : billing.buildingPriceCents;
-  return String(cents / 100);
+  return gstPricePairFromExCents(cents);
 }
 
 function agentFieldsFromJob(job: {
@@ -55,6 +55,7 @@ export function AgreementFormPage() {
   const [clientPhone, setClientPhone] = useState('');
   const [propertyAddress, setPropertyAddress] = useState('');
   const [price, setPrice] = useState('550');
+  const [priceInc, setPriceInc] = useState('605');
   const [notes, setNotes] = useState('');
   const [agencyName, setAgencyName] = useState('');
   const [agentName, setAgentName] = useState('');
@@ -88,7 +89,9 @@ export function AgreementFormPage() {
     setClientEmail(job.email || '');
     setClientPhone(job.mobile || '');
     setPropertyAddress(job.propertyAddress);
-    setPrice(priceFromBilling(job.inspectionType, billingQuery.data?.billing));
+    const prices = priceFromBilling(job.inspectionType, billingQuery.data?.billing);
+    setPrice(prices.ex);
+    setPriceInc(prices.inc);
     setNotes(job.notes || '');
 
     const agent = agentFieldsFromJob(job);
@@ -107,7 +110,9 @@ export function AgreementFormPage() {
     setClientEmail(agreement.clientEmail);
     setClientPhone(agreement.clientPhone || '');
     setPropertyAddress(agreement.propertyAddress);
-    setPrice(String(agreement.priceCents / 100));
+    const prices = gstPricePairFromExCents(agreement.priceCents);
+    setPrice(prices.ex);
+    setPriceInc(prices.inc);
     setNotes(agreement.notes || '');
     setAgencyName(agreement.agencyName || '');
     setAgentName(agreement.agentName || '');
@@ -188,15 +193,20 @@ export function AgreementFormPage() {
         Agreements
       </Button>
 
-      <Card className="mx-auto max-w-2xl p-6">
-        <h2 className="text-xl font-bold text-text">
-          {isEdit ? 'Edit agreement' : jobId ? 'New agreement for job' : 'New agreement'}
-        </h2>
-        <p className="mt-1 text-sm text-text-light">
-          Client details and pricing — legal terms are added automatically.
-        </p>
+      <Card className="mx-auto max-w-2xl overflow-hidden p-0">
+        <div className="border-b border-amber-400/35 bg-gradient-to-r from-amber-50 to-orange-50/80 px-6 py-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xl font-bold text-text">
+              {isEdit ? 'Edit agreement' : jobId ? 'New agreement for job' : 'New agreement'}
+            </h2>
+            <AgreementStatusBadge status="DRAFT" />
+          </div>
+          <p className="mt-1 text-sm text-amber-950/70">
+            Client details and pricing — legal terms are added automatically.
+          </p>
+        </div>
 
-        <form className="mt-6 space-y-6" onSubmit={handleSubmit}>
+        <form className="space-y-6 p-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <Select
               label="Inspection type"
@@ -204,7 +214,11 @@ export function AgreementFormPage() {
               onChange={(e) => {
                 const next = e.target.value as InspectionType;
                 setInspectionType(next);
-                if (!isEdit) setPrice(priceFromBilling(next, billingQuery.data?.billing));
+                if (!isEdit) {
+                  const prices = priceFromBilling(next, billingQuery.data?.billing);
+                  setPrice(prices.ex);
+                  setPriceInc(prices.inc);
+                }
               }}
               options={INSPECTION_TYPE_OPTIONS}
             />
@@ -223,14 +237,18 @@ export function AgreementFormPage() {
               onChange={(e) => setPropertyAddress(e.target.value)}
               required
             />
-            <Input
-              label="Price (ex GST, AUD)"
-              type="number"
-              min="0"
-              step="0.01"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
+            <GstPriceFieldPair
+              exValue={price}
+              incValue={priceInc}
               required
+              onExChange={(ex, inc) => {
+                setPrice(ex);
+                setPriceInc(inc);
+              }}
+              onIncChange={(ex, inc) => {
+                setPrice(ex);
+                setPriceInc(inc);
+              }}
             />
             <Textarea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
           </div>

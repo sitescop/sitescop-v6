@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Copy, Download, ExternalLink, Send, Trash2, CircleDollarSign } from 'lucide-react';
+import {
+  ArrowLeft,
+  Copy,
+  Download,
+  ExternalLink,
+  PenLine,
+  Send,
+  Trash2,
+  CircleDollarSign,
+} from 'lucide-react';
 import { getSettingsApi, getSitescopApi } from '@/lib/sitescop-api';
 import { cn } from '@/lib/cn';
 import { Button, Card, Modal } from '@/design-system/components';
@@ -12,7 +21,6 @@ import {
 import {
   AgreementStatusBadge,
   formatAud,
-  buildClientSigningUrl,
 } from '@/modules/agreements/agreement-labels';
 import { INSPECTION_TYPE_LABELS } from '@/modules/jobs/job-labels';
 import { formatDisplayDate } from '@/lib/dates';
@@ -21,13 +29,16 @@ export function AgreementDetailPage() {
   const { agreementId = '' } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [showLinkModal, setShowLinkModal] = useState(false);
   const [signingUrl, setSigningUrl] = useState('');
   const [signingMode, setSigningMode] = useState<'github' | 'local'>('local');
   const [copyMessage, setCopyMessage] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [syncFailed, setSyncFailed] = useState(false);
   const [republishing, setRepublishing] = useState(false);
+  const [openingOnDevice, setOpeningOnDevice] = useState(false);
+  const [signingBusy, setSigningBusy] = useState(false);
+  const [revising, setRevising] = useState(false);
+  const [reviseConfirmOpen, setReviseConfirmOpen] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: ['settings-github'],
@@ -107,24 +118,6 @@ export function AgreementDetailPage() {
       window.clearInterval(interval);
     };
   }, [githubEnabled, agreement?.status, agreementId]);
-
-  const sendMutation = useMutation({
-    mutationFn: () => getSitescopApi().agreements.send(agreementId),
-    onMutate: () => {
-      setUploadError(null);
-      setSyncFailed(false);
-    },
-    onSuccess: (result) => {
-      setSigningUrl(result.signingUrl);
-      setSigningMode(result.signingMode);
-      setShowLinkModal(true);
-      invalidate();
-    },
-    onError: (e) => {
-      setUploadError(e instanceof Error ? e.message : 'Could not send agreement');
-      invalidate();
-    },
-  });
 
   const paidCreateJobMutation = useMutation({
     mutationFn: () => getSitescopApi().agreements.createJobFromSigned(agreementId),
@@ -212,52 +205,150 @@ export function AgreementDetailPage() {
     }
   }
 
-  async function copySigningLink() {
-    let url = signingUrl;
-    if (!url && agreement?.accessToken) {
-      url = await buildClientSigningUrl(agreement.accessToken);
-      setSigningUrl(url);
+  /** Ensures a signing link exists (sends draft if needed) and returns the active URL. */
+  async function ensureSigningLink(): Promise<{ url: string; mode: 'github' | 'local' }> {
+    if (agreement?.status === 'SIGNED') {
+      throw new Error('This agreement is already signed.');
     }
-    if (!url) {
-      setCopyMessage('No signing link available yet. Try Resend / get link first.');
-      setTimeout(() => setCopyMessage(''), 4000);
-      return;
+    if (agreement?.status === 'CANCELLED') {
+      throw new Error('This agreement has been cancelled.');
     }
 
+    if (agreement?.status === 'DRAFT' || !agreement?.accessToken) {
+      setUploadError(null);
+      const result = await getSitescopApi().agreements.send(agreementId);
+      setSigningUrl(result.signingUrl);
+      setSigningMode(result.signingMode);
+      invalidate();
+      return { url: result.signingUrl, mode: result.signingMode };
+    }
+
+    if (signingUrl) {
+      return { url: signingUrl, mode: signingMode };
+    }
+
+    const resolved = await getSitescopApi().agreements.resolveSigningUrl(agreement.accessToken);
+    setSigningUrl(resolved.url);
+    setSigningMode(resolved.mode);
+    return { url: resolved.url, mode: resolved.mode };
+  }
+
+  function showAlreadySignedMessage() {
+    const message = 'This agreement is already signed.';
+    setCopyMessage(message);
+    setUploadError(null);
+    setTimeout(() => setCopyMessage(''), 6000);
+  }
+
+  async function confirmCreateRevisedAgreement() {
+    if (!agreementId) return;
+    setRevising(true);
     try {
-      const result = await getSitescopApi().shell.copyTextToClipboard(url);
-      setCopyMessage(result.message || 'Signing link copied to clipboard.');
-    } catch {
+      const revised = await getSitescopApi().agreements.createRevised(agreementId);
+      setReviseConfirmOpen(false);
+      invalidate();
+      void queryClient.invalidateQueries({ queryKey: ['client'] });
+      void queryClient.invalidateQueries({ queryKey: ['job'] });
+      navigate(`/agreements/${revised.id}/edit`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not create revised agreement.';
+      setUploadError(message);
+      setCopyMessage(message);
+      setTimeout(() => setCopyMessage(''), 6000);
+    } finally {
+      setRevising(false);
+    }
+  }
+
+  async function copySigningLink() {
+    if (agreement?.status === 'SIGNED') {
+      showAlreadySignedMessage();
+      return;
+    }
+    setSigningBusy(true);
+    try {
+      const { url } = await ensureSigningLink();
       try {
+        const result = await getSitescopApi().shell.copyTextToClipboard(url);
+        setCopyMessage(result.message || 'Signing link copied to clipboard.');
+      } catch {
         await navigator.clipboard.writeText(url);
         setCopyMessage('Signing link copied to clipboard.');
-      } catch {
-        setCopyMessage('Could not copy automatically — select the link below and press Ctrl+C.');
       }
+    } catch (e) {
+      setCopyMessage(e instanceof Error ? e.message : 'Could not copy signing link.');
+    } finally {
+      setSigningBusy(false);
+      setTimeout(() => setCopyMessage(''), 5000);
     }
-    setTimeout(() => setCopyMessage(''), 5000);
   }
 
   async function sendSigningLinkEmail() {
     if (!agreementId) return;
+    if (agreement?.status === 'SIGNED') {
+      showAlreadySignedMessage();
+      return;
+    }
+    setSigningBusy(true);
     try {
+      await ensureSigningLink();
       const result = await getSitescopApi().agreements.emailSigningLink(agreementId);
       if (result.cancelled) return;
       setCopyMessage(result.message || `Email opened for ${result.clientEmail}.`);
       setTimeout(() => setCopyMessage(''), 6000);
     } catch (e) {
-      setCopyMessage(e instanceof Error ? e.message : 'Could not open email.');
+      const message = e instanceof Error ? e.message : 'Could not open email.';
+      setUploadError(message);
+      setCopyMessage(message);
       setTimeout(() => setCopyMessage(''), 6000);
+    } finally {
+      setSigningBusy(false);
     }
   }
 
-  async function showCopyLinkModal() {
-    if (!agreement?.accessToken) return;
-    const resolved = await getSitescopApi().agreements.resolveSigningUrl(agreement.accessToken);
-    setSigningUrl(resolved.url);
-    setSigningMode(resolved.mode);
-    setShowLinkModal(true);
+  async function signFromThisDevice() {
+    if (!agreementId) return;
+    if (agreement?.status === 'SIGNED') {
+      showAlreadySignedMessage();
+      return;
+    }
+    setOpeningOnDevice(true);
+    setSigningBusy(true);
+    try {
+      const { url } = await ensureSigningLink();
+      await getSitescopApi().shell.openExternal(url);
+      setCopyMessage('Signing page opened in your browser.');
+      setTimeout(() => setCopyMessage(''), 5000);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not open signing page.';
+      setUploadError(message);
+      setCopyMessage(message);
+      setTimeout(() => setCopyMessage(''), 6000);
+    } finally {
+      setOpeningOnDevice(false);
+      setSigningBusy(false);
+    }
   }
+
+  useEffect(() => {
+    if (!agreement?.accessToken) return;
+    if (agreement.status === 'SIGNED' || agreement.status === 'CANCELLED') return;
+    if (signingUrl) return;
+    let cancelled = false;
+    void getSitescopApi()
+      .agreements.resolveSigningUrl(agreement.accessToken)
+      .then((resolved) => {
+        if (cancelled) return;
+        setSigningUrl(resolved.url);
+        setSigningMode(resolved.mode);
+      })
+      .catch(() => {
+        /* ignore — link resolves when user clicks an action */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agreement?.accessToken, agreement?.status, signingUrl]);
 
   if (isLoading) return <p className="text-text-light">Loading agreement...</p>;
 
@@ -275,18 +366,20 @@ export function AgreementDetailPage() {
   const cloudStatus = resolveCloudSigningStatus({
     githubEnabled,
     agreementStatus: agreement.status,
-    isUploading: sendMutation.isPending,
+    isUploading: signingBusy,
     uploadError,
     syncFailed,
   });
 
   const canSend = ['DRAFT', 'SENT', 'VIEWED'].includes(agreement.status);
   const canEdit = agreement.status === 'DRAFT';
+  const canRevise = agreement.status === 'SIGNED';
   const canCancel = agreement.status !== 'SIGNED' && agreement.status !== 'CANCELLED';
   const canCreateJob = agreement.status === 'SIGNED' && !agreement.jobId;
   const canMarkPaid = Boolean(
     agreement.jobId && linkedJob?.agreementStatus === 'SIGNED' && !linkedJob.paymentReceived,
   );
+  const canUseSigningActions = canSend;
 
   return (
     <div>
@@ -322,28 +415,13 @@ export function AgreementDetailPage() {
               Edit
             </Button>
           )}
-          {canSend && (
-            <Button onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
-              <Send className="h-4 w-4" />
-              {sendMutation.isPending
-                ? githubEnabled
-                  ? 'Uploading…'
-                  : 'Sending…'
-                : agreement.status === 'DRAFT'
-                  ? 'Send to client'
-                  : 'Resend / get link'}
-            </Button>
-          )}
-          {githubEnabled && (agreement.status === 'SENT' || agreement.status === 'VIEWED') && (
-            <Button variant="secondary" onClick={() => void refreshCloudSigningPage()} disabled={republishing}>
-              <ExternalLink className="h-4 w-4" />
-              {republishing ? 'Updating cloud page…' : 'Update cloud page'}
-            </Button>
-          )}
-          {agreement.accessToken && (
-            <Button variant="secondary" onClick={() => void showCopyLinkModal()}>
-              <Send className="h-4 w-4" />
-              Send link
+          {canRevise && (
+            <Button
+              variant="secondary"
+              onClick={() => setReviseConfirmOpen(true)}
+              disabled={revising}
+            >
+              {revising ? 'Creating…' : 'Create revised agreement'}
             </Button>
           )}
           <Button variant="secondary" onClick={() => pdfMutation.mutate()} disabled={pdfMutation.isPending}>
@@ -434,6 +512,142 @@ export function AgreementDetailPage() {
           </Button>
         </div>
       </div>
+
+      {canUseSigningActions && (
+        <Card className="mb-6 space-y-4 border-primary/20 bg-gradient-to-br from-primary/[0.04] to-surface p-6">
+          <div>
+            <h3 className="text-lg font-bold text-text">Signing</h3>
+            <p className="mt-1 text-sm text-text-light">
+              Send the link by email, copy it for SMS, or open it here so the client can sign on this
+              device.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => void sendSigningLinkEmail()}
+              disabled={signingBusy}
+            >
+              <Send className="h-4 w-4" />
+              {signingBusy && !openingOnDevice ? 'Preparing…' : 'Send to client'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void copySigningLink()}
+              disabled={signingBusy}
+            >
+              <Copy className="h-4 w-4" />
+              Copy link
+            </Button>
+            <Button
+              variant="accent"
+              onClick={() => void signFromThisDevice()}
+              disabled={signingBusy}
+            >
+              <PenLine className="h-4 w-4" />
+              {openingOnDevice ? 'Opening…' : 'Sign from this device'}
+            </Button>
+            {githubEnabled && (agreement.status === 'SENT' || agreement.status === 'VIEWED') && (
+              <Button
+                variant="secondary"
+                onClick={() => void refreshCloudSigningPage()}
+                disabled={republishing}
+              >
+                <ExternalLink className="h-4 w-4" />
+                {republishing ? 'Updating cloud page…' : 'Update cloud page'}
+              </Button>
+            )}
+          </div>
+
+          {signingUrl ? (
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase text-text-muted">
+                Active signing link
+              </label>
+              <input
+                readOnly
+                value={signingUrl}
+                onFocus={(e) => e.currentTarget.select()}
+                onClick={(e) => e.currentTarget.select()}
+                className="w-full break-all rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text"
+                aria-label="Signing link"
+              />
+              <p className="mt-2 text-xs text-text-muted">
+                {signingMode === 'github'
+                  ? 'Cloud link — works from anywhere. SiteScop syncs signatures automatically.'
+                  : 'Local link — signer must be on the same Wi‑Fi as this PC (or use Sign from this device).'}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-text-muted">
+              {agreement.status === 'DRAFT'
+                ? 'Click any action above to prepare the signing link.'
+                : 'Preparing signing link…'}
+            </p>
+          )}
+
+          {copyMessage && (
+            <p
+              className={cn(
+                'text-sm',
+                copyMessage.includes('Could not') || copyMessage.includes('already signed')
+                  ? 'text-danger'
+                  : 'text-success',
+              )}
+            >
+              {copyMessage}
+            </p>
+          )}
+        </Card>
+      )}
+
+      {agreement.status === 'SIGNED' && (
+        <Card className="mb-6 space-y-4 border-success/25 bg-success/[0.04] p-6">
+          <div>
+            <h3 className="text-lg font-bold text-text">Signing</h3>
+            <p className="mt-1 text-sm text-text-light">
+              This agreement is already signed
+              {agreement.signedAt ? ` (${formatDisplayDate(agreement.signedAt)})` : ''}. Send and Sign
+              will not open a new signing page.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => showAlreadySignedMessage()} disabled={signingBusy}>
+              <Send className="h-4 w-4" />
+              Send to client
+            </Button>
+            <Button variant="secondary" onClick={() => showAlreadySignedMessage()} disabled={signingBusy}>
+              <Copy className="h-4 w-4" />
+              Copy link
+            </Button>
+            <Button variant="accent" onClick={() => showAlreadySignedMessage()} disabled={signingBusy}>
+              <PenLine className="h-4 w-4" />
+              Sign from this device
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setReviseConfirmOpen(true)}
+              disabled={revising}
+            >
+              {revising ? 'Creating…' : 'Create revised agreement'}
+            </Button>
+          </div>
+
+          {copyMessage && (
+            <p
+              className={cn(
+                'text-sm font-medium',
+                copyMessage.includes('already signed') || copyMessage.includes('Could not')
+                  ? 'text-danger'
+                  : 'text-success',
+              )}
+            >
+              {copyMessage}
+            </p>
+          )}
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="space-y-4 p-6 lg:col-span-2">
@@ -528,60 +742,33 @@ export function AgreementDetailPage() {
       </div>
 
       <Modal
-        open={showLinkModal}
-        onClose={() => setShowLinkModal(false)}
-        title={agreement.signerRole === 'AGENT' && agreement.agentName ? 'Signing link' : 'Client signing link'}
-        description={
-          agreement.signerRole === 'AGENT' && agreement.agentName
-            ? 'Send this link to the agent to sign on behalf of the client. You can also copy it and email the client if they will sign themselves.'
-            : 'Send this link to your client by email or SMS.'
-        }
+        open={reviseConfirmOpen}
+        onClose={() => {
+          if (!revising) setReviseConfirmOpen(false);
+        }}
+        title="Create revised agreement"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setShowLinkModal(false)}>
-              Close
+            <Button
+              variant="secondary"
+              onClick={() => setReviseConfirmOpen(false)}
+              disabled={revising}
+            >
+              Cancel
             </Button>
-            <Button variant="secondary" onClick={() => void copySigningLink()}>
-              <Copy className="h-4 w-4" />
-              Copy link
-            </Button>
-            <Button onClick={() => void sendSigningLinkEmail()}>
-              <Send className="h-4 w-4" />
-              Send link
+            <Button
+              onClick={() => void confirmCreateRevisedAgreement()}
+              disabled={revising}
+            >
+              {revising ? 'Creating…' : 'OK'}
             </Button>
           </>
         }
       >
-        <input
-          readOnly
-          value={signingUrl}
-          onFocus={(e) => e.currentTarget.select()}
-          onClick={(e) => e.currentTarget.select()}
-          className="w-full break-all rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text"
-          aria-label="Client signing link"
-        />
-        {copyMessage && (
-          <p
-            className={cn(
-              'mt-3 text-sm',
-              copyMessage.includes('Could not') ? 'text-danger' : 'text-success',
-            )}
-          >
-            {copyMessage}
-          </p>
-        )}
-        <p className="mt-3 text-xs text-text-muted">
-          {signingMode === 'github' ? (
-            <>
-              GitHub Cloud Signing link — works from anywhere on any device. SiteScop syncs the
-              signature from GitHub automatically every 60 seconds.
-            </>
-          ) : (
-            <>
-              Local signing link — client must be on the same Wi‑Fi as this PC. Enable GitHub Cloud
-              Signing in Settings for links that work anywhere.
-            </>
-          )}
+        <p className="rounded-lg border border-amber-400/40 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950">
+          Create a revised agreement from{' '}
+          <span className="font-semibold">{agreement.agreementNumber}</span>? The signed agreement
+          stays on file. You can change inspection type and price on the new draft.
         </p>
       </Modal>
     </div>

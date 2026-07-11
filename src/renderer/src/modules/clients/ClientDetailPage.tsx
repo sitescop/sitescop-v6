@@ -18,12 +18,13 @@ import {
   X,
 } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { ClientDetailJob, ClientDetailJobReport, UpdateClientAgentInput, UpdateClientInput } from '@shared/api-types';
+import type { ClientDetailJob, ClientDetailJobAgreement, ClientDetailJobReport, UpdateClientAgentInput, UpdateClientInput } from '@shared/api-types';
 import { getClientsApi, getSitescopApi } from '@/lib/sitescop-api';
 import { formatDisplayDate } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { Button, Card, Input } from '@/design-system/components';
 import { INSPECTION_TYPE_LABELS, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
+import { AgreementStatusBadge } from '@/modules/agreements/agreement-labels';
 
 function mapsUrl(address: string) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
@@ -690,13 +691,14 @@ function JobDocuments({
     }
   }
 
-  async function openAgreement() {
-    if (!job.agreementId) return;
+  async function openAgreement(agreementId?: string | null) {
+    const id = agreementId ?? job.agreementId;
+    if (!id) return;
     setDocError(null);
     setCopyMessage(null);
-    setOpening('agreement');
+    setOpening(`agreement:${id}`);
     try {
-      await getClientsApi().openAgreementPdf(job.agreementId);
+      await getClientsApi().openAgreementPdf(id);
       await refreshClient();
     } catch (error) {
       setDocError(error instanceof Error ? error.message : 'Could not open agreement PDF');
@@ -705,13 +707,14 @@ function JobDocuments({
     }
   }
 
-  async function copyAgreement() {
-    if (!job.agreementId) return;
+  async function copyAgreement(agreementId?: string | null) {
+    const id = agreementId ?? job.agreementId;
+    if (!id) return;
     setDocError(null);
     setCopyMessage(null);
-    setCopying('agreement');
+    setCopying(`agreement:${id}`);
     try {
-      const result = await getClientsApi().copyAgreementPdf(job.agreementId);
+      const result = await getClientsApi().copyAgreementPdf(id);
       setCopyMessage(result.message);
       await refreshClient();
     } catch (error) {
@@ -783,7 +786,21 @@ function JobDocuments({
 
   const buildingReport = job.reports.find((r) => r.reportType === 'BUILDING');
   const pestReport = job.reports.find((r) => r.reportType === 'PEST');
-  const documentCount = job.reports.length + (job.agreementId ? 2 : 0);
+  const jobAgreements =
+    job.agreements?.length > 0
+      ? job.agreements
+      : job.agreementId
+        ? [
+            {
+              id: job.agreementId,
+              agreementNumber: job.agreementNumber ?? 'Agreement',
+              status: (job.agreementStatus as ClientDetailJobAgreement['status']) ?? 'DRAFT',
+              inspectionType: job.inspectionType,
+              signedAt: null,
+            } satisfies ClientDetailJobAgreement,
+          ]
+        : [];
+  const documentCount = job.reports.length + (jobAgreements.length > 0 ? jobAgreements.length + 1 : 0);
   const showCopyBothReports =
     job.inspectionType === 'COMBINED' && Boolean(buildingReport && pestReport);
   const showCopyAll = documentCount >= 2;
@@ -872,17 +889,20 @@ function JobDocuments({
           />
         )}
 
-        {job.agreementId ? (
-          <DocumentTile
-            title="Agreement PDF"
-            subtitle={job.agreementNumber ?? 'Inspection agreement'}
-            accent="from-violet-100 to-violet-50 border-violet-200 text-violet-800"
-            icon={<ScrollText className="h-5 w-5 text-violet-700" />}
-            opening={opening === 'agreement'}
-            copying={copying === 'agreement'}
-            onOpen={() => void openAgreement()}
-            onCopy={() => void copyAgreement()}
-          />
+        {jobAgreements.length > 0 ? (
+          jobAgreements.map((agreement) => (
+            <DocumentTile
+              key={agreement.id}
+              title="Agreement PDF"
+              subtitle={`${agreement.agreementNumber} · ${agreement.status}`}
+              accent="from-violet-100 to-violet-50 border-violet-200 text-violet-800"
+              icon={<ScrollText className="h-5 w-5 text-violet-700" />}
+              opening={opening === `agreement:${agreement.id}`}
+              copying={copying === `agreement:${agreement.id}`}
+              onOpen={() => void openAgreement(agreement.id)}
+              onCopy={() => void copyAgreement(agreement.id)}
+            />
+          ))
         ) : (
           <DocumentTile
             title="Agreement PDF"
@@ -894,7 +914,7 @@ function JobDocuments({
           />
         )}
 
-        {job.agreementId ? (
+        {jobAgreements.length > 0 ? (
           <DocumentTile
             title="Invoice PDF"
             subtitle={job.hasInvoice ? 'Tax invoice ready' : 'Generate from agreement'}
@@ -1064,19 +1084,32 @@ export function ClientDetailPage() {
                       <p className="mt-0.5 text-xs text-text-light">
                         {formatDisplayDate(job.inspectionDate)} · {INSPECTION_TYPE_LABELS[job.inspectionType]}
                         {job.inspectionNumber ? ` · Insp. ${job.inspectionNumber}` : ''}
-                        {job.agreementNumber ? (
-                          <>
-                            {' · '}
-                            {job.agreementId ? (
-                              <Link to={`/agreements/${job.agreementId}`} className="text-primary hover:underline">
-                                {job.agreementNumber}
-                              </Link>
-                            ) : (
-                              job.agreementNumber
-                            )}
-                          </>
-                        ) : null}
                       </p>
+                      {(job.agreements?.length ? job.agreements : job.agreementId
+                        ? [
+                            {
+                              id: job.agreementId,
+                              agreementNumber: job.agreementNumber ?? 'Agreement',
+                              status: (job.agreementStatus as ClientDetailJobAgreement['status']) ?? 'DRAFT',
+                              inspectionType: job.inspectionType,
+                              signedAt: null,
+                            } satisfies ClientDetailJobAgreement,
+                          ]
+                        : []
+                      ).map((agreement) => (
+                        <p key={agreement.id} className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                          <Link
+                            to={`/agreements/${agreement.id}`}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            {agreement.agreementNumber}
+                          </Link>
+                          <AgreementStatusBadge status={agreement.status} />
+                          <span className="text-text-muted">
+                            {INSPECTION_TYPE_LABELS[agreement.inspectionType]}
+                          </span>
+                        </p>
+                      ))}
                     </div>
                     <Button variant="secondary" size="sm" onClick={() => navigate(`/jobs/${job.id}`)}>
                       <ExternalLink className="h-4 w-4" />

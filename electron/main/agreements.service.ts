@@ -34,13 +34,15 @@ import {
   type AgreementLegalContent,
 } from './agreement-legal.js';
 import { setLegalBasePath } from '../../shared/report-pdf/src/legal-loader.js';
+import {
+  calculatePricingFromExCents,
+  gstPricePairFromExCents,
+} from '../../shared/gst-pricing.js';
 import { createJob, getJobDetail } from './jobs.service.js';
 
-const GST_RATE = 10;
-
 function calculatePricing(priceCents: number) {
-  const gstCents = Math.round(priceCents * (GST_RATE / 100));
-  return { gstCents, totalCents: priceCents + gstCents };
+  const { gstCents, totalCents } = calculatePricingFromExCents(priceCents);
+  return { gstCents, totalCents };
 }
 
 function parseSignerRole(value: unknown): AgreementSignerRole {
@@ -316,7 +318,23 @@ export function createAgreementFromJob(db: SqlDatabase, jobId: string): Agreemen
   const job = getJobDetail(db, jobId);
   if (!job) throw new Error('Job not found.');
 
-  const existing = db.prepare(`SELECT id FROM agreements WHERE job_id = ? AND status != 'CANCELLED' LIMIT 1`);
+  /** Prefer an active (unsigned) agreement for workflow; fall back to latest signed. */
+  const existing = db.prepare(
+    `SELECT id FROM agreements
+     WHERE job_id = ?
+       AND status != 'CANCELLED'
+       AND IFNULL(deleted_at, '') = ''
+     ORDER BY
+       CASE status
+         WHEN 'DRAFT' THEN 0
+         WHEN 'SENT' THEN 1
+         WHEN 'VIEWED' THEN 2
+         WHEN 'SIGNED' THEN 3
+         ELSE 4
+       END,
+       updated_at DESC
+     LIMIT 1`,
+  );
   existing.bind([jobId]);
   if (existing.step()) {
     const row = existing.getAsObject() as { id: string };
@@ -340,6 +358,67 @@ export function createAgreementFromJob(db: SqlDatabase, jobId: string): Agreemen
     agentName: job.agentName?.trim() || undefined,
     agentEmail: job.agentEmail?.trim() || undefined,
   });
+}
+
+/**
+ * Creates a new DRAFT agreement from a signed one so the client can change
+ * inspection type / price. The original signed agreement is kept on file.
+ */
+export function createRevisedAgreement(db: SqlDatabase, signedAgreementId: string): AgreementDetail {
+  const source = getAgreement(db, signedAgreementId);
+  if (!source) throw new Error('Agreement not found.');
+  if (source.status !== 'SIGNED') {
+    throw new Error('Only a signed agreement can be revised. Use Edit on a draft instead.');
+  }
+
+  if (source.jobId) {
+    const active = db.prepare(
+      `SELECT id, agreement_number AS agreementNumber, status
+       FROM agreements
+       WHERE job_id = ?
+         AND id != ?
+         AND status IN ('DRAFT', 'SENT', 'VIEWED')
+         AND IFNULL(deleted_at, '') = ''
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+    );
+    active.bind([source.jobId, signedAgreementId]);
+    if (active.step()) {
+      const row = active.getAsObject() as { id: string; agreementNumber: string; status: string };
+      active.free();
+      throw new Error(
+        `A revised agreement (${row.agreementNumber}) is already in progress (${row.status}). Open that agreement instead.`,
+      );
+    }
+    active.free();
+  }
+
+  const revisionNote = `Revised from ${source.agreementNumber}. Previous signed agreement kept on file.`;
+  const combinedNotes = [revisionNote, source.notes?.trim()].filter(Boolean).join('\n\n');
+
+  const revised = createAgreement(db, {
+    jobId: source.jobId ?? undefined,
+    inspectionType: source.inspectionType,
+    clientName: source.clientName,
+    clientEmail: source.clientEmail,
+    clientPhone: source.clientPhone ?? undefined,
+    propertyAddress: source.propertyAddress,
+    priceCents: source.priceCents,
+    notes: combinedNotes,
+    signerRole: 'CLIENT',
+    agencyName: source.agencyName ?? undefined,
+    agentName: source.agentName ?? undefined,
+    agentEmail: source.agentEmail ?? undefined,
+  });
+
+  const supersedeNote = `Superseded by ${revised.agreementNumber} (revised agreement).`;
+  const sourceNotes = [source.notes?.trim(), supersedeNote].filter(Boolean).join('\n\n');
+  db.run(`UPDATE agreements SET notes = ?, updated_at = datetime('now') WHERE id = ?`, [
+    sourceNotes,
+    source.id,
+  ]);
+
+  return resolveAgreementAgentView(db, getAgreement(db, revised.id)!);
 }
 
 function splitAgreementClientName(clientName: string): { firstName: string; lastName: string } {
@@ -598,6 +677,9 @@ function resolveCreateAgentFields(
 export function sendAgreement(db: SqlDatabase, agreementId: string): { signingUrl: string; accessToken: string } {
   const agreement = getAgreement(db, agreementId);
   if (!agreement) throw new Error('Agreement not found.');
+  if (agreement.status === 'SIGNED') {
+    throw new Error('This agreement is already signed.');
+  }
   if (!['DRAFT', 'SENT', 'VIEWED'].includes(agreement.status)) {
     throw new Error('This agreement cannot be sent.');
   }

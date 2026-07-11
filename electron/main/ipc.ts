@@ -87,6 +87,7 @@ import {
   cancelAgreement,
   createAgreement,
   createAgreementFromJob,
+  createRevisedAgreement,
   createJobFromSignedAgreement,
   generateAgreementPdfForId,
   getAgreement,
@@ -418,6 +419,13 @@ export function registerIpcHandlers() {
   ipcMain.handle('agreements:createFromJob', async (_event, jobId: string) => {
     const db = requireAuth();
     const agreement = createAgreementFromJob(db.db, jobId);
+    db.persist();
+    return agreement;
+  });
+
+  ipcMain.handle('agreements:createRevised', async (_event, agreementId: string) => {
+    const db = requireAuth();
+    const agreement = createRevisedAgreement(db.db, agreementId);
     db.persist();
     return agreement;
   });

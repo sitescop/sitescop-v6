@@ -1,7 +1,9 @@
 import type { Database as SqlDatabase } from 'sql.js';
 import type {
+  AgreementStatus,
   ClientDetail,
   ClientDetailJob,
+  ClientDetailJobAgreement,
   ClientDetailJobReport,
   ClientRow,
   UpdateClientInput,
@@ -136,6 +138,52 @@ function loadReportsForJobs(db: SqlDatabase, jobIds: string[]): Map<string, Clie
   return byJob;
 }
 
+function loadAgreementsForJobs(
+  db: SqlDatabase,
+  jobIds: string[],
+): Map<string, ClientDetailJobAgreement[]> {
+  const byJob = new Map<string, ClientDetailJobAgreement[]>();
+  if (!jobIds.length) return byJob;
+
+  const placeholders = jobIds.map(() => '?').join(', ');
+  const stmt = db.prepare(
+    `SELECT id, job_id AS jobId, agreement_number AS agreementNumber, status,
+            inspection_type AS inspectionType, signed_at AS signedAt
+     FROM agreements
+     WHERE job_id IN (${placeholders})
+       AND status != 'CANCELLED'
+       AND IFNULL(deleted_at, '') = ''
+     ORDER BY
+       CASE status
+         WHEN 'DRAFT' THEN 0
+         WHEN 'SENT' THEN 1
+         WHEN 'VIEWED' THEN 2
+         WHEN 'SIGNED' THEN 3
+         ELSE 4
+       END,
+       updated_at DESC`,
+  );
+  stmt.bind(jobIds);
+
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    const jobId = String(row.jobId);
+    const agreement: ClientDetailJobAgreement = {
+      id: String(row.id),
+      agreementNumber: String(row.agreementNumber),
+      status: row.status as AgreementStatus,
+      inspectionType: row.inspectionType as ClientDetailJobAgreement['inspectionType'],
+      signedAt: row.signedAt ? String(row.signedAt) : null,
+    };
+    const list = byJob.get(jobId) ?? [];
+    list.push(agreement);
+    byJob.set(jobId, list);
+  }
+  stmt.free();
+
+  return byJob;
+}
+
 export function getClientById(db: SqlDatabase, clientId: string): ClientDetail | null {
   const clientStmt = db.prepare(
     `SELECT id, first_name AS firstName, last_name AS lastName, email, mobile, created_at AS createdAt
@@ -166,7 +214,13 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
           AND a.status != 'CANCELLED'
           AND IFNULL(a.deleted_at, '') = ''
         ORDER BY
-          CASE a.status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
+          CASE a.status
+            WHEN 'DRAFT' THEN 0
+            WHEN 'SENT' THEN 1
+            WHEN 'VIEWED' THEN 2
+            WHEN 'SIGNED' THEN 3
+            ELSE 4
+          END,
           a.updated_at DESC
         LIMIT 1
       ) AS agreementId,
@@ -177,7 +231,13 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
           AND a.status != 'CANCELLED'
           AND IFNULL(a.deleted_at, '') = ''
         ORDER BY
-          CASE a.status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
+          CASE a.status
+            WHEN 'DRAFT' THEN 0
+            WHEN 'SENT' THEN 1
+            WHEN 'VIEWED' THEN 2
+            WHEN 'SIGNED' THEN 3
+            ELSE 4
+          END,
           a.updated_at DESC
         LIMIT 1
       ) AS agreementNumber,
@@ -188,7 +248,13 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
           AND a.status != 'CANCELLED'
           AND IFNULL(a.deleted_at, '') = ''
         ORDER BY
-          CASE a.status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
+          CASE a.status
+            WHEN 'DRAFT' THEN 0
+            WHEN 'SENT' THEN 1
+            WHEN 'VIEWED' THEN 2
+            WHEN 'SIGNED' THEN 3
+            ELSE 4
+          END,
           a.updated_at DESC
         LIMIT 1
       ) AS agreementStatus,
@@ -199,7 +265,13 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
           AND a.status != 'CANCELLED'
           AND IFNULL(a.deleted_at, '') = ''
         ORDER BY
-          CASE a.status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
+          CASE a.status
+            WHEN 'DRAFT' THEN 0
+            WHEN 'SENT' THEN 1
+            WHEN 'VIEWED' THEN 2
+            WHEN 'SIGNED' THEN 3
+            ELSE 4
+          END,
           a.updated_at DESC
         LIMIT 1
       ) AS agreementPdfPath,
@@ -238,6 +310,7 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
       agreementNumber: row.agreementNumber ? String(row.agreementNumber) : null,
       agreementStatus: row.agreementStatus ? String(row.agreementStatus) : null,
       agreementPdfPath: row.agreementPdfPath ? String(row.agreementPdfPath) : null,
+      agreements: [],
       invoicePdfPath: row.invoicePdfPath ? String(row.invoicePdfPath) : null,
       hasInvoice: Boolean(row.hasInvoice),
       orderingPartyType: row.orderingPartyType ? String(row.orderingPartyType) : null,
@@ -252,8 +325,10 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
   jobsStmt.free();
 
   const reportsByJob = loadReportsForJobs(db, jobIds);
+  const agreementsByJob = loadAgreementsForJobs(db, jobIds);
   for (const job of jobs) {
     job.reports = reportsByJob.get(job.id) ?? [];
+    job.agreements = agreementsByJob.get(job.id) ?? [];
   }
 
   const propertyAddresses = [...new Set(jobs.map((j) => j.propertyAddress.trim()).filter(Boolean))];

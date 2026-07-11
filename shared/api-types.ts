@@ -422,6 +422,14 @@ export interface ClientDetailJobReport {
   generatedAt: string;
 }
 
+export interface ClientDetailJobAgreement {
+  id: string;
+  agreementNumber: string;
+  status: AgreementStatus;
+  inspectionType: InspectionType;
+  signedAt: string | null;
+}
+
 export interface ClientDetailJob {
   id: string;
   jobNumber: string;
@@ -434,6 +442,7 @@ export interface ClientDetailJob {
   agreementNumber: string | null;
   agreementStatus: string | null;
   agreementPdfPath: string | null;
+  agreements: ClientDetailJobAgreement[];
   invoicePdfPath: string | null;
   hasInvoice: boolean;
   orderingPartyType: string | null;
@@ -572,6 +581,7 @@ export interface SitescopApi {
     get: (agreementId: string) => Promise<AgreementDetail | null>;
     create: (input: CreateAgreementInput) => Promise<AgreementDetail>;
     createFromJob: (jobId: string) => Promise<AgreementDetail>;
+    createRevised: (agreementId: string) => Promise<AgreementDetail>;
     createJobFromSigned: (agreementId: string) => Promise<CreateJobResult & { agreement: AgreementDetail }>;
     update: (agreementId: string, input: UpdateAgreementInput) => Promise<AgreementDetail>;
     send: (agreementId: string) => Promise<SendAgreementResult>;

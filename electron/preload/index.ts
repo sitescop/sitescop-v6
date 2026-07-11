@@ -54,6 +54,7 @@ const api: SitescopApi = {
     get: (agreementId) => ipcRenderer.invoke('agreements:get', agreementId),
     create: (input) => ipcRenderer.invoke('agreements:create', input),
     createFromJob: (jobId) => ipcRenderer.invoke('agreements:createFromJob', jobId),
+    createRevised: (agreementId) => ipcRenderer.invoke('agreements:createRevised', agreementId),
     createJobFromSigned: (agreementId) =>
       ipcRenderer.invoke('agreements:createJobFromSigned', agreementId),
     update: (agreementId, input) => ipcRenderer.invoke('agreements:update', agreementId, input),

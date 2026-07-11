@@ -11,11 +11,11 @@ export const AGREEMENT_STATUS_LABELS: Record<AgreementStatus, string> = {
 };
 
 const STATUS_STYLES: Record<AgreementStatus, string> = {
-  DRAFT: 'bg-text-muted/15 text-text-light',
-  SENT: 'bg-primary/10 text-primary',
-  VIEWED: 'bg-accent/10 text-accent',
-  SIGNED: 'bg-success/10 text-success',
-  CANCELLED: 'bg-danger/10 text-danger',
+  DRAFT: 'bg-amber-500/15 text-amber-800 ring-1 ring-inset ring-amber-500/35',
+  SENT: 'bg-primary/10 text-primary ring-1 ring-inset ring-primary/25',
+  VIEWED: 'bg-accent/10 text-accent ring-1 ring-inset ring-accent/25',
+  SIGNED: 'bg-success/10 text-success ring-1 ring-inset ring-success/25',
+  CANCELLED: 'bg-danger/10 text-danger ring-1 ring-inset ring-danger/25',
 };
 
 export function AgreementStatusBadge({ status }: { status: AgreementStatus }) {

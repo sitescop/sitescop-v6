@@ -24,9 +24,11 @@ import type {
   ReportSettingsInput,
   XeroSettingsInput,
 } from '@shared/api-types';
+import { audStringToExCents, gstPricePairFromExCents } from '@shared/gst-pricing';
 import { getSettingsApi } from '@/lib/sitescop-api';
 import { useAuthStore } from '@/modules/auth/auth-store';
 import { VoiceDictationSettingsCard } from '@/modules/settings/VoiceDictationSettingsCard';
+import { GstPriceFieldPair } from '@/modules/billing/GstPriceFieldPair';
 import { Button, Card, Input, Textarea } from '@/design-system/components';
 
 type SettingsTab = 'inspector' | 'voice' | 'company' | 'billing' | 'reports' | 'security' | 'github' | 'xero';
@@ -42,21 +44,20 @@ const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
   { id: 'xero', label: 'Xero & MYOB', icon: Link2 },
 ];
 
-function centsToPriceInput(cents: number): string {
-  return String(cents / 100);
-}
-
 function priceInputToCents(value: string, fallback: number): number {
-  const parsed = Math.round(Number.parseFloat(value) * 100);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return parsed;
+  return audStringToExCents(value) ?? fallback;
 }
 
-function defaultPriceInputs(billing: BillingSettingsInput): Record<InspectionType, string> {
+function defaultPriceInputs(billing: BillingSettingsInput): {
+  ex: Record<InspectionType, string>;
+  inc: Record<InspectionType, string>;
+} {
+  const building = gstPricePairFromExCents(billing.buildingPriceCents);
+  const pest = gstPricePairFromExCents(billing.pestPriceCents);
+  const combined = gstPricePairFromExCents(billing.combinedPriceCents);
   return {
-    BUILDING: centsToPriceInput(billing.buildingPriceCents),
-    PEST: centsToPriceInput(billing.pestPriceCents),
-    COMBINED: centsToPriceInput(billing.combinedPriceCents),
+    ex: { BUILDING: building.ex, PEST: pest.ex, COMBINED: combined.ex },
+    inc: { BUILDING: building.inc, PEST: pest.inc, COMBINED: combined.inc },
   };
 }
 
@@ -130,6 +131,11 @@ export function SettingsPage() {
     PEST: '350',
     COMBINED: '850',
   });
+  const [priceIncInputs, setPriceIncInputs] = useState<Record<InspectionType, string>>({
+    BUILDING: '605',
+    PEST: '385',
+    COMBINED: '935',
+  });
 
   const [passwordForm, setPasswordForm] = useState<ChangePasswordInput>({
     currentPassword: '',
@@ -175,7 +181,9 @@ export function SettingsPage() {
       reportFooter: appQuery.data.report.reportFooter ?? '',
     });
     setBilling(appQuery.data.billing);
-    setPriceInputs(defaultPriceInputs(appQuery.data.billing));
+    const prices = defaultPriceInputs(appQuery.data.billing);
+    setPriceInputs(prices.ex);
+    setPriceIncInputs(prices.inc);
     setLogoPreview(appQuery.data.logoPreview);
   }, [appQuery.data]);
 
@@ -256,7 +264,9 @@ export function SettingsPage() {
     onSuccess: (saved) => {
       clearStatus();
       setBilling(saved);
-      setPriceInputs(defaultPriceInputs(saved));
+      const prices = defaultPriceInputs(saved);
+      setPriceInputs(prices.ex);
+      setPriceIncInputs(prices.inc);
       setMessage('Billing and invoice settings saved. New agreements and invoices will use these details.');
       void queryClient.invalidateQueries({ queryKey: ['settings-app'] });
     },
@@ -494,37 +504,55 @@ export function SettingsPage() {
           <div>
             <h3 className="font-bold text-text">Inspection prices</h3>
             <p className="mt-1 text-sm text-text-light">
-              Default prices for new agreements (ex GST). GST is calculated automatically at 10%.
+              Default prices for new agreements. Enter either ex GST or inc GST — the other is calculated at 10%.
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Input
-              label="Building inspection (AUD ex GST)"
-              type="number"
-              min="0"
-              step="0.01"
-              value={priceInputs.BUILDING}
-              onChange={(e) => setPriceInputs((c) => ({ ...c, BUILDING: e.target.value }))}
-              placeholder="550"
-            />
-            <Input
-              label="Pest inspection (AUD ex GST)"
-              type="number"
-              min="0"
-              step="0.01"
-              value={priceInputs.PEST}
-              onChange={(e) => setPriceInputs((c) => ({ ...c, PEST: e.target.value }))}
-              placeholder="350"
-            />
-            <Input
-              label="Combined inspection (AUD ex GST)"
-              type="number"
-              min="0"
-              step="0.01"
-              value={priceInputs.COMBINED}
-              onChange={(e) => setPriceInputs((c) => ({ ...c, COMBINED: e.target.value }))}
-              placeholder="850"
-            />
+          <div className="space-y-5">
+            <div>
+              <p className="mb-2 text-sm font-semibold text-text">Building inspection</p>
+              <GstPriceFieldPair
+                exValue={priceInputs.BUILDING}
+                incValue={priceIncInputs.BUILDING}
+                onExChange={(ex, inc) => {
+                  setPriceInputs((current) => ({ ...current, BUILDING: ex }));
+                  setPriceIncInputs((current) => ({ ...current, BUILDING: inc }));
+                }}
+                onIncChange={(ex, inc) => {
+                  setPriceInputs((current) => ({ ...current, BUILDING: ex }));
+                  setPriceIncInputs((current) => ({ ...current, BUILDING: inc }));
+                }}
+              />
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-semibold text-text">Pest inspection</p>
+              <GstPriceFieldPair
+                exValue={priceInputs.PEST}
+                incValue={priceIncInputs.PEST}
+                onExChange={(ex, inc) => {
+                  setPriceInputs((current) => ({ ...current, PEST: ex }));
+                  setPriceIncInputs((current) => ({ ...current, PEST: inc }));
+                }}
+                onIncChange={(ex, inc) => {
+                  setPriceInputs((current) => ({ ...current, PEST: ex }));
+                  setPriceIncInputs((current) => ({ ...current, PEST: inc }));
+                }}
+              />
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-semibold text-text">Combined inspection</p>
+              <GstPriceFieldPair
+                exValue={priceInputs.COMBINED}
+                incValue={priceIncInputs.COMBINED}
+                onExChange={(ex, inc) => {
+                  setPriceInputs((current) => ({ ...current, COMBINED: ex }));
+                  setPriceIncInputs((current) => ({ ...current, COMBINED: inc }));
+                }}
+                onIncChange={(ex, inc) => {
+                  setPriceInputs((current) => ({ ...current, COMBINED: ex }));
+                  setPriceIncInputs((current) => ({ ...current, COMBINED: inc }));
+                }}
+              />
+            </div>
           </div>
 
           <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5">

@@ -303,6 +303,9 @@ export async function composeAgreementSigningEmail(
 ): Promise<ComposeEmailResult> {
   const agreement = getAgreement(db, agreementId);
   if (!agreement) throw new Error('Agreement not found');
+  if (agreement.status === 'SIGNED') {
+    throw new Error('This agreement is already signed.');
+  }
   if (!agreement.accessToken) {
     throw new Error('No signing link yet. Use Send to client or Resend / get link first.');
   }
