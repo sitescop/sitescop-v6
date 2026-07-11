@@ -8,6 +8,7 @@ import {
   ImageIcon,
   Link2,
   Lock,
+  Mail,
   Mic,
   Recycle,
   Settings as SettingsIcon,
@@ -17,32 +18,81 @@ import type {
   BillingSettingsInput,
   ChangePasswordInput,
   CompanySettingsInput,
+  EmailMailClient,
+  EmailSettingsInput,
   GitHubSettingsInput,
   GitHubTestConnectionResult,
   InspectorProfileInput,
   InspectionType,
   ReportSettingsInput,
+  SmtpEncryption,
+  SmtpTestResult,
   XeroSettingsInput,
 } from '@shared/api-types';
 import { audStringToExCents, gstPricePairFromExCents } from '@shared/gst-pricing';
-import { getSettingsApi } from '@/lib/sitescop-api';
+import { getSettingsApi, getSmtpSettingsApi, hasSmtpApi } from '@/lib/sitescop-api';
 import { useAuthStore } from '@/modules/auth/auth-store';
 import { VoiceDictationSettingsCard } from '@/modules/settings/VoiceDictationSettingsCard';
 import { GstPriceFieldPair } from '@/modules/billing/GstPriceFieldPair';
-import { Button, Card, Input, Textarea } from '@/design-system/components';
+import { Button, Card, Input, Select, Textarea } from '@/design-system/components';
 
-type SettingsTab = 'inspector' | 'voice' | 'company' | 'billing' | 'reports' | 'security' | 'github' | 'xero';
+type SettingsTab =
+  | 'inspector'
+  | 'voice'
+  | 'company'
+  | 'billing'
+  | 'email'
+  | 'reports'
+  | 'security'
+  | 'github'
+  | 'xero';
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
   { id: 'inspector', label: 'Inspector', icon: User },
   { id: 'voice', label: 'Voice', icon: Mic },
   { id: 'company', label: 'Company & Logo', icon: Building2 },
   { id: 'billing', label: 'Billing & Invoices', icon: DollarSign },
+  { id: 'email', label: 'Email', icon: Mail },
   { id: 'reports', label: 'Reports & PDF', icon: ImageIcon },
   { id: 'security', label: 'Login & Password', icon: Lock },
   { id: 'github', label: 'GitHub Signing', icon: Cloud },
   { id: 'xero', label: 'Xero & MYOB', icon: Link2 },
 ];
+
+const MAIL_CLIENT_OPTIONS: Array<{ value: EmailMailClient; label: string }> = [
+  { value: 'zoho', label: 'Zoho Mail (browser)' },
+  { value: 'outlook', label: 'Outlook / Windows mail (mailto)' },
+  { value: 'system', label: 'System default mail app' },
+];
+
+const SMTP_ENCRYPTION_OPTIONS: Array<{ value: SmtpEncryption; label: string }> = [
+  { value: 'ssl', label: 'SSL (port 465)' },
+  { value: 'tls', label: 'STARTTLS (port 587)' },
+  { value: 'none', label: 'None' },
+];
+
+const DEFAULT_EMAIL_FORM: EmailSettingsInput = {
+  mailClient: 'zoho',
+  fromEmail: '',
+  includePdfAttachTip: true,
+  signingSubject: '',
+  signingBody: '',
+  reportSubject: '',
+  reportBody: '',
+  generalSubject: '',
+  generalBody: '',
+  invoiceSubject: '',
+  invoiceBody: '',
+  smtpEnabled: false,
+  smtpHost: 'smtp.zoho.com.au',
+  smtpPort: 465,
+  smtpEncryption: 'ssl',
+  smtpUsername: '',
+  smtpPassword: '',
+  senderName: '',
+  senderEmail: '',
+  replyToEmail: '',
+};
 
 function priceInputToCents(value: string, fallback: number): number {
   return audStringToExCents(value) ?? fallback;
@@ -124,7 +174,14 @@ export function SettingsPage() {
     bankAccountNumber: '',
     invoicePaymentTerms: '',
     invoicePaymentNotes: '',
+    invoiceThankYouMessage: '',
   });
+
+  const [email, setEmail] = useState<EmailSettingsInput>(DEFAULT_EMAIL_FORM);
+  const [hasSmtpPassword, setHasSmtpPassword] = useState(false);
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+  const [smtpTestEmail, setSmtpTestEmail] = useState('');
+  const [smtpTestResult, setSmtpTestResult] = useState<SmtpTestResult | null>(null);
 
   const [priceInputs, setPriceInputs] = useState<Record<InspectionType, string>>({
     BUILDING: '550',
@@ -181,6 +238,16 @@ export function SettingsPage() {
       reportFooter: appQuery.data.report.reportFooter ?? '',
     });
     setBilling(appQuery.data.billing);
+      if (appQuery.data.email) {
+      const { hasSmtpPassword: storedHasPassword, ...emailRest } = appQuery.data.email;
+      setHasSmtpPassword(Boolean(storedHasPassword));
+      setEmail({
+        ...DEFAULT_EMAIL_FORM,
+        ...emailRest,
+        smtpPassword: '',
+      });
+      setSmtpTestEmail((current) => current || emailRest.senderEmail || emailRest.fromEmail || '');
+    }
     const prices = defaultPriceInputs(appQuery.data.billing);
     setPriceInputs(prices.ex);
     setPriceIncInputs(prices.inc);
@@ -260,6 +327,7 @@ export function SettingsPage() {
         bankAccountNumber: billing.bankAccountNumber,
         invoicePaymentTerms: billing.invoicePaymentTerms,
         invoicePaymentNotes: billing.invoicePaymentNotes,
+        invoiceThankYouMessage: billing.invoiceThankYouMessage,
       }),
     onSuccess: (saved) => {
       clearStatus();
@@ -271,6 +339,57 @@ export function SettingsPage() {
       void queryClient.invalidateQueries({ queryKey: ['settings-app'] });
     },
     onError: (e) => setError(e instanceof Error ? e.message : 'Could not save billing settings'),
+  });
+
+  const saveEmailMutation = useMutation({
+    mutationFn: () => getSettingsApi().saveEmail(email),
+    onSuccess: (saved) => {
+      clearStatus();
+      setHasSmtpPassword(saved.hasSmtpPassword);
+      const { hasSmtpPassword: _stored, ...emailRest } = saved;
+      setEmail({
+        ...DEFAULT_EMAIL_FORM,
+        ...emailRest,
+        smtpPassword: '',
+      });
+      setMessage(
+        saved.smtpEnabled
+          ? 'Email settings saved. SMTP send is enabled for agreements, invoices, reports, and password reset.'
+          : 'Email settings saved. Compose actions will use these templates and mail app.',
+      );
+      void queryClient.invalidateQueries({ queryKey: ['settings-app'] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not save email settings'),
+  });
+
+  const testSmtpMutation = useMutation({
+    mutationFn: async () => {
+      // Persist form values first — SMTP test reads saved settings, not the open form.
+      const saved = await getSettingsApi().saveEmail(email);
+      setHasSmtpPassword(saved.hasSmtpPassword);
+      const { hasSmtpPassword: _stored, ...emailRest } = saved;
+      setEmail({
+        ...DEFAULT_EMAIL_FORM,
+        ...emailRest,
+        smtpPassword: '',
+      });
+      void queryClient.invalidateQueries({ queryKey: ['settings-app'] });
+      return getSmtpSettingsApi().testSmtp(smtpTestEmail);
+    },
+    onSuccess: (result) => {
+      clearStatus();
+      setSmtpTestResult(result);
+      if (result.ok) {
+        setMessage(`Settings saved. ${result.message}`);
+      } else {
+        setError(`Settings were saved, but the test failed: ${result.message}`);
+      }
+    },
+    onError: (e) => {
+      const message = e instanceof Error ? e.message : 'SMTP test failed';
+      setSmtpTestResult({ ok: false, code: 'send_failed', message });
+      setError(message);
+    },
   });
 
   const passwordMutation = useMutation({
@@ -560,7 +679,7 @@ export function SettingsPage() {
             <p className="mt-1 text-sm text-amber-900/80">
               Shown on tax invoice PDFs for bank transfer and payment instructions.
             </p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="mt-4 grid gap-4 sm:grid-cols-1">
               <Input
                 label="Account name"
                 value={billing.bankAccountName}
@@ -575,14 +694,12 @@ export function SettingsPage() {
               />
               <Input
                 label="Account number"
-                className="sm:col-span-2"
                 value={billing.bankAccountNumber}
                 onChange={(e) => setBilling((c) => ({ ...c, bankAccountNumber: e.target.value }))}
                 placeholder="12345678"
               />
               <Textarea
                 label="Payment terms"
-                className="sm:col-span-2"
                 rows={2}
                 value={billing.invoicePaymentTerms}
                 onChange={(e) => setBilling((c) => ({ ...c, invoicePaymentTerms: e.target.value }))}
@@ -590,17 +707,301 @@ export function SettingsPage() {
               />
               <Textarea
                 label="Payment notes & requirements"
-                className="sm:col-span-2"
                 rows={3}
                 value={billing.invoicePaymentNotes}
                 onChange={(e) => setBilling((c) => ({ ...c, invoicePaymentNotes: e.target.value }))}
                 placeholder="Please use the invoice number as your payment reference."
+              />
+              <Textarea
+                label="Thank-you message (invoice closing)"
+                rows={2}
+                value={billing.invoiceThankYouMessage}
+                onChange={(e) =>
+                  setBilling((c) => ({ ...c, invoiceThankYouMessage: e.target.value }))
+                }
+                placeholder="Thank you for choosing SiteScop. We appreciate your business."
               />
             </div>
           </div>
 
           <Button onClick={() => saveBillingMutation.mutate()} disabled={saveBillingMutation.isPending}>
             {saveBillingMutation.isPending ? 'Saving…' : 'Save billing & invoice settings'}
+          </Button>
+        </Card>
+      )}
+
+      {tab === 'email' && (
+        <Card className="space-y-5 p-6">
+          <div>
+            <h3 className="font-bold text-text">Email settings</h3>
+            <p className="mt-1 text-sm text-text-light">
+              Templates for agreements, invoices, reports, and general messages. Enable SMTP below to
+              send from SiteScop; otherwise the chosen mail app opens for you to send.
+            </p>
+          </div>
+
+          {!hasSmtpApi() ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-3 text-sm text-danger">
+              SMTP is not loaded in this window (old app session). Close every SiteScop window and the
+              black launcher window, then double-click START-SITESCOP.bat again. After restart, Save
+              and test email will work.
+            </div>
+          ) : null}
+
+          <div className="space-y-4 rounded-xl border border-border p-4">
+            <div>
+              <h4 className="font-semibold text-text">SMTP send (recommended)</h4>
+              <p className="mt-1 text-sm text-text-light">
+                Send emails directly from SiteScop using Zoho, Gmail, or another provider. Required
+                for Forgot password. Use an app password, not your normal login password.
+              </p>
+            </div>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface px-3 py-3">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={email.smtpEnabled}
+                onChange={(e) => setEmail((c) => ({ ...c, smtpEnabled: e.target.checked }))}
+              />
+              <span className="text-sm text-text">
+                <span className="font-semibold">Enable SMTP sending</span>
+                <span className="mt-0.5 block text-text-light">
+                  When on, Email / Send actions send immediately with PDF attachments. When off,
+                  SiteScop opens your mail app to compose.
+                </span>
+              </span>
+            </label>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="SMTP host"
+                value={email.smtpHost}
+                onChange={(e) => setEmail((c) => ({ ...c, smtpHost: e.target.value }))}
+                placeholder="smtp.zoho.com.au"
+              />
+              <Input
+                label="Port"
+                type="number"
+                value={String(email.smtpPort)}
+                onChange={(e) =>
+                  setEmail((c) => ({ ...c, smtpPort: Number(e.target.value) || c.smtpPort }))
+                }
+              />
+              <Select
+                label="Encryption"
+                value={email.smtpEncryption}
+                onChange={(e) => {
+                  const next = e.target.value as SmtpEncryption;
+                  setEmail((c) => ({
+                    ...c,
+                    smtpEncryption: next,
+                    smtpPort: next === 'ssl' ? 465 : next === 'tls' ? 587 : c.smtpPort,
+                  }));
+                }}
+                options={SMTP_ENCRYPTION_OPTIONS}
+              />
+              <Input
+                label="SMTP username"
+                value={email.smtpUsername}
+                onChange={(e) => setEmail((c) => ({ ...c, smtpUsername: e.target.value }))}
+                placeholder="you@sitescop.com.au"
+              />
+              <div className="sm:col-span-2">
+                <label className="mb-1.5 block text-sm font-medium text-text">SMTP password</label>
+                <div className="flex gap-2">
+                  <input
+                    type={showSmtpPassword ? 'text' : 'password'}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text"
+                    value={email.smtpPassword ?? ''}
+                    onChange={(e) => setEmail((c) => ({ ...c, smtpPassword: e.target.value }))}
+                    placeholder={
+                      hasSmtpPassword ? 'Leave blank to keep saved password' : 'App password'
+                    }
+                    autoComplete="new-password"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setShowSmtpPassword((v) => !v)}
+                  >
+                    {showSmtpPassword ? 'Hide' : 'Show'}
+                  </Button>
+                </div>
+                {hasSmtpPassword && !(email.smtpPassword ?? '').trim() ? (
+                  <p className="mt-1 text-xs text-text-light">A password is already saved.</p>
+                ) : null}
+              </div>
+              <Input
+                label="Sender name"
+                value={email.senderName}
+                onChange={(e) => setEmail((c) => ({ ...c, senderName: e.target.value }))}
+              />
+              <Input
+                label="Sender email"
+                type="email"
+                value={email.senderEmail}
+                onChange={(e) => setEmail((c) => ({ ...c, senderEmail: e.target.value }))}
+                placeholder="info@sitescop.com.au"
+              />
+              <Input
+                label="Reply-to (optional)"
+                type="email"
+                value={email.replyToEmail}
+                onChange={(e) => setEmail((c) => ({ ...c, replyToEmail: e.target.value }))}
+                className="sm:col-span-2"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => {
+                  clearStatus();
+                  saveEmailMutation.mutate();
+                }}
+                disabled={saveEmailMutation.isPending}
+              >
+                {saveEmailMutation.isPending ? 'Saving…' : 'Save SMTP & email settings'}
+              </Button>
+            </div>
+
+            <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
+              <Input
+                label="Test email address"
+                type="email"
+                value={smtpTestEmail}
+                onChange={(e) => setSmtpTestEmail(e.target.value)}
+                placeholder="you@example.com"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={testSmtpMutation.isPending || saveEmailMutation.isPending}
+                onClick={() => {
+                  clearStatus();
+                  setSmtpTestResult(null);
+                  testSmtpMutation.mutate();
+                }}
+              >
+                {testSmtpMutation.isPending ? 'Saving & testing…' : 'Save & send test email'}
+              </Button>
+            </div>
+            <p className="text-xs text-text-light">
+              Test always saves first, then sends a short email so you know the settings stuck.
+            </p>
+            {smtpTestResult ? (
+              <p className={`text-sm ${smtpTestResult.ok ? 'text-success' : 'text-danger'}`}>
+                {smtpTestResult.message}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select
+              label="Mail app (when SMTP is off)"
+              value={email.mailClient}
+              onChange={(e) =>
+                setEmail((c) => ({ ...c, mailClient: e.target.value as EmailMailClient }))
+              }
+              options={MAIL_CLIENT_OPTIONS}
+            />
+            <Input
+              label="From / reply email (compose mode)"
+              type="email"
+              value={email.fromEmail}
+              onChange={(e) => setEmail((c) => ({ ...c, fromEmail: e.target.value }))}
+              placeholder="info@sitescop.com.au"
+            />
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface px-3 py-3">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={email.includePdfAttachTip}
+              onChange={(e) =>
+                setEmail((c) => ({ ...c, includePdfAttachTip: e.target.checked }))
+              }
+            />
+            <span className="text-sm text-text">
+              <span className="font-semibold">Include PDF attach tip</span>
+              <span className="mt-0.5 block text-text-light">
+                Only for compose mode (SMTP off). Adds the file path at the bottom of report/invoice
+                emails so you can paste it into Attach.
+              </span>
+            </span>
+          </label>
+
+          <p className="rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2 text-xs text-text-light">
+            Placeholders you can use: {'{{firstName}}'}, {'{{clientName}}'}, {'{{propertyAddress}}'},{' '}
+            {'{{jobNumber}}'}, {'{{agreementNumber}}'}, {'{{signingUrl}}'}, {'{{inspectionNumber}}'},{' '}
+            {'{{reportLabel}}'}, {'{{invoiceNumber}}'}, {'{{companyName}}'}, {'{{companyPhone}}'},{' '}
+            {'{{fromEmail}}'}
+          </p>
+
+          <div className="space-y-4 rounded-xl border border-border p-4">
+            <h4 className="font-semibold text-text">Agreement signing email</h4>
+            <Input
+              label="Subject"
+              value={email.signingSubject}
+              onChange={(e) => setEmail((c) => ({ ...c, signingSubject: e.target.value }))}
+            />
+            <Textarea
+              label="Body"
+              rows={8}
+              value={email.signingBody}
+              onChange={(e) => setEmail((c) => ({ ...c, signingBody: e.target.value }))}
+            />
+          </div>
+
+          <div className="space-y-4 rounded-xl border border-border p-4">
+            <h4 className="font-semibold text-text">Report ready email</h4>
+            <Input
+              label="Subject"
+              value={email.reportSubject}
+              onChange={(e) => setEmail((c) => ({ ...c, reportSubject: e.target.value }))}
+            />
+            <Textarea
+              label="Body"
+              rows={8}
+              value={email.reportBody}
+              onChange={(e) => setEmail((c) => ({ ...c, reportBody: e.target.value }))}
+            />
+          </div>
+
+          <div className="space-y-4 rounded-xl border border-border p-4">
+            <h4 className="font-semibold text-text">Invoice email</h4>
+            <Input
+              label="Subject"
+              value={email.invoiceSubject}
+              onChange={(e) => setEmail((c) => ({ ...c, invoiceSubject: e.target.value }))}
+            />
+            <Textarea
+              label="Body"
+              rows={8}
+              value={email.invoiceBody}
+              onChange={(e) => setEmail((c) => ({ ...c, invoiceBody: e.target.value }))}
+            />
+          </div>
+
+          <div className="space-y-4 rounded-xl border border-border p-4">
+            <h4 className="font-semibold text-text">General client email</h4>
+            <Input
+              label="Subject"
+              value={email.generalSubject}
+              onChange={(e) => setEmail((c) => ({ ...c, generalSubject: e.target.value }))}
+            />
+            <Textarea
+              label="Body"
+              rows={6}
+              value={email.generalBody}
+              onChange={(e) => setEmail((c) => ({ ...c, generalBody: e.target.value }))}
+            />
+          </div>
+
+          <Button onClick={() => saveEmailMutation.mutate()} disabled={saveEmailMutation.isPending}>
+            {saveEmailMutation.isPending ? 'Saving…' : 'Save email settings'}
           </Button>
         </Card>
       )}

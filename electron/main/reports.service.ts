@@ -74,6 +74,7 @@ function getAgreementNumberForJob(db: SqlDatabase, jobId: string): string | null
      WHERE job_id = ?
        AND status != 'CANCELLED'
        AND IFNULL(deleted_at, '') = ''
+       AND IFNULL(archived_at, '') = ''
      ORDER BY
        CASE status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
        updated_at DESC

@@ -1,6 +1,6 @@
 import type { SitescopApi } from '@shared/api-types';
 
-export const CURRENT_BRIDGE_VERSION = 6;
+export const CURRENT_BRIDGE_VERSION = 9;
 
 /** True when running inside the Electron desktop window (not Chrome/Edge). */
 export function isDesktopApp(): boolean {
@@ -58,12 +58,27 @@ export function getSitescopApi(): SitescopApi {
 
 export function getSettingsApi(): SitescopApi['settings'] {
   const api = requireDesktopBridge();
-  if (!api.settings?.getProfile) {
+  if (!api.settings?.getProfile || !api.settings?.saveEmail) {
     throw new Error(
       'Settings not loaded. Close ALL SiteScop windows, then double-click START-SITESCOP.bat.',
     );
   }
   return api.settings;
+}
+
+export function hasSmtpApi(): boolean {
+  return typeof window.sitescop?.settings?.testSmtp === 'function';
+}
+
+/** Settings API including SMTP test — requires a full app restart after update. */
+export function getSmtpSettingsApi(): SitescopApi['settings'] {
+  const settings = getSettingsApi();
+  if (typeof settings.testSmtp !== 'function') {
+    throw new Error(
+      'SMTP features need a full restart. Close EVERY SiteScop window (and the black launcher window), then double-click START-SITESCOP.bat again.',
+    );
+  }
+  return settings;
 }
 
 export function getRecycleBinApi(): SitescopApi['recycleBin'] {
@@ -77,7 +92,11 @@ export function getRecycleBinApi(): SitescopApi['recycleBin'] {
 }
 
 export function hasRecycleBinApi(): boolean {
-  return Boolean(window.sitescop?.recycleBin?.list);
+  return Boolean(
+    window.sitescop?.recycleBin?.list &&
+      window.sitescop?.recycleBin?.restore &&
+      window.sitescop?.recycleBin?.purge,
+  );
 }
 
 export function hasClientsApi(): boolean {
@@ -149,7 +168,8 @@ export function isBridgeUpToDate(): boolean {
     hasRecycleBinApi() &&
     hasClientsApi() &&
     hasAccountingApi() &&
-    hasSpeechApi()
+    hasSpeechApi() &&
+    hasSmtpApi()
   );
 }
 
@@ -160,5 +180,6 @@ export function getStaleBridgeFeatures(): string[] {
   if (!hasAccountingApi()) missing.push('Accounting');
   if (!window.sitescop?.settings?.getProfile) missing.push('Settings');
   if (!window.sitescop?.speech?.transcribeAudio && !window.sitescop?.speech?.dictate) missing.push('Dictation');
+  if (!hasSmtpApi()) missing.push('SMTP email');
   return missing;
 }

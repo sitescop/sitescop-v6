@@ -27,6 +27,7 @@ function resolveAgreementForJob(db: SqlDatabase, jobId: string): string | null {
      WHERE a.job_id = ?
        AND a.status != 'CANCELLED'
        AND IFNULL(a.deleted_at, '') = ''
+       AND IFNULL(a.archived_at, '') = ''
      ORDER BY
        CASE a.status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
        a.updated_at DESC
@@ -107,6 +108,7 @@ export async function generateInvoicePdfForJob(db: SqlDatabase, jobId: string): 
     bankAccountNumber: billing.bankAccountNumber || null,
     paymentTerms: billing.invoicePaymentTerms || null,
     paymentNotes: billing.invoicePaymentNotes || null,
+    thankYouMessage: billing.invoiceThankYouMessage || null,
     footerText: SITESCOP_PDF_FOOTER_TEXT,
     primaryColor: DEFAULT_REPORT_SETTINGS.primaryColor,
     secondaryColor: DEFAULT_REPORT_SETTINGS.secondaryColor,

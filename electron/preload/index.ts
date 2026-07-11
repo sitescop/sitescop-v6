@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { SitescopApi } from '../../shared/api-types.js';
 
-const BRIDGE_VERSION = 7;
+const BRIDGE_VERSION = 9;
 
 const api: SitescopApi = {
   meta: {
@@ -14,6 +14,8 @@ const api: SitescopApi = {
       ipcRenderer.invoke('auth:login', email, password, remember),
     logout: () => ipcRenderer.invoke('auth:logout'),
     getSession: () => ipcRenderer.invoke('auth:getSession'),
+    requestPasswordReset: (email) => ipcRenderer.invoke('auth:requestPasswordReset', email),
+    confirmPasswordReset: (input) => ipcRenderer.invoke('auth:confirmPasswordReset', input),
   },
   dashboard: {
     getSummary: () => ipcRenderer.invoke('dashboard:getSummary'),
@@ -31,6 +33,7 @@ const api: SitescopApi = {
     start: (jobId) => ipcRenderer.invoke('jobs:start', jobId),
     markPaid: (jobId) => ipcRenderer.invoke('jobs:markPaid', jobId),
     emailClient: (jobId) => ipcRenderer.invoke('jobs:emailClient', jobId),
+    emailInvoice: (jobId) => ipcRenderer.invoke('jobs:emailInvoice', jobId),
   },
   inspections: {
     getByJob: (jobId) => ipcRenderer.invoke('inspections:getByJob', jobId),
@@ -48,6 +51,7 @@ const api: SitescopApi = {
     copyPdfs: (filePaths) => ipcRenderer.invoke('reports:copyPdfs', filePaths),
     openFolder: (jobId) => ipcRenderer.invoke('reports:openFolder', jobId),
     emailToClient: (reportId) => ipcRenderer.invoke('reports:emailToClient', reportId),
+    emailJobToClient: (jobId) => ipcRenderer.invoke('reports:emailJobToClient', jobId),
   },
   agreements: {
     list: (filter) => ipcRenderer.invoke('agreements:list', filter),
@@ -126,6 +130,8 @@ const api: SitescopApi = {
     saveCompany: (input) => ipcRenderer.invoke('settings:saveCompany', input),
     saveReport: (input) => ipcRenderer.invoke('settings:saveReport', input),
     saveBilling: (input) => ipcRenderer.invoke('settings:saveBilling', input),
+    saveEmail: (input) => ipcRenderer.invoke('settings:saveEmail', input),
+    testSmtp: (toEmail) => ipcRenderer.invoke('settings:testSmtp', toEmail),
     selectLogo: () => ipcRenderer.invoke('settings:selectLogo'),
     removeLogo: () => ipcRenderer.invoke('settings:removeLogo'),
     getGitHub: () => ipcRenderer.invoke('settings:getGitHub'),

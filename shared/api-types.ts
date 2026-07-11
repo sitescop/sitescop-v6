@@ -57,14 +57,68 @@ export interface BillingSettings {
   bankAccountNumber: string;
   invoicePaymentTerms: string;
   invoicePaymentNotes: string;
+  /** Closing thank-you line on tax invoice PDFs. */
+  invoiceThankYouMessage: string;
 }
 
 export type BillingSettingsInput = BillingSettings;
+
+export type EmailMailClient = 'zoho' | 'outlook' | 'system';
+export type SmtpEncryption = 'ssl' | 'tls' | 'none';
+
+export interface EmailSettings {
+  mailClient: EmailMailClient;
+  fromEmail: string;
+  includePdfAttachTip: boolean;
+  signingSubject: string;
+  signingBody: string;
+  reportSubject: string;
+  reportBody: string;
+  generalSubject: string;
+  generalBody: string;
+  invoiceSubject: string;
+  invoiceBody: string;
+  /** When true, SiteScop sends mail via SMTP instead of opening a mail client. */
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpEncryption: SmtpEncryption;
+  smtpUsername: string;
+  /** True when an encrypted SMTP password is stored (never returns the password). */
+  hasSmtpPassword: boolean;
+  senderName: string;
+  senderEmail: string;
+  replyToEmail: string;
+}
+
+export type EmailSettingsInput = Omit<EmailSettings, 'hasSmtpPassword'> & {
+  /** Leave empty to keep the currently stored encrypted password. */
+  smtpPassword?: string;
+};
+
+export interface SmtpTestResult {
+  ok: boolean;
+  code: 'success' | 'auth_failed' | 'connect_failed' | 'invalid_config' | 'send_failed';
+  message: string;
+}
+
+export interface PasswordResetRequestResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface PasswordResetConfirmInput {
+  email: string;
+  token: string;
+  newPassword: string;
+  confirmPassword: string;
+}
 
 export interface AppSettingsOverview {
   company: CompanySettings;
   report: ReportSettings;
   billing: BillingSettings;
+  email: EmailSettings;
   hasLogo: boolean;
   logoPreview: string | null;
 }
@@ -177,6 +231,10 @@ export interface AgreementDetail extends AgreementRow {
   signatureData: string | null;
   pdfPath: string | null;
   updatedAt: string;
+  archivedAt: string | null;
+  supersededById: string | null;
+  revisesId: string | null;
+  archivedInvoicePath: string | null;
 }
 
 export interface PublicAgreementView {
@@ -396,7 +454,7 @@ export interface InspectionReportRow {
 
 export interface ComposeEmailResult {
   clientEmail: string;
-  method: 'zoho';
+  method: 'zoho' | 'outlook' | 'system' | 'smtp';
   message: string;
   cancelled?: boolean;
 }
@@ -428,6 +486,23 @@ export interface ClientDetailJobAgreement {
   status: AgreementStatus;
   inspectionType: InspectionType;
   signedAt: string | null;
+}
+
+/** Previous agreement archived when a revised draft was created — client Old / History only. */
+export interface ClientArchivedAgreement {
+  id: string;
+  agreementNumber: string;
+  status: AgreementStatus;
+  inspectionType: InspectionType;
+  signedAt: string | null;
+  archivedAt: string;
+  supersededById: string | null;
+  supersededByAgreementNumber: string | null;
+  pdfPath: string | null;
+  invoicePath: string | null;
+  jobId: string | null;
+  jobNumber: string | null;
+  propertyAddress: string;
 }
 
 export interface ClientDetailJob {
@@ -464,6 +539,7 @@ export interface ClientDetail {
   primaryPropertyAddress: string | null;
   propertyAddresses: string[];
   jobs: ClientDetailJob[];
+  archivedAgreements: ClientArchivedAgreement[];
 }
 
 export interface UpdateClientInput {
@@ -534,6 +610,8 @@ export interface SitescopApi {
     login: (email: string, password: string, remember: boolean) => Promise<LoginResult>;
     logout: () => Promise<void>;
     getSession: () => Promise<SessionUser | null>;
+    requestPasswordReset: (email: string) => Promise<PasswordResetRequestResult>;
+    confirmPasswordReset: (input: PasswordResetConfirmInput) => Promise<PasswordResetRequestResult>;
   };
   dashboard: {
     getSummary: () => Promise<DashboardSummary>;
@@ -551,6 +629,7 @@ export interface SitescopApi {
     start: (jobId: string) => Promise<void>;
     markPaid: (jobId: string) => Promise<JobDetail>;
     emailClient: (jobId: string) => Promise<ComposeEmailResult>;
+    emailInvoice: (jobId: string) => Promise<ComposeEmailResult>;
   };
   inspections: {
     getByJob: (jobId: string) => Promise<import('./inspection-types.js').InspectionDetail | null>;
@@ -575,6 +654,7 @@ export interface SitescopApi {
     copyPdfs: (filePaths: string[]) => Promise<CopyPdfResult>;
     openFolder: (jobId: string) => Promise<void>;
     emailToClient: (reportId: string) => Promise<ComposeEmailResult>;
+    emailJobToClient: (jobId: string) => Promise<ComposeEmailResult>;
   };
   agreements: {
     list: (filter?: { status?: AgreementStatus | ''; search?: string }) => Promise<AgreementRow[]>;
@@ -644,6 +724,8 @@ export interface SitescopApi {
     saveCompany: (input: CompanySettingsInput) => Promise<CompanySettings>;
     saveReport: (input: ReportSettingsInput) => Promise<ReportSettings>;
     saveBilling: (input: BillingSettingsInput) => Promise<BillingSettings>;
+    saveEmail: (input: EmailSettingsInput) => Promise<EmailSettings>;
+    testSmtp: (toEmail: string) => Promise<SmtpTestResult>;
     selectLogo: () => Promise<{ saved: boolean; logoPreview: string | null }>;
     removeLogo: () => Promise<void>;
     getGitHub: () => Promise<GitHubSettingsPublic>;

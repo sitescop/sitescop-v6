@@ -1,6 +1,7 @@
 import type { Database as SqlDatabase } from 'sql.js';
 import type {
   AgreementStatus,
+  ClientArchivedAgreement,
   ClientDetail,
   ClientDetailJob,
   ClientDetailJobAgreement,
@@ -153,6 +154,7 @@ function loadAgreementsForJobs(
      WHERE job_id IN (${placeholders})
        AND status != 'CANCELLED'
        AND IFNULL(deleted_at, '') = ''
+       AND IFNULL(archived_at, '') = ''
      ORDER BY
        CASE status
          WHEN 'DRAFT' THEN 0
@@ -184,6 +186,68 @@ function loadAgreementsForJobs(
   return byJob;
 }
 
+function loadArchivedAgreementsForClient(
+  db: SqlDatabase,
+  clientId: string,
+): ClientArchivedAgreement[] {
+  const stmt = db.prepare(
+    `SELECT
+       a.id,
+       a.agreement_number AS agreementNumber,
+       a.status,
+       a.inspection_type AS inspectionType,
+       a.signed_at AS signedAt,
+       a.archived_at AS archivedAt,
+       a.superseded_by_id AS supersededById,
+       s.agreement_number AS supersededByAgreementNumber,
+       a.pdf_path AS pdfPath,
+       a.archived_invoice_path AS invoicePath,
+       a.job_id AS jobId,
+       j.job_number AS jobNumber,
+       a.property_address AS propertyAddress
+     FROM agreements a
+     LEFT JOIN jobs j ON j.id = a.job_id
+     LEFT JOIN agreements s ON s.id = a.superseded_by_id
+     WHERE IFNULL(a.archived_at, '') != ''
+       AND IFNULL(a.deleted_at, '') = ''
+       AND (
+         j.client_id = ?
+         OR (
+           a.job_id IS NULL
+           AND lower(a.client_email) = (
+             SELECT lower(email) FROM clients WHERE id = ? LIMIT 1
+           )
+         )
+       )
+     ORDER BY a.archived_at DESC`,
+  );
+  stmt.bind([clientId, clientId]);
+
+  const rows: ClientArchivedAgreement[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    rows.push({
+      id: String(row.id),
+      agreementNumber: String(row.agreementNumber),
+      status: row.status as AgreementStatus,
+      inspectionType: row.inspectionType as ClientArchivedAgreement['inspectionType'],
+      signedAt: row.signedAt ? String(row.signedAt) : null,
+      archivedAt: String(row.archivedAt),
+      supersededById: row.supersededById ? String(row.supersededById) : null,
+      supersededByAgreementNumber: row.supersededByAgreementNumber
+        ? String(row.supersededByAgreementNumber)
+        : null,
+      pdfPath: row.pdfPath ? String(row.pdfPath) : null,
+      invoicePath: row.invoicePath ? String(row.invoicePath) : null,
+      jobId: row.jobId ? String(row.jobId) : null,
+      jobNumber: row.jobNumber ? String(row.jobNumber) : null,
+      propertyAddress: String(row.propertyAddress),
+    });
+  }
+  stmt.free();
+  return rows;
+}
+
 export function getClientById(db: SqlDatabase, clientId: string): ClientDetail | null {
   const clientStmt = db.prepare(
     `SELECT id, first_name AS firstName, last_name AS lastName, email, mobile, created_at AS createdAt
@@ -213,6 +277,7 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
         WHERE a.job_id = j.id
           AND a.status != 'CANCELLED'
           AND IFNULL(a.deleted_at, '') = ''
+          AND IFNULL(a.archived_at, '') = ''
         ORDER BY
           CASE a.status
             WHEN 'DRAFT' THEN 0
@@ -230,6 +295,7 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
         WHERE a.job_id = j.id
           AND a.status != 'CANCELLED'
           AND IFNULL(a.deleted_at, '') = ''
+          AND IFNULL(a.archived_at, '') = ''
         ORDER BY
           CASE a.status
             WHEN 'DRAFT' THEN 0
@@ -247,6 +313,7 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
         WHERE a.job_id = j.id
           AND a.status != 'CANCELLED'
           AND IFNULL(a.deleted_at, '') = ''
+          AND IFNULL(a.archived_at, '') = ''
         ORDER BY
           CASE a.status
             WHEN 'DRAFT' THEN 0
@@ -264,6 +331,7 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
         WHERE a.job_id = j.id
           AND a.status != 'CANCELLED'
           AND IFNULL(a.deleted_at, '') = ''
+          AND IFNULL(a.archived_at, '') = ''
         ORDER BY
           CASE a.status
             WHEN 'DRAFT' THEN 0
@@ -331,6 +399,8 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
     job.agreements = agreementsByJob.get(job.id) ?? [];
   }
 
+  const archivedAgreements = loadArchivedAgreementsForClient(db, clientId);
+
   const propertyAddresses = [...new Set(jobs.map((j) => j.propertyAddress.trim()).filter(Boolean))];
   const primaryPropertyAddress = propertyAddresses[0] ?? null;
 
@@ -344,6 +414,7 @@ export function getClientById(db: SqlDatabase, clientId: string): ClientDetail |
     primaryPropertyAddress,
     propertyAddresses,
     jobs,
+    archivedAgreements,
   };
 }
 

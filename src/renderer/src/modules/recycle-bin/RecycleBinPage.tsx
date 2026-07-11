@@ -39,7 +39,6 @@ export function RecycleBinPage() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [search, setSearch] = useState('');
   const [purgeTarget, setPurgeTarget] = useState<RecycleBinItem | null>(null);
-  const [confirmText, setConfirmText] = useState('');
 
   const { data: items = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['recycle-bin'],
@@ -58,6 +57,7 @@ export function RecycleBinPage() {
       void queryClient.invalidateQueries({ queryKey: ['agreements'] });
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       void queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
+      void queryClient.invalidateQueries({ queryKey: ['client'] });
     },
   });
 
@@ -66,8 +66,11 @@ export function RecycleBinPage() {
       getRecycleBinApi().purge(type, id),
     onSuccess: () => {
       setPurgeTarget(null);
-      setConfirmText('');
       void queryClient.invalidateQueries({ queryKey: ['recycle-bin'] });
+      void queryClient.invalidateQueries({ queryKey: ['client'] });
+      void queryClient.invalidateQueries({ queryKey: ['agreements'] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs-in-progress'] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs-completed'] });
     },
   });
 
@@ -191,11 +194,9 @@ export function RecycleBinPage() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="text-danger hover:bg-danger/10"
-                    onClick={() => {
-                      setConfirmText('');
-                      setPurgeTarget(item);
-                    }}
+                    className="border-danger/30 text-danger hover:bg-danger/10"
+                    disabled={purgeMutation.isPending}
+                    onClick={() => setPurgeTarget(item)}
                   >
                     <Trash2 className="h-4 w-4" />
                     Delete forever
@@ -212,7 +213,6 @@ export function RecycleBinPage() {
         onClose={() => {
           if (!purgeMutation.isPending) {
             setPurgeTarget(null);
-            setConfirmText('');
           }
         }}
         title="Delete permanently"
@@ -225,10 +225,7 @@ export function RecycleBinPage() {
           <>
             <Button
               variant="secondary"
-              onClick={() => {
-                setPurgeTarget(null);
-                setConfirmText('');
-              }}
+              onClick={() => setPurgeTarget(null)}
               disabled={purgeMutation.isPending}
             >
               Cancel
@@ -236,27 +233,28 @@ export function RecycleBinPage() {
             <Button
               variant="primary"
               className="bg-danger hover:bg-danger/90"
-              disabled={confirmText !== 'DELETE' || purgeMutation.isPending || !purgeTarget}
+              disabled={purgeMutation.isPending || !purgeTarget}
               onClick={() => {
                 if (!purgeTarget) return;
                 purgeMutation.mutate({ type: purgeTarget.type, id: purgeTarget.id });
               }}
             >
+              <Trash2 className="h-4 w-4" />
               {purgeMutation.isPending ? 'Deleting…' : 'Delete forever'}
             </Button>
           </>
         }
       >
         <div className="space-y-3">
-          <p className="text-sm text-text-light">
-            Type <strong className="text-text">DELETE</strong> to confirm permanent removal.
+          <p className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+            This permanently removes the record from SiteScop. You will not be able to restore it.
           </p>
-          <Input
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value)}
-            placeholder="Type DELETE"
-            autoComplete="off"
-          />
+          {purgeTarget && (
+            <p className="text-sm text-text">
+              <span className="font-semibold">{itemLabel(purgeTarget)}</span>
+              <span className="text-text-light"> — {itemSubtitle(purgeTarget)}</span>
+            </p>
+          )}
           {purgeMutation.error instanceof Error && (
             <p className="text-sm text-danger">{purgeMutation.error.message}</p>
           )}

@@ -162,6 +162,8 @@ export function AgreementDetailPage() {
     mutationFn: () => getSitescopApi().agreements.delete(agreementId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['recycle-bin'] });
+      void queryClient.invalidateQueries({ queryKey: ['client'] });
+      void queryClient.invalidateQueries({ queryKey: ['job'] });
       invalidate();
       navigate('/agreements');
     },
@@ -371,11 +373,11 @@ export function AgreementDetailPage() {
     syncFailed,
   });
 
-  const canSend = ['DRAFT', 'SENT', 'VIEWED'].includes(agreement.status);
-  const canEdit = agreement.status === 'DRAFT';
-  const canRevise = agreement.status === 'SIGNED';
-  const canCancel = agreement.status !== 'SIGNED' && agreement.status !== 'CANCELLED';
-  const canCreateJob = agreement.status === 'SIGNED' && !agreement.jobId;
+  const canSend = ['DRAFT', 'SENT', 'VIEWED'].includes(agreement.status) && !agreement.archivedAt;
+  const canEdit = agreement.status === 'DRAFT' && !agreement.archivedAt;
+  const canRevise = agreement.status === 'SIGNED' && !agreement.archivedAt;
+  const canCancel = agreement.status !== 'SIGNED' && agreement.status !== 'CANCELLED' && !agreement.archivedAt;
+  const canCreateJob = agreement.status === 'SIGNED' && !agreement.jobId && !agreement.archivedAt;
   const canMarkPaid = Boolean(
     agreement.jobId && linkedJob?.agreementStatus === 'SIGNED' && !linkedJob.paymentReceived,
   );
@@ -398,6 +400,16 @@ export function AgreementDetailPage() {
               : undefined
         }
       />
+
+      {agreement.archivedAt && (
+        <Card className="mb-6 border-amber-400/40 bg-amber-50 p-4">
+          <p className="font-semibold text-amber-950">Archived — Old / History</p>
+          <p className="mt-1 text-sm text-amber-900/80">
+            This agreement was replaced by a revised draft. It is kept for records on the client Old
+            folder. Delete the revised draft to restore it to the active workflow.
+          </p>
+        </Card>
+      )}
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -493,23 +505,25 @@ export function AgreementDetailPage() {
               Cancel
             </Button>
           )}
-          <Button
-            variant="secondary"
-            className="border-danger/30 text-danger hover:bg-danger/10"
-            onClick={() => {
-              const message =
-                agreement.status === 'SIGNED'
-                  ? `Move signed agreement ${agreement.agreementNumber} to the recycle bin? You can restore it later.`
-                  : `Move agreement ${agreement.agreementNumber} to the recycle bin?`;
-              if (window.confirm(message)) {
-                deleteMutation.mutate();
-              }
-            }}
-            disabled={deleteMutation.isPending}
-          >
-            <Trash2 className="h-4 w-4" />
-            {deleteMutation.isPending ? 'Moving…' : 'Move to recycle bin'}
-          </Button>
+          {!agreement.archivedAt && (
+            <Button
+              variant="secondary"
+              className="border-danger/30 text-danger hover:bg-danger/10"
+              onClick={() => {
+                const message =
+                  agreement.status === 'SIGNED'
+                    ? `Move signed agreement ${agreement.agreementNumber} to the recycle bin? You can restore it later.`
+                    : `Move agreement ${agreement.agreementNumber} to the recycle bin?`;
+                if (window.confirm(message)) {
+                  deleteMutation.mutate();
+                }
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4" />
+              {deleteMutation.isPending ? 'Moving…' : 'Move to recycle bin'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -601,7 +615,7 @@ export function AgreementDetailPage() {
         </Card>
       )}
 
-      {agreement.status === 'SIGNED' && (
+      {agreement.status === 'SIGNED' && !agreement.archivedAt && (
         <Card className="mb-6 space-y-4 border-success/25 bg-success/[0.04] p-6">
           <div>
             <h3 className="text-lg font-bold text-text">Signing</h3>
@@ -767,8 +781,9 @@ export function AgreementDetailPage() {
       >
         <p className="rounded-lg border border-amber-400/40 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950">
           Create a revised agreement from{' '}
-          <span className="font-semibold">{agreement.agreementNumber}</span>? The signed agreement
-          stays on file. You can change inspection type and price on the new draft.
+          <span className="font-semibold">{agreement.agreementNumber}</span>? The signed agreement,
+          PDF and invoice move to the client Old folder. You can change inspection type and price on
+          the new draft.
         </p>
       </Modal>
     </div>

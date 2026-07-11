@@ -29,6 +29,7 @@ export interface InvoicePdfContext {
   bankAccountNumber?: string | null;
   paymentTerms?: string | null;
   paymentNotes?: string | null;
+  thankYouMessage?: string | null;
   footerText: string;
   primaryColor: string;
   secondaryColor: string;
@@ -66,7 +67,8 @@ function renderPaymentDetails(ctx: InvoicePdfContext): string {
   const hasBankDetails = Boolean(ctx.bankAccountName || ctx.bankBsb || ctx.bankAccountNumber);
   const hasTerms = Boolean(ctx.paymentTerms?.trim());
   const hasNotes = Boolean(ctx.paymentNotes?.trim());
-  if (!hasBankDetails && !hasTerms && !hasNotes) return '';
+  const hasThanks = Boolean(ctx.thankYouMessage?.trim());
+  if (!hasBankDetails && !hasTerms && !hasNotes && !hasThanks) return '';
 
   const bankRows: string[] = [];
   if (ctx.bankAccountName) {
@@ -82,9 +84,10 @@ function renderPaymentDetails(ctx: InvoicePdfContext): string {
   return `
 <div class="invoice-payment-box">
   <h2>Payment details</h2>
-  ${hasBankDetails ? `<div class="invoice-payment-grid">${bankRows.join('\n')}</div>` : ''}
+  ${hasBankDetails ? `<div class="invoice-payment-stack">${bankRows.join('\n')}</div>` : ''}
   ${hasTerms ? `<p style="margin-top:12px"><strong>Payment terms:</strong> ${escapeHtml(ctx.paymentTerms!)}</p>` : ''}
   ${hasNotes ? `<div class="invoice-payment-notes"><strong>Important:</strong> ${escapeHtml(ctx.paymentNotes!)}</div>` : ''}
+  ${hasThanks ? `<div class="invoice-thank-you">${escapeHtml(ctx.thankYouMessage!)}</div>` : ''}
 </div>`;
 }
 
@@ -119,13 +122,13 @@ export function renderInvoiceHtml(ctx: InvoicePdfContext): string {
     letter-spacing: 0.04em;
     color: ${ctx.primaryColor};
   }
-  .invoice-payment-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 20px;
+  .invoice-payment-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     font-size: 13px;
   }
-  .invoice-payment-grid p { margin: 0; }
+  .invoice-payment-stack p { margin: 0; }
   .invoice-payment-notes {
     margin-top: 12px;
     padding-top: 12px;
@@ -133,6 +136,15 @@ export function renderInvoiceHtml(ctx: InvoicePdfContext): string {
     font-size: 12px;
     line-height: 1.5;
     color: #444;
+  }
+  .invoice-thank-you {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid ${ctx.primaryColor}22;
+    font-size: 13px;
+    line-height: 1.5;
+    font-style: italic;
+    color: ${ctx.primaryColor};
   }
   </style>
 </head>

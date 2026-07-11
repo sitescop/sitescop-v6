@@ -41,6 +41,7 @@ function signedAtExpression(): string {
       WHERE a.job_id = j.id
         AND a.status = 'SIGNED'
         AND IFNULL(a.deleted_at, '') = ''
+      AND IFNULL(a.archived_at, '') = ''
       ORDER BY a.updated_at DESC
       LIMIT 1
     ),
@@ -55,6 +56,7 @@ function agreementTotalExpression(): string {
     WHERE a.job_id = j.id
       AND a.status = 'SIGNED'
       AND IFNULL(a.deleted_at, '') = ''
+      AND IFNULL(a.archived_at, '') = ''
     ORDER BY a.updated_at DESC
     LIMIT 1
   )`;
@@ -126,6 +128,7 @@ const ACCOUNTING_JOB_SELECT = `
       WHERE a.job_id = j.id
         AND a.status = 'SIGNED'
         AND IFNULL(a.deleted_at, '') = ''
+      AND IFNULL(a.archived_at, '') = ''
       ORDER BY a.updated_at DESC
       LIMIT 1
     ) AS totalCents,
@@ -135,6 +138,7 @@ const ACCOUNTING_JOB_SELECT = `
       WHERE a.job_id = j.id
         AND a.status = 'SIGNED'
         AND IFNULL(a.deleted_at, '') = ''
+      AND IFNULL(a.archived_at, '') = ''
       ORDER BY a.updated_at DESC
       LIMIT 1
     ) AS signedAt
@@ -285,6 +289,7 @@ export function listAccountingByClient(db: SqlDatabase): ClientAccountingRow[] {
               WHERE a.job_id = j.id
                 AND a.status = 'SIGNED'
                 AND IFNULL(a.deleted_at, '') = ''
+      AND IFNULL(a.archived_at, '') = ''
               ORDER BY a.updated_at DESC
               LIMIT 1
             )
@@ -302,6 +307,7 @@ export function listAccountingByClient(db: SqlDatabase): ClientAccountingRow[] {
               WHERE a.job_id = j.id
                 AND a.status = 'SIGNED'
                 AND IFNULL(a.deleted_at, '') = ''
+      AND IFNULL(a.archived_at, '') = ''
               ORDER BY a.updated_at DESC
               LIMIT 1
             )

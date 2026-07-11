@@ -5,6 +5,8 @@ import type {
   ChangePasswordInput,
   CompanySettingsInput,
   BillingSettingsInput,
+  EmailSettingsInput,
+  PasswordResetConfirmInput,
   CreateAgreementInput,
   CreateJobInput,
   DeleteJobInput,
@@ -40,6 +42,8 @@ import {
   getReportSettings,
   getBillingSettings,
   saveBillingSettings,
+  getEmailSettings,
+  saveEmailSettings,
   getCompanyLogoDataUrl,
   getReportLogoPreviewDataUrl,
   hasCompanyLogo,
@@ -106,7 +110,7 @@ import {
   purgeRecycleBinItem,
   restoreRecycleBinItem,
 } from './recycle-bin.service.js';
-import { composeAgreementSigningEmail, composeClientEmail, composeReportEmailToClient } from './email.service.js';
+import { composeAgreementSigningEmail, composeClientEmail, composeInvoiceEmailForJob, composeJobReportsEmailToClient, composeReportEmailToClient } from './email.service.js';
 import {
   assertJobPaidForReportDelivery,
   assertReportFilesPaidForDelivery,
@@ -126,7 +130,8 @@ import {
   copyTextToClipboard,
 } from './clipboard-files.service.js';
 import { localDateKey } from './database.js';
-import { changeInspectorPassword, updateInspectorProfile } from './user.service.js';
+import { changeInspectorPassword, confirmPasswordReset, requestPasswordReset, updateInspectorProfile } from './user.service.js';
+import { testSmtpConnection } from './smtp.service.js';
 
 let currentSession: SessionUser | null = null;
 let store: LocalDatabase | null = null;
@@ -177,6 +182,16 @@ export function registerIpcHandlers() {
     if (!fresh) return currentSession;
     currentSession = toSessionUser(fresh);
     return currentSession;
+  });
+
+  ipcMain.handle('auth:requestPasswordReset', async (_event, email: string) => {
+    if (!store) throw new Error('Database not ready');
+    return requestPasswordReset(store.db, email);
+  });
+
+  ipcMain.handle('auth:confirmPasswordReset', async (_event, input: PasswordResetConfirmInput) => {
+    if (!store) throw new Error('Database not ready');
+    return confirmPasswordReset(store.db, input);
   });
 
   ipcMain.handle('dashboard:getSummary', async () => {
@@ -291,6 +306,19 @@ export function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle('jobs:emailInvoice', async (_event, jobId: string) => {
+    const db = requireAuth();
+    if (!currentSession) throw new Error('Not authenticated');
+    try {
+      const result = await composeInvoiceEmailForJob(db.db, jobId, currentSession);
+      db.persist();
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to open invoice email';
+      throw new Error(message);
+    }
+  });
+
   ipcMain.handle('inspections:getByJob', async (_event, jobId: string) => {
     const db = requireAuth();
     if (!currentSession) throw new Error('Not authenticated');
@@ -389,6 +417,17 @@ export function registerIpcHandlers() {
     if (!currentSession) throw new Error('Not authenticated');
     try {
       return await composeReportEmailToClient(db.db, reportId, currentSession);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to compose email';
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle('reports:emailJobToClient', async (_event, jobId: string) => {
+    const db = requireAuth();
+    if (!currentSession) throw new Error('Not authenticated');
+    try {
+      return await composeJobReportsEmailToClient(db.db, jobId, currentSession);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to compose email';
       throw new Error(message);
@@ -652,6 +691,7 @@ export function registerIpcHandlers() {
          WHERE job_id = ?
            AND status != 'CANCELLED'
            AND IFNULL(deleted_at, '') = ''
+           AND IFNULL(archived_at, '') = ''
          ORDER BY
            CASE status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
            updated_at DESC
@@ -787,6 +827,7 @@ export function registerIpcHandlers() {
     company: getCompanySettings(),
     report: getReportSettings(),
     billing: getBillingSettings(),
+    email: getEmailSettings(),
     hasLogo: hasCompanyLogo(),
     logoPreview: getReportLogoPreviewDataUrl(),
   }));
@@ -804,6 +845,16 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:saveBilling', async (_event, input: BillingSettingsInput) => {
     requireAuth();
     return saveBillingSettings(input);
+  });
+
+  ipcMain.handle('settings:saveEmail', async (_event, input: EmailSettingsInput) => {
+    requireAuth();
+    return saveEmailSettings(input);
+  });
+
+  ipcMain.handle('settings:testSmtp', async (_event, toEmail: string) => {
+    requireAuth();
+    return testSmtpConnection(toEmail);
   });
 
   ipcMain.handle('settings:selectLogo', async () => {

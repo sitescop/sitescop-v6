@@ -245,6 +245,7 @@ async function loadAgreementTotals(
     WHERE job_id = ?
       AND status = 'SIGNED'
       AND IFNULL(deleted_at, '') = ''
+      AND IFNULL(archived_at, '') = ''
     ORDER BY updated_at DESC
     LIMIT 1
     `,

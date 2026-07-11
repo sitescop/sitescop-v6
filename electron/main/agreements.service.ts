@@ -91,6 +91,16 @@ function mapAgreementDetail(row: Record<string, unknown>): AgreementDetail {
     signatureData: row.signatureData ? String(row.signatureData) : null,
     pdfPath: row.pdfPath ? String(row.pdfPath) : null,
     updatedAt: String(row.updatedAt),
+    archivedAt: row.archivedAt || row.archived_at ? String(row.archivedAt ?? row.archived_at) : null,
+    supersededById:
+      row.supersededById || row.superseded_by_id
+        ? String(row.supersededById ?? row.superseded_by_id)
+        : null,
+    revisesId: row.revisesId || row.revises_id ? String(row.revisesId ?? row.revises_id) : null,
+    archivedInvoicePath:
+      row.archivedInvoicePath || row.archived_invoice_path
+        ? String(row.archivedInvoicePath ?? row.archived_invoice_path)
+        : null,
   };
 }
 
@@ -134,6 +144,42 @@ function syncJobAgreementStatus(db: SqlDatabase, jobId: string | null, status: A
   );
 }
 
+/** Prefer active (non-archived, non-deleted) agreement for the job workflow. */
+function recomputeJobAgreementStatus(db: SqlDatabase, jobId: string | null) {
+  if (!jobId) return;
+  const stmt = db.prepare(
+    `SELECT status FROM agreements
+     WHERE job_id = ?
+       AND status != 'CANCELLED'
+       AND IFNULL(deleted_at, '') = ''
+       AND IFNULL(archived_at, '') = ''
+     ORDER BY
+       CASE status
+         WHEN 'DRAFT' THEN 0
+         WHEN 'SENT' THEN 1
+         WHEN 'VIEWED' THEN 2
+         WHEN 'SIGNED' THEN 3
+         ELSE 4
+       END,
+       updated_at DESC
+     LIMIT 1`,
+  );
+  stmt.bind([jobId]);
+  if (!stmt.step()) {
+    stmt.free();
+    db.run(`UPDATE jobs SET agreement_status = 'NONE', updated_at = datetime('now') WHERE id = ?`, [
+      jobId,
+    ]);
+    return;
+  }
+  const row = stmt.getAsObject() as { status: AgreementStatus };
+  stmt.free();
+  syncJobAgreementStatus(db, jobId, row.status);
+}
+
+const ACTIVE_AGREEMENT_SQL = `IFNULL(deleted_at, '') = '' AND IFNULL(archived_at, '') = ''`;
+const ACTIVE_AGREEMENT_ALIAS_SQL = `IFNULL(a.deleted_at, '') = '' AND IFNULL(a.archived_at, '') = ''`;
+
 function generateAccessToken(): string {
   return randomBytes(24).toString('hex');
 }
@@ -150,7 +196,7 @@ export function listAgreements(
   db: SqlDatabase,
   filter?: { status?: AgreementStatus | ''; search?: string },
 ): AgreementRow[] {
-  const clauses = [`IFNULL(a.deleted_at, '') = ''`];
+  const clauses = [ACTIVE_AGREEMENT_ALIAS_SQL];
   const params: string[] = [];
 
   if (filter?.status) {
@@ -250,11 +296,20 @@ export function getAgreement(db: SqlDatabase, agreementId: string): AgreementDet
     signedAt: row.signed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    archivedAt: row.archived_at,
+    supersededById: row.superseded_by_id,
+    revisesId: row.revises_id,
+    archivedInvoicePath: row.archived_invoice_path,
   });
 }
 
 function findByToken(db: SqlDatabase, token: string): AgreementDetail | null {
-  const stmt = db.prepare(`SELECT id FROM agreements WHERE access_token = ?`);
+  const stmt = db.prepare(
+    `SELECT id FROM agreements
+     WHERE access_token = ?
+       AND IFNULL(deleted_at, '') = ''
+       AND IFNULL(archived_at, '') = ''`,
+  );
   stmt.bind([token]);
   if (!stmt.step()) {
     stmt.free();
@@ -323,7 +378,7 @@ export function createAgreementFromJob(db: SqlDatabase, jobId: string): Agreemen
     `SELECT id FROM agreements
      WHERE job_id = ?
        AND status != 'CANCELLED'
-       AND IFNULL(deleted_at, '') = ''
+       AND ${ACTIVE_AGREEMENT_SQL}
      ORDER BY
        CASE status
          WHEN 'DRAFT' THEN 0
@@ -361,12 +416,15 @@ export function createAgreementFromJob(db: SqlDatabase, jobId: string): Agreemen
 }
 
 /**
- * Creates a new DRAFT agreement from a signed one so the client can change
- * inspection type / price. The original signed agreement is kept on file.
+ * Creates a new DRAFT agreement from a signed one. The signed agreement (and its
+ * invoice snapshot) are archived to the client Old / History folder.
  */
 export function createRevisedAgreement(db: SqlDatabase, signedAgreementId: string): AgreementDetail {
   const source = getAgreement(db, signedAgreementId);
   if (!source) throw new Error('Agreement not found.');
+  if (source.archivedAt) {
+    throw new Error('This agreement is already archived. Open the current revised agreement instead.');
+  }
   if (source.status !== 'SIGNED') {
     throw new Error('Only a signed agreement can be revised. Use Edit on a draft instead.');
   }
@@ -378,7 +436,7 @@ export function createRevisedAgreement(db: SqlDatabase, signedAgreementId: strin
        WHERE job_id = ?
          AND id != ?
          AND status IN ('DRAFT', 'SENT', 'VIEWED')
-         AND IFNULL(deleted_at, '') = ''
+         AND ${ACTIVE_AGREEMENT_SQL}
        ORDER BY updated_at DESC
        LIMIT 1`,
     );
@@ -393,7 +451,7 @@ export function createRevisedAgreement(db: SqlDatabase, signedAgreementId: strin
     active.free();
   }
 
-  const revisionNote = `Revised from ${source.agreementNumber}. Previous signed agreement kept on file.`;
+  const revisionNote = `Revised from ${source.agreementNumber}. Previous signed agreement moved to client Old / History.`;
   const combinedNotes = [revisionNote, source.notes?.trim()].filter(Boolean).join('\n\n');
 
   const revised = createAgreement(db, {
@@ -411,14 +469,94 @@ export function createRevisedAgreement(db: SqlDatabase, signedAgreementId: strin
     agentEmail: source.agentEmail ?? undefined,
   });
 
-  const supersedeNote = `Superseded by ${revised.agreementNumber} (revised agreement).`;
+  let invoicePath: string | null = null;
+  if (source.jobId) {
+    const inv = db.prepare(
+      `SELECT invoice_path AS invoicePath FROM jobs WHERE id = ? LIMIT 1`,
+    );
+    inv.bind([source.jobId]);
+    if (inv.step()) {
+      const row = inv.getAsObject() as { invoicePath?: string | null };
+      invoicePath = row.invoicePath ? String(row.invoicePath) : null;
+    }
+    inv.free();
+  }
+
+  const supersedeNote = `Archived — replaced by ${revised.agreementNumber}.`;
   const sourceNotes = [source.notes?.trim(), supersedeNote].filter(Boolean).join('\n\n');
-  db.run(`UPDATE agreements SET notes = ?, updated_at = datetime('now') WHERE id = ?`, [
-    sourceNotes,
-    source.id,
-  ]);
+
+  db.run(
+    `UPDATE agreements SET
+       notes = ?,
+       archived_at = datetime('now'),
+       superseded_by_id = ?,
+       archived_invoice_path = ?,
+       updated_at = datetime('now')
+     WHERE id = ?`,
+    [sourceNotes, revised.id, invoicePath, source.id],
+  );
+
+  db.run(
+    `UPDATE agreements SET revises_id = ?, updated_at = datetime('now') WHERE id = ?`,
+    [source.id, revised.id],
+  );
+
+  if (source.jobId) {
+    db.run(
+      `UPDATE jobs SET
+         invoice_path = NULL,
+         has_invoice = 0,
+         updated_at = datetime('now')
+       WHERE id = ?`,
+      [source.jobId],
+    );
+    recomputeJobAgreementStatus(db, source.jobId);
+  }
 
   return resolveAgreementAgentView(db, getAgreement(db, revised.id)!);
+}
+
+function restoreArchivedAgreementForRevision(
+  db: SqlDatabase,
+  archivedAgreementId: string,
+  jobId: string | null,
+) {
+  const stmt = db.prepare(
+    `SELECT id, archived_invoice_path AS archivedInvoicePath
+     FROM agreements
+     WHERE id = ?
+       AND IFNULL(archived_at, '') != ''
+       AND IFNULL(deleted_at, '') = ''
+     LIMIT 1`,
+  );
+  stmt.bind([archivedAgreementId]);
+  if (!stmt.step()) {
+    stmt.free();
+    return;
+  }
+  const row = stmt.getAsObject() as { id: string; archivedInvoicePath: string | null };
+  stmt.free();
+
+  db.run(
+    `UPDATE agreements SET
+       archived_at = NULL,
+       superseded_by_id = NULL,
+       updated_at = datetime('now')
+     WHERE id = ?`,
+    [archivedAgreementId],
+  );
+
+  if (jobId) {
+    const invoicePath = row.archivedInvoicePath ? String(row.archivedInvoicePath) : null;
+    db.run(
+      `UPDATE jobs SET
+         invoice_path = ?,
+         has_invoice = ?,
+         updated_at = datetime('now')
+       WHERE id = ?`,
+      [invoicePath, invoicePath ? 1 : 0, jobId],
+    );
+  }
 }
 
 function splitAgreementClientName(clientName: string): { firstName: string; lastName: string } {
@@ -437,6 +575,9 @@ export async function createJobFromSignedAgreement(
   if (!agreement) throw new Error('Agreement not found.');
   if (agreement.status !== 'SIGNED') {
     throw new Error('Only signed agreements can be converted to a job.');
+  }
+  if (agreement.archivedAt) {
+    throw new Error('Archived agreements cannot be converted to a job.');
   }
   if (agreement.jobId) {
     throw new Error('This agreement is already linked to a job.');
@@ -489,6 +630,7 @@ export function updateAgreement(
 ): AgreementDetail {
   const existing = getAgreement(db, agreementId);
   if (!existing) throw new Error('Agreement not found.');
+  if (existing.archivedAt) throw new Error('Archived agreements cannot be edited.');
   if (existing.status !== 'DRAFT') throw new Error('Only draft agreements can be edited.');
 
   const inspectionType = input.inspectionType ?? existing.inspectionType;
@@ -680,6 +822,9 @@ export function sendAgreement(db: SqlDatabase, agreementId: string): { signingUr
   if (agreement.status === 'SIGNED') {
     throw new Error('This agreement is already signed.');
   }
+  if (agreement.archivedAt) {
+    throw new Error('This agreement is archived.');
+  }
   if (!['DRAFT', 'SENT', 'VIEWED'].includes(agreement.status)) {
     throw new Error('This agreement cannot be sent.');
   }
@@ -852,35 +997,40 @@ export function cancelAgreement(db: SqlDatabase, agreementId: string): void {
   const agreement = getAgreement(db, agreementId);
   if (!agreement) throw new Error('Agreement not found.');
   if (agreement.status === 'SIGNED') throw new Error('Signed agreements cannot be cancelled.');
+  if (agreement.archivedAt) throw new Error('Archived agreements cannot be cancelled.');
   db.run(
     `UPDATE agreements SET status = 'CANCELLED', cancelled_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
     [agreementId],
   );
-  if (agreement.jobId) {
-    db.run(`UPDATE jobs SET agreement_status = 'NONE', updated_at = datetime('now') WHERE id = ?`, [
-      agreement.jobId,
-    ]);
-  }
+  recomputeJobAgreementStatus(db, agreement.jobId);
 }
 
 export function softDeleteAgreement(db: SqlDatabase, agreementId: string): void {
   const agreement = getAgreement(db, agreementId);
   if (!agreement) throw new Error('Agreement not found.');
+  if (agreement.archivedAt) {
+    throw new Error('Archived agreements stay in the client Old folder. Restore by deleting the revised draft instead.');
+  }
+
+  const canRestorePrevious =
+    Boolean(agreement.revisesId) &&
+    ['DRAFT', 'SENT', 'VIEWED', 'CANCELLED'].includes(agreement.status);
+
+  if (canRestorePrevious && agreement.revisesId) {
+    restoreArchivedAgreementForRevision(db, agreement.revisesId, agreement.jobId);
+  }
 
   db.run(
     `UPDATE agreements SET
        deleted_at = datetime('now'),
        deleted_reason = ?,
+       revises_id = NULL,
        updated_at = datetime('now')
      WHERE id = ?`,
     [`Removed from list (${agreement.status})`, agreementId],
   );
 
-  if (agreement.jobId) {
-    db.run(`UPDATE jobs SET agreement_status = 'NONE', updated_at = datetime('now') WHERE id = ?`, [
-      agreement.jobId,
-    ]);
-  }
+  recomputeJobAgreementStatus(db, agreement.jobId);
 }
 
 const DELETED_AGREEMENT_SELECT = `
@@ -951,7 +1101,10 @@ export function restoreAgreement(db: SqlDatabase, agreementId: string) {
 
 export function permanentlyDeleteAgreement(db: SqlDatabase, agreementId: string) {
   const stmt = db.prepare(
-    `SELECT pdf_path AS pdfPath FROM agreements WHERE id = ? AND IFNULL(deleted_at, '') != '' LIMIT 1`,
+    `SELECT pdf_path AS pdfPath
+     FROM agreements
+     WHERE id = ? AND IFNULL(deleted_at, '') != ''
+     LIMIT 1`,
   );
   stmt.bind([agreementId]);
   if (!stmt.step()) {
@@ -961,6 +1114,12 @@ export function permanentlyDeleteAgreement(db: SqlDatabase, agreementId: string)
   const row = stmt.getAsObject() as { pdfPath: string | null };
   stmt.free();
 
+  db.run(`UPDATE agreements SET superseded_by_id = NULL, updated_at = datetime('now') WHERE superseded_by_id = ?`, [
+    agreementId,
+  ]);
+  db.run(`UPDATE agreements SET revises_id = NULL, updated_at = datetime('now') WHERE revises_id = ?`, [
+    agreementId,
+  ]);
   db.run(`DELETE FROM agreements WHERE id = ?`, [agreementId]);
 
   if (row.pdfPath) {

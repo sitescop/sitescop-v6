@@ -234,8 +234,15 @@ function ensureJobColumns(db: SqlDatabase) {
 }
 
 function ensureUserColumns(db: SqlDatabase) {
-  if (!columnExists(db, 'users', 'mobile')) {
-    db.run(`ALTER TABLE users ADD COLUMN mobile TEXT`);
+  const alters: Array<[string, string]> = [
+    ['mobile', 'TEXT'],
+    ['password_reset_token_hash', 'TEXT'],
+    ['password_reset_expires_at', 'TEXT'],
+  ];
+  for (const [name, type] of alters) {
+    if (!columnExists(db, 'users', name)) {
+      db.run(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
+    }
   }
 }
 
@@ -249,6 +256,10 @@ function ensureAgreementColumns(db: SqlDatabase) {
     ['agent_email', 'TEXT'],
     ['signed_on_behalf_of', 'TEXT'],
     ['agent_authority_accepted', 'INTEGER NOT NULL DEFAULT 0'],
+    ['archived_at', 'TEXT'],
+    ['superseded_by_id', 'TEXT'],
+    ['revises_id', 'TEXT'],
+    ['archived_invoice_path', 'TEXT'],
   ];
   for (const [name, type] of alters) {
     if (!columnExists(db, 'agreements', name)) {
@@ -256,6 +267,7 @@ function ensureAgreementColumns(db: SqlDatabase) {
     }
   }
   db.run(`CREATE INDEX IF NOT EXISTS idx_agreements_deleted ON agreements(deleted_at)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_agreements_archived ON agreements(archived_at)`);
 }
 
 function backfillInspections(db: SqlDatabase) {

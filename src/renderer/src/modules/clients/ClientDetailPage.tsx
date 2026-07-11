@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  Archive,
   Briefcase,
   Building2,
   Copy,
@@ -18,7 +19,14 @@ import {
   X,
 } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { ClientDetailJob, ClientDetailJobAgreement, ClientDetailJobReport, UpdateClientAgentInput, UpdateClientInput } from '@shared/api-types';
+import type {
+  ClientArchivedAgreement,
+  ClientDetailJob,
+  ClientDetailJobAgreement,
+  ClientDetailJobReport,
+  UpdateClientAgentInput,
+  UpdateClientInput,
+} from '@shared/api-types';
 import { getClientsApi, getSitescopApi } from '@/lib/sitescop-api';
 import { formatDisplayDate } from '@/lib/dates';
 import { cn } from '@/lib/cn';
@@ -753,6 +761,22 @@ function JobDocuments({
     }
   }
 
+  async function emailInvoice() {
+    setDocError(null);
+    setCopyMessage(null);
+    setOpening('email-invoice');
+    try {
+      const result = await getSitescopApi().jobs.emailInvoice(job.id);
+      if (result.cancelled) return;
+      setCopyMessage(result.message);
+      await refreshClient();
+    } catch (error) {
+      setDocError(error instanceof Error ? error.message : 'Could not open invoice email');
+    } finally {
+      setOpening(null);
+    }
+  }
+
   async function copyBothReports() {
     const paths = job.reports.map((report) => report.filePath);
     if (paths.length < 2) return;
@@ -810,6 +834,17 @@ function JobDocuments({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-bold uppercase tracking-wider text-text-muted">Documents</p>
         <div className="flex flex-wrap gap-2">
+          {jobAgreements.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={opening === 'email-invoice'}
+              onClick={() => void emailInvoice()}
+            >
+              <Mail className="h-3.5 w-3.5" />
+              {opening === 'email-invoice' ? 'Opening…' : 'Email invoice'}
+            </Button>
+          )}
           {showCopyBothReports && (
             <Button
               variant="secondary"
@@ -1127,6 +1162,164 @@ export function ClientDetailPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <ClientOldHistoryFolder
+        items={client.archivedAgreements ?? []}
+        clientId={clientId}
+      />
+    </div>
+  );
+}
+
+function ClientOldHistoryFolder({
+  items,
+  clientId,
+}: {
+  items: ClientArchivedAgreement[];
+  clientId: string;
+}) {
+  const queryClient = useQueryClient();
+  const [opening, setOpening] = useState<string | null>(null);
+  const [copying, setCopying] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (items.length === 0) return null;
+
+  async function refresh() {
+    await queryClient.invalidateQueries({ queryKey: ['client', clientId] });
+  }
+
+  async function openAgreementPdf(agreementId: string) {
+    setError(null);
+    setMessage(null);
+    setOpening(`agr:${agreementId}`);
+    try {
+      await getClientsApi().openAgreementPdf(agreementId);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open agreement PDF');
+    } finally {
+      setOpening(null);
+    }
+  }
+
+  async function openInvoicePdf(path: string) {
+    setError(null);
+    setMessage(null);
+    setOpening(`inv:${path}`);
+    try {
+      await getSitescopApi().agreements.openPdf(path);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open invoice PDF');
+    } finally {
+      setOpening(null);
+    }
+  }
+
+  async function copyAgreementPdf(agreementId: string) {
+    setError(null);
+    setMessage(null);
+    setCopying(`agr:${agreementId}`);
+    try {
+      const result = await getClientsApi().copyAgreementPdf(agreementId);
+      setMessage(result.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not copy agreement PDF');
+    } finally {
+      setCopying(null);
+    }
+  }
+
+  return (
+    <div className="mt-6">
+      <div className="mb-3 flex items-center gap-2">
+        <Archive className="h-4 w-4 text-amber-700" />
+        <p className="text-base font-bold text-text">Old / History</p>
+        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-500/35">
+          {items.length}
+        </span>
+      </div>
+      <p className="mb-3 text-sm text-text-light">
+        Previous agreements, PDFs and invoices archived when a revised agreement was created. Delete
+        the revised draft to restore an item here back to the active job.
+      </p>
+
+      {message && (
+        <p className="mb-2 rounded-lg border border-success/30 bg-success/5 px-3 py-2 text-sm text-success">
+          {message}
+        </p>
+      )}
+      {error && (
+        <p className="mb-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {items.map((item) => (
+          <Card
+            key={item.id}
+            className="overflow-hidden border-amber-300/50 bg-gradient-to-br from-amber-50/80 to-white p-0 shadow-sm"
+          >
+            <div className="border-b border-amber-200/70 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link to={`/agreements/${item.id}`} className="font-bold text-amber-950 hover:underline">
+                  {item.agreementNumber}
+                </Link>
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-500/35">
+                  Old
+                </span>
+                <AgreementStatusBadge status={item.status} />
+                <span className="text-xs text-text-muted">
+                  {INSPECTION_TYPE_LABELS[item.inspectionType]}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-text-light">
+                {item.propertyAddress}
+                {item.jobNumber ? ` · ${item.jobNumber}` : ''}
+                {item.signedAt ? ` · Signed ${formatDisplayDate(item.signedAt.slice(0, 10))}` : ''}
+                {item.supersededByAgreementNumber
+                  ? ` · Replaced by ${item.supersededByAgreementNumber}`
+                  : ''}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 px-4 py-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={opening === `agr:${item.id}`}
+                onClick={() => void openAgreementPdf(item.id)}
+              >
+                <ScrollText className="h-3.5 w-3.5" />
+                {opening === `agr:${item.id}` ? 'Opening…' : 'Agreement PDF'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={copying === `agr:${item.id}`}
+                onClick={() => void copyAgreementPdf(item.id)}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {copying === `agr:${item.id}` ? '…' : 'Copy agreement'}
+              </Button>
+              {item.invoicePath ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={opening === `inv:${item.invoicePath}`}
+                  onClick={() => void openInvoicePdf(item.invoicePath!)}
+                >
+                  <Receipt className="h-3.5 w-3.5" />
+                  {opening === `inv:${item.invoicePath}` ? 'Opening…' : 'Old invoice PDF'}
+                </Button>
+              ) : (
+                <span className="self-center text-xs text-text-muted">No invoice on file</span>
+              )}
+            </div>
+          </Card>
+        ))}
       </div>
     </div>
   );

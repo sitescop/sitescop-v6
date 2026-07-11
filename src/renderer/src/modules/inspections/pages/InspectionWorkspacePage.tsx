@@ -173,6 +173,23 @@ export function InspectionWorkspacePage() {
     },
   });
 
+  const emailJobReportsMutation = useMutation({
+    mutationFn: () => getSitescopApi().reports.emailJobToClient(jobId),
+    onSuccess: (result) => {
+      if (result.cancelled) {
+        setEmailFeedback(null);
+        return;
+      }
+      setEmailFeedback({ type: 'success', text: result.message });
+    },
+    onError: (error) => {
+      setEmailFeedback({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not open email',
+      });
+    },
+  });
+
   if (isLoading) {
     return <LoadingOverlay message="Loading inspection workspace..." fullScreen={false} />;
   }
@@ -381,6 +398,24 @@ export function InspectionWorkspacePage() {
                   {copyingAll ? 'Copying…' : 'Copy both reports'}
                 </Button>
               )}
+              {formKind === 'COMBINED' && reports.length >= 2 && (
+                <Button
+                  title={reportDeliveryBlocked ? NOT_PAID_REPORT_MESSAGE : undefined}
+                  disabled={emailJobReportsMutation.isPending}
+                  onClick={() => {
+                    if (reportDeliveryBlocked) {
+                      setEmailFeedback({ type: 'error', text: NOT_PAID_REPORT_MESSAGE });
+                      return;
+                    }
+                    emailJobReportsMutation.mutate();
+                  }}
+                >
+                  <Mail className="h-4 w-4" />
+                  {emailJobReportsMutation.isPending
+                    ? 'Sending…'
+                    : 'Email both reports to client'}
+                </Button>
+              )}
             </div>
           </div>
           {reports.length > 0 && (
@@ -411,21 +446,23 @@ export function InspectionWorkspacePage() {
                       <Copy className="h-4 w-4" />
                       {copyingReportId === report.id ? 'Copying…' : 'Copy'}
                     </Button>
-                    <Button
-                      size="sm"
-                      title={reportDeliveryBlocked ? NOT_PAID_REPORT_MESSAGE : undefined}
-                      onClick={() => {
-                        if (reportDeliveryBlocked) {
-                          setEmailFeedback({ type: 'error', text: NOT_PAID_REPORT_MESSAGE });
-                          return;
-                        }
-                        emailReportMutation.mutate(report.id);
-                      }}
-                      disabled={emailReportMutation.isPending}
-                    >
-                      <Mail className="h-4 w-4" />
-                      Email to client
-                    </Button>
+                    {formKind !== 'COMBINED' && (
+                      <Button
+                        size="sm"
+                        title={reportDeliveryBlocked ? NOT_PAID_REPORT_MESSAGE : undefined}
+                        onClick={() => {
+                          if (reportDeliveryBlocked) {
+                            setEmailFeedback({ type: 'error', text: NOT_PAID_REPORT_MESSAGE });
+                            return;
+                          }
+                          emailReportMutation.mutate(report.id);
+                        }}
+                        disabled={emailReportMutation.isPending}
+                      >
+                        <Mail className="h-4 w-4" />
+                        Email to client
+                      </Button>
+                    )}
                   </div>
                 </li>
               ))}

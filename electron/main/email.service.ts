@@ -1,7 +1,8 @@
 import { BrowserWindow, clipboard, dialog, shell } from 'electron';
+import { basename } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Database as SqlDatabase } from 'sql.js';
-import type { SessionUser } from '../../shared/api-types.js';
+import type { ComposeEmailResult, EmailMailClient, SessionUser } from '../../shared/api-types.js';
 import {
   SITESCOP_COMPANY_EMAIL,
   SITESCOP_COMPANY_NAME,
@@ -9,14 +10,11 @@ import {
 } from '../../shared/company-branding.js';
 import { getAgreement } from './agreements.service.js';
 import { getActiveSigningUrl } from './github-agreements.service.js';
+import { assertJobPaidForReportDelivery } from './job-payment.service.js';
 import { getJobDetail } from './jobs.service.js';
-
-export interface ComposeEmailResult {
-  clientEmail: string;
-  method: 'zoho';
-  message: string;
-  cancelled?: boolean;
-}
+import { listReportsForJob } from './reports.service.js';
+import { getCompanySettings, getEmailSettings } from './settings.service.js';
+import { isSmtpSendReady, sendSmtpEmail } from './smtp.service.js';
 
 function firstValidClientEmail(...candidates: (string | undefined | null)[]): string | null {
   for (const candidate of candidates) {
@@ -29,88 +27,99 @@ function firstValidClientEmail(...candidates: (string | undefined | null)[]): st
   return null;
 }
 
-function reportEmailSubject(jobNumber: string): string {
-  return `Your Inspection Report — ${jobNumber}`;
+function applyTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
+    return vars[key] ?? '';
+  });
 }
 
-function reportEmailBody(params: {
-  clientName: string;
-  propertyAddress: string;
-  jobNumber: string;
-  inspectionNumber: string;
-  reportLabel: string;
-}): string {
-  const firstName = params.clientName.split(' ')[0] || 'Client';
-  return `Dear ${firstName},
-
-Your ${params.reportLabel.toLowerCase()} for ${params.propertyAddress} is ready.
-
-Job: ${params.jobNumber}
-Inspection: ${params.inspectionNumber}
-
-Please find the PDF report attached.
-
-If you have any questions, reply to this email or call us on ${SITESCOP_COMPANY_PHONE}.
-
-Kind regards,
-${SITESCOP_COMPANY_NAME}`;
+function brandVars(extra: Record<string, string> = {}): Record<string, string> {
+  const company = getCompanySettings();
+  const email = getEmailSettings();
+  const fromEmail = email.fromEmail.trim() || company.email || SITESCOP_COMPANY_EMAIL;
+  return {
+    companyName: company.name || SITESCOP_COMPANY_NAME,
+    companyPhone: company.phone || SITESCOP_COMPANY_PHONE,
+    fromEmail,
+    ...extra,
+  };
 }
 
-function generalEmailBody(clientName: string, jobNumber: string, propertyAddress: string): string {
-  const firstName = clientName.split(' ')[0] || 'Client';
-  return `Dear ${firstName},
-
-This is regarding your inspection at ${propertyAddress} (${jobNumber}).
-
-Kind regards,
-${SITESCOP_COMPANY_NAME}`;
+function firstNameFrom(clientName: string): string {
+  return clientName.trim().split(/\s+/)[0] || 'Client';
 }
 
-function appendPdfAttachmentNote(body: string, pdfPath: string): string {
+function appendPdfAttachmentNote(
+  body: string,
+  pdfPaths: string[],
+  mailClient: EmailMailClient,
+): string {
+  const appLabel =
+    mailClient === 'zoho' ? 'Zoho' : mailClient === 'outlook' ? 'Outlook' : 'your email app';
+  const paths = pdfPaths.filter((p) => existsSync(p));
+  if (paths.length === 0) return body;
   return `${body}
 
 ---
-Attach PDF: copy the path below, click Attach in Zoho, paste into the file box, then delete these lines before sending.
+Attach PDF${paths.length > 1 ? 's' : ''}: copy each path below, click Attach in ${appLabel}, paste into the file box, then delete these lines before sending.
 
-${pdfPath}`;
+${paths.join('\n')}`;
 }
 
-/**
- * Opens Zoho Mail compose in the browser — avoids Windows mailto: which launches Outlook first.
- * @see https://www.zoho.com/blog/general/make-zoho-mail-your-mail-client-in-firefox-3x.html
- */
+function normalizePdfPaths(options: { pdfPath?: string; pdfPaths?: string[] }): string[] {
+  const paths = [...(options.pdfPaths ?? [])];
+  if (options.pdfPath) paths.push(options.pdfPath);
+  return [...new Set(paths.filter((p) => Boolean(p) && existsSync(p)))];
+}
+
 function openZohoCompose(to: string, subject: string, body: string): void {
   const mailtoLink = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   const zohoUrl = `https://mail.zoho.com.au/mail/compose.do?extsrc=mailto&mode=compose&tp=zb&ct=${encodeURIComponent(mailtoLink)}`;
   void shell.openExternal(zohoUrl);
 }
 
+function openMailtoCompose(to: string, subject: string, body: string): void {
+  const mailtoLink = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  void shell.openExternal(mailtoLink);
+}
+
+function openCompose(mailClient: EmailMailClient, to: string, subject: string, body: string): void {
+  if (mailClient === 'zoho') {
+    openZohoCompose(to, subject, body);
+    return;
+  }
+  openMailtoCompose(to, subject, body);
+}
+
+function mailClientLabel(mailClient: EmailMailClient): string {
+  if (mailClient === 'zoho') return 'Zoho Mail';
+  if (mailClient === 'outlook') return 'Outlook / default mail';
+  return 'system mail';
+}
+
 function parentWindow(): BrowserWindow | undefined {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined;
 }
 
-async function promptAndOpenEmail(options: {
+async function sendViaSmtp(options: {
   clientEmail: string;
   subject: string;
   body: string;
   pdfPath?: string;
+  pdfPaths?: string[];
 }): Promise<ComposeEmailResult> {
-  const pdfSteps = options.pdfPath
-    ? `\n3. Copy the PDF path at the bottom of the email → Attach in Zoho → paste the path → delete those lines before sending.`
-    : '';
-
+  const pdfPaths = normalizePdfPaths(options);
   const parent = parentWindow();
+  const attachNote =
+    pdfPaths.length > 0
+      ? `\n\nAttachment${pdfPaths.length > 1 ? 's' : ''}: ${pdfPaths.map((p) => basename(p)).join(', ')}`
+      : '';
   const messageOptions: Electron.MessageBoxOptions = {
     type: 'info',
-    title: 'Send email to client (Zoho)',
-    message: `Client email: ${options.clientEmail}`,
-    detail: `Outlook will NOT open — SiteScop opens Zoho Mail directly.
-
-Steps:
-1. Click OK — Zoho Mail opens in your browser (log in if asked).
-2. Check the To field has the client email; if not, press Ctrl+V (copied to clipboard).
-${pdfSteps}`,
-    buttons: ['OK — open Zoho', 'Cancel'],
+    title: 'Send email via SMTP',
+    message: `Send to ${options.clientEmail}?`,
+    detail: `SiteScop will send this email directly using your SMTP settings.${attachNote}`,
+    buttons: ['Send', 'Cancel'],
     defaultId: 0,
     cancelId: 1,
   };
@@ -122,7 +131,80 @@ ${pdfSteps}`,
   if (response !== 0) {
     return {
       clientEmail: options.clientEmail,
-      method: 'zoho',
+      method: 'smtp',
+      message: '',
+      cancelled: true,
+    };
+  }
+
+  const attachments =
+    pdfPaths.length > 0
+      ? pdfPaths.map((path) => ({ filename: basename(path), path }))
+      : undefined;
+
+  await sendSmtpEmail({
+    to: options.clientEmail,
+    subject: options.subject,
+    text: options.body,
+    attachments,
+  });
+
+  return {
+    clientEmail: options.clientEmail,
+    method: 'smtp',
+    message: attachments
+      ? `Email sent to ${options.clientEmail} (${attachments.length} PDF${attachments.length > 1 ? 's' : ''} attached).`
+      : `Email sent to ${options.clientEmail}.`,
+  };
+}
+
+async function promptAndOpenEmail(options: {
+  clientEmail: string;
+  subject: string;
+  body: string;
+  pdfPath?: string;
+  pdfPaths?: string[];
+}): Promise<ComposeEmailResult> {
+  if (isSmtpSendReady()) {
+    return sendViaSmtp(options);
+  }
+
+  const emailSettings = getEmailSettings();
+  const mailClient = emailSettings.mailClient;
+  const label = mailClientLabel(mailClient);
+  const pdfPaths = normalizePdfPaths(options);
+
+  const pdfSteps =
+    pdfPaths.length > 0 && emailSettings.includePdfAttachTip
+      ? `\n3. Copy the PDF path${pdfPaths.length > 1 ? 's' : ''} at the bottom of the email → Attach in ${label} → paste → delete those lines before sending.`
+      : '';
+
+  const parent = parentWindow();
+  const messageOptions: Electron.MessageBoxOptions = {
+    type: 'info',
+    title: `Send email to client (${label})`,
+    message: `Client email: ${options.clientEmail}`,
+    detail: `SiteScop will open ${label} to compose this email.
+
+From / reply: ${emailSettings.fromEmail || SITESCOP_COMPANY_EMAIL}
+
+Steps:
+1. Click OK — ${label} opens.
+2. Check the To field has the client email; if not, press Ctrl+V (copied to clipboard).
+${pdfSteps}`,
+    buttons: [`OK — open ${mailClient === 'zoho' ? 'Zoho' : 'mail'}`, 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+  };
+
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, messageOptions)
+    : await dialog.showMessageBox(messageOptions);
+
+  if (response !== 0) {
+    return {
+      clientEmail: options.clientEmail,
+      method: mailClient,
       message: '',
       cancelled: true,
     };
@@ -130,25 +212,25 @@ ${pdfSteps}`,
 
   clipboard.writeText(options.clientEmail);
 
-  const emailBody =
-    options.pdfPath && existsSync(options.pdfPath)
-      ? appendPdfAttachmentNote(options.body, options.pdfPath)
-      : options.body;
+  let emailBody = options.body;
+  if (pdfPaths.length > 0 && emailSettings.includePdfAttachTip) {
+    emailBody = appendPdfAttachmentNote(options.body, pdfPaths, mailClient);
+  }
 
-  openZohoCompose(options.clientEmail, options.subject, emailBody);
+  openCompose(mailClient, options.clientEmail, options.subject, emailBody);
 
-  if (options.pdfPath && existsSync(options.pdfPath)) {
+  if (pdfPaths.length > 0 && emailSettings.includePdfAttachTip) {
     return {
       clientEmail: options.clientEmail,
-      method: 'zoho',
-      message: `Zoho opened (not Outlook). PDF path is at the bottom of the email — copy into Attach, then delete those lines.`,
+      method: mailClient,
+      message: `${label} opened. PDF path${pdfPaths.length > 1 ? 's are' : ' is'} at the bottom of the email — copy into Attach, then delete those lines.`,
     };
   }
 
   return {
     clientEmail: options.clientEmail,
-    method: 'zoho',
-    message: `Zoho opened (not Outlook). Client email copied — paste in To if needed (Ctrl+V).`,
+    method: mailClient,
+    message: `${label} opened. Client email copied — paste in To if needed (Ctrl+V).`,
   };
 }
 
@@ -213,11 +295,20 @@ export async function composeClientEmail(
   const job = getJobDetail(db, jobId);
   if (!job) throw new Error('Job not found');
 
+  const emailSettings = getEmailSettings();
   const clientEmail = resolveClientEmail(db, jobId, job.email);
-  const subject = `Inspection ${job.jobNumber}`;
-  const body = generalEmailBody(job.clientName, job.jobNumber, job.propertyAddress);
+  const vars = brandVars({
+    clientName: job.clientName,
+    firstName: firstNameFrom(job.clientName),
+    propertyAddress: job.propertyAddress,
+    jobNumber: job.jobNumber,
+  });
 
-  return promptAndOpenEmail({ clientEmail, subject, body });
+  return promptAndOpenEmail({
+    clientEmail,
+    subject: applyTemplate(emailSettings.generalSubject, vars),
+    body: applyTemplate(emailSettings.generalBody, vars),
+  });
 }
 
 export async function composeReportEmailToClient(
@@ -261,39 +352,85 @@ export async function composeReportEmailToClient(
   }
 
   const reportType = String(row.report_type);
-  const reportLabel = reportType === 'PEST' ? 'Pest inspection report' : 'Building inspection report';
-  const subject = reportEmailSubject(String(row.job_number));
-  const body = reportEmailBody({
+  const reportLabel =
+    reportType === 'PEST' ? 'pest inspection report' : 'building inspection report';
+  const emailSettings = getEmailSettings();
+  const vars = brandVars({
     clientName: String(row.client_name),
+    firstName: firstNameFrom(String(row.client_name)),
     propertyAddress: String(row.property_address),
     jobNumber: String(row.job_number),
     inspectionNumber: String(row.inspection_number),
     reportLabel,
   });
 
-  return promptAndOpenEmail({ clientEmail, subject, body, pdfPath: filePath });
+  return promptAndOpenEmail({
+    clientEmail,
+    subject: applyTemplate(emailSettings.reportSubject, vars),
+    body: applyTemplate(emailSettings.reportBody, vars),
+    pdfPath: filePath,
+  });
 }
 
-function agreementSigningEmailBody(params: {
-  clientName: string;
-  propertyAddress: string;
-  agreementNumber: string;
-  signingUrl: string;
-}): string {
-  const firstName = params.clientName.split(' ')[0] || 'Client';
-  return `Dear ${firstName},
+export async function composeJobReportsEmailToClient(
+  db: SqlDatabase,
+  jobId: string,
+  user: SessionUser,
+): Promise<ComposeEmailResult> {
+  void user;
 
-Please review and sign your inspection agreement for ${params.propertyAddress}.
+  const reports = listReportsForJob(db, jobId);
+  if (reports.length === 0) {
+    throw new Error('No reports found. Generate PDFs first.');
+  }
 
-Agreement: ${params.agreementNumber}
+  assertJobPaidForReportDelivery(db, jobId);
 
-Sign here:
-${params.signingUrl}
+  const job = getJobDetail(db, jobId);
+  if (!job) throw new Error('Job not found');
 
-If you have any questions before signing, reply to this email or call us on ${SITESCOP_COMPANY_PHONE}.
+  const clientEmail = resolveClientEmail(db, jobId, job.email);
+  const pdfPaths = reports.map((r) => r.filePath).filter((p) => existsSync(p));
+  if (pdfPaths.length === 0) {
+    throw new Error('PDF files not found. Regenerate the reports first.');
+  }
+  if (pdfPaths.length < reports.length) {
+    throw new Error('One or more PDF files are missing. Regenerate the reports first.');
+  }
 
-Kind regards,
-${SITESCOP_COMPANY_NAME}`;
+  const types = new Set(reports.map((r) => r.reportType));
+  const reportLabel =
+    types.has('BUILDING') && types.has('PEST')
+      ? 'building and pest inspection reports'
+      : types.has('PEST')
+        ? 'pest inspection report'
+        : 'building inspection report';
+
+  const insp = db.prepare(
+    `SELECT inspection_number AS inspectionNumber FROM inspections WHERE job_id = ? LIMIT 1`,
+  );
+  insp.bind([jobId]);
+  const inspectionNumber = insp.step()
+    ? String((insp.getAsObject() as { inspectionNumber: string }).inspectionNumber)
+    : job.jobNumber;
+  insp.free();
+
+  const emailSettings = getEmailSettings();
+  const vars = brandVars({
+    clientName: job.clientName,
+    firstName: firstNameFrom(job.clientName),
+    propertyAddress: job.propertyAddress,
+    jobNumber: job.jobNumber,
+    inspectionNumber,
+    reportLabel,
+  });
+
+  return promptAndOpenEmail({
+    clientEmail,
+    subject: applyTemplate(emailSettings.reportSubject, vars),
+    body: applyTemplate(emailSettings.reportBody, vars),
+    pdfPaths,
+  });
 }
 
 export async function composeAgreementSigningEmail(
@@ -316,13 +453,85 @@ export async function composeAgreementSigningEmail(
   }
 
   const { url: signingUrl } = getActiveSigningUrl(agreement.accessToken);
-  const subject = `Please sign your inspection agreement — ${agreement.agreementNumber}`;
-  const body = agreementSigningEmailBody({
+  const emailSettings = getEmailSettings();
+  const vars = brandVars({
     clientName: agreement.clientName,
+    firstName: firstNameFrom(agreement.clientName),
     propertyAddress: agreement.propertyAddress,
     agreementNumber: agreement.agreementNumber,
     signingUrl,
+    jobNumber: agreement.jobNumber ?? '',
   });
 
-  return promptAndOpenEmail({ clientEmail, subject, body });
+  return promptAndOpenEmail({
+    clientEmail,
+    subject: applyTemplate(emailSettings.signingSubject, vars),
+    body: applyTemplate(emailSettings.signingBody, vars),
+  });
+}
+
+export async function composeInvoiceEmailForJob(
+  db: SqlDatabase,
+  jobId: string,
+  _user: SessionUser,
+): Promise<ComposeEmailResult> {
+  const job = getJobDetail(db, jobId);
+  if (!job) throw new Error('Job not found');
+
+  const clientEmail = resolveClientEmail(db, jobId, job.email);
+  const emailSettings = getEmailSettings();
+
+  let invoicePath: string | null = null;
+  let agreementNumber = job.jobNumber;
+  const inv = db.prepare(
+    `SELECT invoice_path AS invoicePath, has_invoice AS hasInvoice FROM jobs WHERE id = ? LIMIT 1`,
+  );
+  inv.bind([jobId]);
+  if (inv.step()) {
+    const row = inv.getAsObject() as { invoicePath?: string | null; hasInvoice?: number };
+    if (row.hasInvoice && row.invoicePath) {
+      invoicePath = String(row.invoicePath);
+    }
+  }
+  inv.free();
+
+  const agr = db.prepare(
+    `SELECT agreement_number AS agreementNumber
+     FROM agreements
+     WHERE job_id = ?
+       AND status != 'CANCELLED'
+       AND IFNULL(deleted_at, '') = ''
+       AND IFNULL(archived_at, '') = ''
+     ORDER BY
+       CASE status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
+       updated_at DESC
+     LIMIT 1`,
+  );
+  agr.bind([jobId]);
+  if (agr.step()) {
+    agreementNumber = String((agr.getAsObject() as { agreementNumber: string }).agreementNumber);
+  }
+  agr.free();
+
+  if (!invoicePath || !existsSync(invoicePath)) {
+    const { generateInvoicePdfForJob } = await import('./invoices.service.js');
+    invoicePath = await generateInvoicePdfForJob(db, jobId);
+  }
+
+  const invoiceNumber = `INV-${agreementNumber}`;
+  const vars = brandVars({
+    clientName: job.clientName,
+    firstName: firstNameFrom(job.clientName),
+    propertyAddress: job.propertyAddress,
+    jobNumber: job.jobNumber,
+    invoiceNumber,
+    agreementNumber,
+  });
+
+  return promptAndOpenEmail({
+    clientEmail,
+    subject: applyTemplate(emailSettings.invoiceSubject, vars),
+    body: applyTemplate(emailSettings.invoiceBody, vars),
+    pdfPath: invoicePath,
+  });
 }

@@ -20,6 +20,10 @@ import {
 import type {
   CompanySettings,
   CompanySettingsInput,
+  EmailMailClient,
+  EmailSettings,
+  EmailSettingsInput,
+  SmtpEncryption,
   GitHubSettingsInput,
   GitHubSettingsPublic,
   BillingSettings,
@@ -55,6 +59,10 @@ interface StoredSettingsFile {
   company?: Partial<CompanySettings>;
   report?: Partial<ReportSettings>;
   billing?: Partial<BillingSettings>;
+  email?: Partial<EmailSettings> & {
+    encryptedSmtpPassword?: string;
+    smtpPassword?: string;
+  };
   branding?: {
     logoFileName?: string;
   };
@@ -100,7 +108,92 @@ export const DEFAULT_BILLING: BillingSettings = {
   bankAccountNumber: '',
   invoicePaymentTerms: 'Payment is due within 7 days of the invoice date.',
   invoicePaymentNotes: 'Please use the invoice number as your payment reference.',
+  invoiceThankYouMessage: 'Thank you for choosing SiteScop. We appreciate your business.',
 };
+
+export const DEFAULT_EMAIL: EmailSettings = {
+  mailClient: 'zoho',
+  fromEmail: SITESCOP_COMPANY_EMAIL,
+  includePdfAttachTip: true,
+  signingSubject: 'Please sign your inspection agreement — {{agreementNumber}}',
+  signingBody: `Dear {{firstName}},
+
+Please review and sign your inspection agreement for {{propertyAddress}}.
+
+Agreement: {{agreementNumber}}
+
+Sign here:
+{{signingUrl}}
+
+If you have any questions before signing, reply to this email or call us on {{companyPhone}}.
+
+Kind regards,
+{{companyName}}
+{{fromEmail}}`,
+  reportSubject: 'Your Inspection Report — {{jobNumber}}',
+  reportBody: `Dear {{firstName}},
+
+Your {{reportLabel}} for {{propertyAddress}} is ready.
+
+Job: {{jobNumber}}
+Inspection: {{inspectionNumber}}
+
+Please find the PDF report attached.
+
+If you have any questions, reply to this email or call us on {{companyPhone}}.
+
+Kind regards,
+{{companyName}}
+{{fromEmail}}`,
+  generalSubject: 'Inspection {{jobNumber}}',
+  generalBody: `Dear {{firstName}},
+
+This is regarding your inspection at {{propertyAddress}} ({{jobNumber}}).
+
+Kind regards,
+{{companyName}}
+{{fromEmail}}`,
+  invoiceSubject: 'Tax Invoice {{invoiceNumber}} — {{propertyAddress}}',
+  invoiceBody: `Dear {{firstName}},
+
+Please find your tax invoice for the inspection at {{propertyAddress}}.
+
+Invoice: {{invoiceNumber}}
+Job: {{jobNumber}}
+
+If you have already paid, thank you. Otherwise please use the payment details on the invoice.
+
+Kind regards,
+{{companyName}}
+{{fromEmail}}`,
+  smtpEnabled: false,
+  smtpHost: 'smtp.zoho.com.au',
+  smtpPort: 465,
+  smtpEncryption: 'ssl',
+  smtpUsername: '',
+  hasSmtpPassword: false,
+  senderName: SITESCOP_COMPANY_NAME,
+  senderEmail: SITESCOP_COMPANY_EMAIL,
+  replyToEmail: '',
+};
+
+function normalizeMailClient(value: unknown): EmailMailClient {
+  if (value === 'outlook' || value === 'system' || value === 'zoho') return value;
+  return DEFAULT_EMAIL.mailClient;
+}
+
+function normalizeSmtpEncryption(value: unknown): SmtpEncryption {
+  if (value === 'ssl' || value === 'tls' || value === 'none') return value;
+  return DEFAULT_EMAIL.smtpEncryption;
+}
+
+function normalizeSmtpPort(value: unknown, encryption: SmtpEncryption): number {
+  const port = Number(value);
+  if (Number.isFinite(port) && port > 0 && port < 65536) return Math.round(port);
+  if (encryption === 'ssl') return 465;
+  if (encryption === 'tls') return 587;
+  return 25;
+}
 
 function normalizePriceCents(value: unknown, fallback: number): number {
   const cents = Number(value);
@@ -286,6 +379,8 @@ export function getBillingSettings(): BillingSettings {
     bankAccountNumber: raw.bankAccountNumber?.trim() ?? DEFAULT_BILLING.bankAccountNumber,
     invoicePaymentTerms: raw.invoicePaymentTerms?.trim() || DEFAULT_BILLING.invoicePaymentTerms,
     invoicePaymentNotes: raw.invoicePaymentNotes?.trim() || DEFAULT_BILLING.invoicePaymentNotes,
+    invoiceThankYouMessage:
+      raw.invoiceThankYouMessage?.trim() || DEFAULT_BILLING.invoiceThankYouMessage,
   };
 }
 
@@ -299,11 +394,92 @@ export function saveBillingSettings(input: BillingSettingsInput): BillingSetting
     bankAccountNumber: input.bankAccountNumber.trim(),
     invoicePaymentTerms: input.invoicePaymentTerms.trim() || DEFAULT_BILLING.invoicePaymentTerms,
     invoicePaymentNotes: input.invoicePaymentNotes.trim() || DEFAULT_BILLING.invoicePaymentNotes,
+    invoiceThankYouMessage:
+      input.invoiceThankYouMessage.trim() || DEFAULT_BILLING.invoiceThankYouMessage,
   };
   const raw = loadRaw();
   raw.billing = next;
   saveRaw(raw);
   return next;
+}
+
+export function getEmailSettings(): EmailSettings {
+  const raw = loadRaw().email ?? {};
+  const encryption = normalizeSmtpEncryption(raw.smtpEncryption);
+  const hasSmtpPassword = Boolean(
+    raw.encryptedSmtpPassword || (typeof raw.smtpPassword === 'string' && raw.smtpPassword.trim()),
+  );
+  return {
+    mailClient: normalizeMailClient(raw.mailClient),
+    fromEmail: raw.fromEmail?.trim() || DEFAULT_EMAIL.fromEmail,
+    includePdfAttachTip:
+      typeof raw.includePdfAttachTip === 'boolean'
+        ? raw.includePdfAttachTip
+        : DEFAULT_EMAIL.includePdfAttachTip,
+    signingSubject: raw.signingSubject?.trim() || DEFAULT_EMAIL.signingSubject,
+    signingBody: raw.signingBody?.trim() || DEFAULT_EMAIL.signingBody,
+    reportSubject: raw.reportSubject?.trim() || DEFAULT_EMAIL.reportSubject,
+    reportBody: raw.reportBody?.trim() || DEFAULT_EMAIL.reportBody,
+    generalSubject: raw.generalSubject?.trim() || DEFAULT_EMAIL.generalSubject,
+    generalBody: raw.generalBody?.trim() || DEFAULT_EMAIL.generalBody,
+    invoiceSubject: raw.invoiceSubject?.trim() || DEFAULT_EMAIL.invoiceSubject,
+    invoiceBody: raw.invoiceBody?.trim() || DEFAULT_EMAIL.invoiceBody,
+    smtpEnabled: Boolean(raw.smtpEnabled),
+    smtpHost: raw.smtpHost?.trim() || DEFAULT_EMAIL.smtpHost,
+    smtpPort: normalizeSmtpPort(raw.smtpPort, encryption),
+    smtpEncryption: encryption,
+    smtpUsername: raw.smtpUsername?.trim() || '',
+    hasSmtpPassword,
+    senderName: raw.senderName?.trim() || DEFAULT_EMAIL.senderName,
+    senderEmail: raw.senderEmail?.trim() || DEFAULT_EMAIL.senderEmail,
+    replyToEmail: raw.replyToEmail?.trim() || '',
+  };
+}
+
+export function getSmtpPassword(): string {
+  const raw = loadRaw().email ?? {};
+  if (raw.encryptedSmtpPassword) return decryptSecret(raw.encryptedSmtpPassword);
+  return raw.smtpPassword?.trim() || '';
+}
+
+export function saveEmailSettings(input: EmailSettingsInput): EmailSettings {
+  const existing = loadRaw().email ?? {};
+  const encryption = normalizeSmtpEncryption(input.smtpEncryption);
+  const incomingPassword = input.smtpPassword?.trim() || '';
+  let encryptedSmtpPassword = existing.encryptedSmtpPassword || '';
+  if (incomingPassword) {
+    encryptedSmtpPassword = encryptSecret(incomingPassword);
+  } else if (existing.smtpPassword && !encryptedSmtpPassword) {
+    encryptedSmtpPassword = encryptSecret(existing.smtpPassword.trim());
+  }
+
+  const stored = {
+    mailClient: normalizeMailClient(input.mailClient),
+    fromEmail: input.fromEmail.trim() || DEFAULT_EMAIL.fromEmail,
+    includePdfAttachTip: Boolean(input.includePdfAttachTip),
+    signingSubject: input.signingSubject.trim() || DEFAULT_EMAIL.signingSubject,
+    signingBody: input.signingBody.trim() || DEFAULT_EMAIL.signingBody,
+    reportSubject: input.reportSubject.trim() || DEFAULT_EMAIL.reportSubject,
+    reportBody: input.reportBody.trim() || DEFAULT_EMAIL.reportBody,
+    generalSubject: input.generalSubject.trim() || DEFAULT_EMAIL.generalSubject,
+    generalBody: input.generalBody.trim() || DEFAULT_EMAIL.generalBody,
+    invoiceSubject: input.invoiceSubject.trim() || DEFAULT_EMAIL.invoiceSubject,
+    invoiceBody: input.invoiceBody.trim() || DEFAULT_EMAIL.invoiceBody,
+    smtpEnabled: Boolean(input.smtpEnabled),
+    smtpHost: input.smtpHost.trim() || DEFAULT_EMAIL.smtpHost,
+    smtpPort: normalizeSmtpPort(input.smtpPort, encryption),
+    smtpEncryption: encryption,
+    smtpUsername: input.smtpUsername.trim(),
+    encryptedSmtpPassword,
+    senderName: input.senderName.trim() || DEFAULT_EMAIL.senderName,
+    senderEmail: input.senderEmail.trim() || DEFAULT_EMAIL.senderEmail,
+    replyToEmail: input.replyToEmail.trim(),
+  };
+
+  const raw = loadRaw();
+  raw.email = stored;
+  saveRaw(raw);
+  return getEmailSettings();
 }
 
 export function getDefaultInspectionPriceCents(inspectionType: InspectionType): number {

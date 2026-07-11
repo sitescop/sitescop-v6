@@ -42,6 +42,8 @@ if not exist "node_modules\" (
 
 echo.
 echo Starting SiteScop V6...
+echo  - Closing any old SiteScop windows first (needed after updates)
+echo  - Building latest desktop bridge
 echo  - First launch can take 30-60 seconds
 echo  - Look for the desktop window titled SiteScop V6
 echo  - DO NOT use Chrome or Edge - use the desktop app window
@@ -49,6 +51,17 @@ echo  - Keep THIS window open while SiteScop is running
 echo.
 echo If nothing opens, run REPAIR-SITESCOP.bat then try again.
 echo.
+
+REM Preload/API updates only load after a full restart of Electron.
+taskkill /F /IM electron.exe >nul 2>&1
+
+echo Building latest desktop bridge...
+call npm run build
+if errorlevel 1 (
+  echo Build failed. Fix errors then try again.
+  pause
+  exit /b 1
+)
 
 call npm run dev
 set EXITCODE=%ERRORLEVEL%
