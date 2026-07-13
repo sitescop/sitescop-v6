@@ -1,18 +1,25 @@
 import { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { useAuthStore } from './auth-store';
+import {
+  clearLoginCredentials,
+  getInitialLoginFormState,
+  saveLoginCredentials,
+} from './login-credentials-storage';
 import { Button } from '@/design-system/components/Button';
 import { Input } from '@/design-system/components/Input';
 import { getSitescopApi } from '@/lib/sitescop-api';
 
 type LoginView = 'login' | 'forgot' | 'reset';
 
+const initialLoginForm = getInitialLoginFormState();
+
 export function LoginPage() {
   const setUser = useAuthStore((s) => s.setUser);
   const [view, setView] = useState<LoginView>('login');
-  const [email, setEmail] = useState('inspector@sitescop.com.au');
-  const [password, setPassword] = useState('SiteScop2026!');
-  const [remember, setRemember] = useState(true);
+  const [email, setEmail] = useState(initialLoginForm.email);
+  const [password, setPassword] = useState(initialLoginForm.password);
+  const [remember, setRemember] = useState(initialLoginForm.remember);
   const [resetToken, setResetToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -30,6 +37,11 @@ export function LoginPage() {
       if (!result.success || !result.user) {
         setError(result.error ?? 'Login failed.');
         return;
+      }
+      if (remember) {
+        saveLoginCredentials({ email, password });
+      } else {
+        clearLoginCredentials();
       }
       setUser(result.user);
     } finally {
@@ -71,7 +83,10 @@ export function LoginPage() {
         setError(result.message);
         return;
       }
+      clearLoginCredentials();
+      setEmail('');
       setPassword('');
+      setRemember(false);
       setResetToken('');
       setNewPassword('');
       setConfirmPassword('');
@@ -83,7 +98,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sidebar via-primary-dark to-secondary p-6">
+    <div className="flex min-h-[calc(100vh-2.5rem)] items-center justify-center bg-gradient-to-br from-sidebar via-primary-dark to-secondary p-6">
       <div className="w-full max-w-md rounded-lg bg-surface p-8 shadow-elevated">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10">
@@ -106,6 +121,7 @@ export function LoginPage() {
             <Input
               label="Password"
               type="password"
+              revealable
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -198,6 +214,7 @@ export function LoginPage() {
             <Input
               label="New password"
               type="password"
+              revealable
               autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
@@ -206,6 +223,7 @@ export function LoginPage() {
             <Input
               label="Confirm new password"
               type="password"
+              revealable
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}

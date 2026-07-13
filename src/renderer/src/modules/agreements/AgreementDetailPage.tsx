@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Copy,
@@ -28,7 +28,11 @@ import { formatDisplayDate } from '@/lib/dates';
 export function AgreementDetailPage() {
   const { agreementId = '' } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
+  const contactUpdated = Boolean(
+    (location.state as { contactUpdated?: boolean } | null)?.contactUpdated,
+  );
   const [signingUrl, setSigningUrl] = useState('');
   const [signingMode, setSigningMode] = useState<'github' | 'local'>('local');
   const [copyMessage, setCopyMessage] = useState('');
@@ -196,10 +200,13 @@ export function AgreementDetailPage() {
     setRepublishing(true);
     setUploadError(null);
     try {
-      await getSitescopApi().agreements.republishToGitHub(agreementId);
+      const result = await getSitescopApi().agreements.republishToGitHub(agreementId);
       invalidate();
-      setCopyMessage('Cloud signing page updated. Ask the client to hard-refresh the link (Ctrl+F5).');
-      setTimeout(() => setCopyMessage(''), 6000);
+      setCopyMessage(
+        result?.message ||
+          'Cloud signing page updated. Ask the client to hard-refresh the link (Ctrl+F5).',
+      );
+      setTimeout(() => setCopyMessage(''), 8000);
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : 'Could not update the cloud signing page.');
     } finally {
@@ -375,6 +382,8 @@ export function AgreementDetailPage() {
 
   const canSend = ['DRAFT', 'SENT', 'VIEWED'].includes(agreement.status) && !agreement.archivedAt;
   const canEdit = agreement.status === 'DRAFT' && !agreement.archivedAt;
+  const canEditContact =
+    (agreement.status === 'SENT' || agreement.status === 'VIEWED') && !agreement.archivedAt;
   const canRevise = agreement.status === 'SIGNED' && !agreement.archivedAt;
   const canCancel = agreement.status !== 'SIGNED' && agreement.status !== 'CANCELLED' && !agreement.archivedAt;
   const canCreateJob = agreement.status === 'SIGNED' && !agreement.jobId && !agreement.archivedAt;
@@ -425,6 +434,11 @@ export function AgreementDetailPage() {
           {canEdit && (
             <Button variant="secondary" onClick={() => navigate(`/agreements/${agreement.id}/edit`)}>
               Edit
+            </Button>
+          )}
+          {canEditContact && (
+            <Button variant="secondary" onClick={() => navigate(`/agreements/${agreement.id}/edit`)}>
+              Edit contact
             </Button>
           )}
           {canRevise && (
@@ -527,13 +541,24 @@ export function AgreementDetailPage() {
         </div>
       </div>
 
+      {contactUpdated && canUseSigningActions && (
+        <Card className="mb-6 border-success/30 bg-success/10 p-4">
+          <p className="font-semibold text-success">Contact details saved</p>
+          <p className="mt-1 text-sm text-text-light">
+            Click <strong>Resend to client</strong> below so the signing email goes to the corrected
+            address.
+          </p>
+        </Card>
+      )}
+
       {canUseSigningActions && (
         <Card className="mb-6 space-y-4 border-primary/20 bg-gradient-to-br from-primary/[0.04] to-surface p-6">
           <div>
             <h3 className="text-lg font-bold text-text">Signing</h3>
             <p className="mt-1 text-sm text-text-light">
-              Send the link by email, copy it for SMS, or open it here so the client can sign on this
-              device.
+              {agreement.status === 'DRAFT'
+                ? 'Send the link by email, copy it for SMS, or open it here so the client can sign on this device.'
+                : 'Clients can open the link and Sign & submit anytime — even if SiteScop is closed. Open SiteScop later to sync Signed status. Wrong email? Use Edit contact, then Resend.'}
             </p>
           </div>
 
@@ -543,7 +568,11 @@ export function AgreementDetailPage() {
               disabled={signingBusy}
             >
               <Send className="h-4 w-4" />
-              {signingBusy && !openingOnDevice ? 'Preparing…' : 'Send to client'}
+              {signingBusy && !openingOnDevice
+                ? 'Preparing…'
+                : agreement.status === 'DRAFT'
+                  ? 'Send to client'
+                  : 'Resend to client'}
             </Button>
             <Button
               variant="secondary"

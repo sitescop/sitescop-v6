@@ -5,6 +5,11 @@ export const ROOM_ENGINE_VERSION = '5.0.0';
 export interface InspectionPhotoRef {
   id: string;
   dataUrl: string;
+  /**
+   * Unedited photo kept so “Reset to original” can restore after annotation.
+   * Set on the first Edit → Save; later saves keep this value.
+   */
+  originalDataUrl?: string;
   caption?: string;
   createdAt: string;
 }
@@ -25,6 +30,7 @@ export interface JobInformationSection extends SectionBase {
   clientType: string;
   agencyName: string;
   agentName: string;
+  agentPhone: string;
   agentMobile: string;
   agentEmail: string;
   clientName: string;
@@ -50,22 +56,29 @@ export interface JobInformationSection extends SectionBase {
 export interface ServicesSection extends SectionBase {
   waterSupply: CheckboxFieldState;
   waterSupplyOther: string;
+  waterSupplyPhotos: InspectionPhotoRef[];
   sewer: CheckboxFieldState;
   sewerOther: string;
+  sewerPhotos: InspectionPhotoRef[];
   electricity: CheckboxFieldState;
   electricityOther: string;
+  electricityPhotos: InspectionPhotoRef[];
   gas: CheckboxFieldState;
   gasOther: string;
+  gasPhotos: InspectionPhotoRef[];
   hotWaterPresent: string;
   hotWaterLocation: string;
   hotWaterType: CheckboxFieldState;
   hotWaterTypeOther: string;
   hotWaterOperating: string;
   hotWaterPhotos: InspectionPhotoRef[];
+  hotWaterComments: string;
   airConPresent: string;
   airConType: CheckboxFieldState;
   airConTypeOther: string;
   airConOperating: string;
+  airConPhotos: InspectionPhotoRef[];
+  airConComments: string;
   gasBottlePhotos: InspectionPhotoRef[];
   rainwaterTankPresent: string;
   rainwaterTankPhotos: InspectionPhotoRef[];
@@ -487,6 +500,7 @@ export interface PrefillJobContext {
   clientPhone: string;
   agentName: string;
   agentPhone: string;
+  agentMobile: string;
   agentEmail: string;
   agencyName: string;
   clientType: string;

@@ -38,6 +38,7 @@ import {
   calculatePricingFromExCents,
   gstPricePairFromExCents,
 } from '../../shared/gst-pricing.js';
+import { assertCompletePropertyAddress } from './property-address.js';
 import { createJob, getJobDetail } from './jobs.service.js';
 
 function calculatePricing(priceCents: number) {
@@ -328,6 +329,7 @@ export function createAgreement(db: SqlDatabase, input: CreateAgreementInput): A
   const legalSections = loadLegalSectionsForType(input.inspectionType);
   const agreementDate = input.agreementDate ?? new Date().toISOString().slice(0, 10);
   const agentFields = resolveCreateAgentFields(db, input);
+  const propertyAddress = assertCompletePropertyAddress(input.propertyAddress);
 
   db.run(
     `INSERT INTO agreements (
@@ -348,7 +350,7 @@ export function createAgreement(db: SqlDatabase, input: CreateAgreementInput): A
       input.clientName.trim(),
       input.clientEmail.trim().toLowerCase(),
       input.clientPhone?.trim() || null,
-      input.propertyAddress.trim(),
+      propertyAddress,
       priceCents,
       gstCents,
       totalCents,
@@ -631,7 +633,14 @@ export function updateAgreement(
   const existing = getAgreement(db, agreementId);
   if (!existing) throw new Error('Agreement not found.');
   if (existing.archivedAt) throw new Error('Archived agreements cannot be edited.');
-  if (existing.status !== 'DRAFT') throw new Error('Only draft agreements can be edited.');
+
+  if (existing.status === 'SENT' || existing.status === 'VIEWED') {
+    return updateSentAgreementContact(db, existing, input);
+  }
+
+  if (existing.status !== 'DRAFT') {
+    throw new Error('Only draft agreements can be fully edited. Sent agreements allow contact details only.');
+  }
 
   const inspectionType = input.inspectionType ?? existing.inspectionType;
   const priceCents = input.priceCents ?? existing.priceCents;
@@ -646,6 +655,9 @@ export function updateAgreement(
   const agentName = input.agentName !== undefined ? input.agentName?.trim() || null : existing.agentName;
   const agentEmail =
     input.agentEmail !== undefined ? input.agentEmail?.trim().toLowerCase() || null : existing.agentEmail;
+  const propertyAddress = assertCompletePropertyAddress(
+    (input.propertyAddress ?? existing.propertyAddress).trim(),
+  );
 
   db.run(
     `UPDATE agreements SET
@@ -675,7 +687,7 @@ export function updateAgreement(
       (input.clientName ?? existing.clientName).trim(),
       (input.clientEmail ?? existing.clientEmail).trim().toLowerCase(),
       input.clientPhone !== undefined ? input.clientPhone?.trim() || null : existing.clientPhone,
-      (input.propertyAddress ?? existing.propertyAddress).trim(),
+      propertyAddress,
       priceCents,
       gstCents,
       totalCents,
@@ -688,6 +700,87 @@ export function updateAgreement(
 
   syncAgentDetailsFromJob(db, agreementId);
   return resolveAgreementAgentView(db, getAgreement(db, agreementId)!);
+}
+
+/** Fix wrong email / phone / name on a sent agreement, then resend from the detail page. */
+function updateSentAgreementContact(
+  db: SqlDatabase,
+  existing: AgreementDetail,
+  input: UpdateAgreementInput,
+): AgreementDetail {
+  const lockedChanges: string[] = [];
+  if (input.inspectionType !== undefined && input.inspectionType !== existing.inspectionType) {
+    lockedChanges.push('inspection type');
+  }
+  if (input.priceCents !== undefined && input.priceCents !== existing.priceCents) {
+    lockedChanges.push('price');
+  }
+  if (
+    input.propertyAddress !== undefined &&
+    input.propertyAddress.trim() !== existing.propertyAddress.trim()
+  ) {
+    lockedChanges.push('property address');
+  }
+  if (input.notes !== undefined && (input.notes?.trim() || null) !== (existing.notes?.trim() || null)) {
+    lockedChanges.push('notes');
+  }
+  if (input.agreementDate !== undefined && input.agreementDate !== existing.agreementDate) {
+    lockedChanges.push('agreement date');
+  }
+  if (lockedChanges.length > 0) {
+    throw new Error(
+      `Sent agreements can only change contact details (name, email, phone, agent). Cancel and create a new draft, or revise after signing, to change ${lockedChanges.join(', ')}.`,
+    );
+  }
+
+  const clientName = (input.clientName ?? existing.clientName).trim();
+  const clientEmail = (input.clientEmail ?? existing.clientEmail).trim().toLowerCase();
+  const clientPhone =
+    input.clientPhone !== undefined ? input.clientPhone?.trim() || null : existing.clientPhone;
+  const agencyName =
+    input.agencyName !== undefined ? input.agencyName?.trim() || null : existing.agencyName;
+  const agentName = input.agentName !== undefined ? input.agentName?.trim() || null : existing.agentName;
+  const agentEmail =
+    input.agentEmail !== undefined ? input.agentEmail?.trim().toLowerCase() || null : existing.agentEmail;
+  const signerRole = agentName ? existing.signerRole : existing.signerRole;
+
+  if (!clientName) throw new Error('Client name is required.');
+  if (!clientEmail || !clientEmail.includes('@')) throw new Error('A valid client email is required.');
+
+  db.run(
+    `UPDATE agreements SET
+       signer_role = ?,
+       agency_name = ?,
+       agent_name = ?,
+       agent_email = ?,
+       client_name = ?,
+       client_email = ?,
+       client_phone = ?,
+       updated_at = datetime('now')
+     WHERE id = ?`,
+    [signerRole, agencyName, agentName, agentEmail, clientName, clientEmail, clientPhone, existing.id],
+  );
+
+  // Keep linked client contact in sync so Clients and job views show the corrected email.
+  if (existing.jobId) {
+    const job = getJobDetail(db, existing.jobId);
+    if (job?.clientId) {
+      const parts = clientName.split(/\s+/).filter(Boolean);
+      const firstName = parts[0] || clientName;
+      const lastName = parts.slice(1).join(' ');
+      db.run(
+        `UPDATE clients SET
+           first_name = ?,
+           last_name = ?,
+           email = ?,
+           mobile = ?
+         WHERE id = ?`,
+        [firstName, lastName, clientEmail, clientPhone, job.clientId],
+      );
+    }
+  }
+
+  return resolveAgreementAgentView(db, getAgreement(db, existing.id)!);
 }
 
 function getAvailableAgentContext(

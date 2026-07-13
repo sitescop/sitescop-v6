@@ -81,6 +81,16 @@ export function AgreementFormPage() {
     enabled: isEdit,
   });
 
+  const agreementStatus = agreementQuery.data?.status;
+  const contactOnly =
+    isEdit && (agreementStatus === 'SENT' || agreementStatus === 'VIEWED');
+  const editBlocked =
+    isEdit &&
+    agreementQuery.isSuccess &&
+    agreementStatus !== 'DRAFT' &&
+    agreementStatus !== 'SENT' &&
+    agreementStatus !== 'VIEWED';
+
   useEffect(() => {
     if (!jobQuery.data || isEdit) return;
     const job = jobQuery.data;
@@ -123,10 +133,36 @@ export function AgreementFormPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const priceCents = Math.round(Number.parseFloat(price) * 100);
       if (!clientName.trim()) throw new Error('Client name is required.');
       if (!clientEmail.trim()) throw new Error('Client email is required.');
+
+      if (contactOnly) {
+        const trimmedAgentName = agentName.trim();
+        return getSitescopApi().agreements.update(agreementId, {
+          clientName: clientName.trim(),
+          clientEmail: clientEmail.trim(),
+          clientPhone: clientPhone.trim() || undefined,
+          ...(agentSigning && trimmedAgentName
+            ? {
+                signerRole: 'CLIENT' as const,
+                agencyName: agencyName.trim() || undefined,
+                agentName: trimmedAgentName,
+                agentEmail: agentEmail.trim() || undefined,
+              }
+            : {
+                signerRole: 'CLIENT' as const,
+                agencyName: '',
+                agentName: '',
+                agentEmail: '',
+              }),
+        });
+      }
+
+      const priceCents = Math.round(Number.parseFloat(price) * 100);
       if (!propertyAddress.trim()) throw new Error('Property address is required.');
+      if (propertyAddress.trim().length < 8 || !/[A-Za-z]/.test(propertyAddress)) {
+        throw new Error('Enter a full property address (street and suburb), not just a street number.');
+      }
       if (!Number.isFinite(priceCents) || priceCents <= 0) throw new Error('Enter a valid price.');
 
       const trimmedAgentName = agentName.trim();
@@ -173,7 +209,11 @@ export function AgreementFormPage() {
       return getSitescopApi().agreements.create(payload);
     },
     onSuccess: (agreement) => {
-      navigate(`/agreements/${agreement.id}`);
+      navigate(`/agreements/${agreement.id}`, {
+        state: contactOnly
+          ? { contactUpdated: true }
+          : undefined,
+      });
     },
     onError: (error) => {
       setFormError(error instanceof Error ? error.message : 'Could not save agreement.');
@@ -188,21 +228,45 @@ export function AgreementFormPage() {
 
   return (
     <div>
-      <Button variant="secondary" className="mb-6" onClick={() => navigate('/agreements')}>
+      <Button
+        variant="secondary"
+        className="mb-6"
+        onClick={() => navigate(isEdit ? `/agreements/${agreementId}` : '/agreements')}
+      >
         <ArrowLeft className="h-4 w-4" />
-        Agreements
+        {isEdit ? 'Back to agreement' : 'Agreements'}
       </Button>
 
+      {editBlocked ? (
+        <Card className="mx-auto max-w-2xl p-6">
+          <p className="font-semibold text-text">This agreement cannot be edited</p>
+          <p className="mt-2 text-sm text-text-light">
+            Signed agreements need <strong>Create revised agreement</strong>. Cancelled or archived
+            agreements are read-only.
+          </p>
+          <Button className="mt-4" variant="secondary" onClick={() => navigate(`/agreements/${agreementId}`)}>
+            Back to agreement
+          </Button>
+        </Card>
+      ) : (
       <Card className="mx-auto max-w-2xl overflow-hidden p-0">
         <div className="border-b border-amber-400/35 bg-gradient-to-r from-amber-50 to-orange-50/80 px-6 py-5">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-bold text-text">
-              {isEdit ? 'Edit agreement' : jobId ? 'New agreement for job' : 'New agreement'}
+              {contactOnly
+                ? 'Edit contact details'
+                : isEdit
+                  ? 'Edit agreement'
+                  : jobId
+                    ? 'New agreement for job'
+                    : 'New agreement'}
             </h2>
-            <AgreementStatusBadge status="DRAFT" />
+            <AgreementStatusBadge status={agreementStatus ?? 'DRAFT'} />
           </div>
           <p className="mt-1 text-sm text-amber-950/70">
-            Client details and pricing — legal terms are added automatically.
+            {contactOnly
+              ? 'Fix name, email, phone, or agent details, then Resend to client from the agreement page.'
+              : 'Client details and pricing — legal terms are added automatically.'}
           </p>
         </div>
 
@@ -211,6 +275,7 @@ export function AgreementFormPage() {
             <Select
               label="Inspection type"
               value={inspectionType}
+              disabled={contactOnly}
               onChange={(e) => {
                 const next = e.target.value as InspectionType;
                 setInspectionType(next);
@@ -235,12 +300,14 @@ export function AgreementFormPage() {
               label="Property address"
               value={propertyAddress}
               onChange={(e) => setPropertyAddress(e.target.value)}
-              required
+              required={!contactOnly}
+              disabled={contactOnly}
             />
             <GstPriceFieldPair
               exValue={price}
               incValue={priceInc}
-              required
+              required={!contactOnly}
+              disabled={contactOnly}
               onExChange={(ex, inc) => {
                 setPrice(ex);
                 setPriceInc(inc);
@@ -250,7 +317,13 @@ export function AgreementFormPage() {
                 setPriceInc(inc);
               }}
             />
-            <Textarea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+            <Textarea
+              label="Notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              disabled={contactOnly}
+            />
           </div>
 
           <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
@@ -261,7 +334,7 @@ export function AgreementFormPage() {
               <div>
                 <h3 className="font-bold text-text">Real estate &amp; agent</h3>
                 <p className="mt-1 text-sm text-text-light">
-                  {agentFromJob
+                  {agentFromJob && !contactOnly
                     ? 'Synced from the linked job. The agent can sign on behalf of the client when sent.'
                     : 'Optional — when an agent is listed, they sign the agreement on behalf of the client.'}
                 </p>
@@ -274,6 +347,7 @@ export function AgreementFormPage() {
                 className="mt-1"
                 checked={agentSigning}
                 onChange={(e) => setAgentSigning(e.target.checked)}
+                disabled={agentFromJob && !contactOnly}
               />
               <span className="text-sm text-text">
                 <span className="font-semibold">Real estate agent on file</span>
@@ -291,7 +365,7 @@ export function AgreementFormPage() {
                   value={agencyName}
                   onChange={(e) => setAgencyName(e.target.value)}
                   placeholder="Agency name"
-                  disabled={agentFromJob}
+                  disabled={agentFromJob && !contactOnly}
                 />
                 <Input
                   label="Agent name"
@@ -299,7 +373,7 @@ export function AgreementFormPage() {
                   onChange={(e) => setAgentName(e.target.value)}
                   placeholder="Agent full name"
                   required={agentSigning}
-                  disabled={agentFromJob}
+                  disabled={agentFromJob && !contactOnly}
                 />
                 <Input
                   className="sm:col-span-2"
@@ -308,7 +382,7 @@ export function AgreementFormPage() {
                   value={agentEmail}
                   onChange={(e) => setAgentEmail(e.target.value)}
                   placeholder="agent@agency.com.au"
-                  disabled={agentFromJob}
+                  disabled={agentFromJob && !contactOnly}
                 />
               </div>
             ) : (
@@ -325,15 +399,26 @@ export function AgreementFormPage() {
           )}
 
           <div className="flex flex-wrap gap-2 pt-2">
-            <Button type="submit" disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create agreement'}
+            <Button type="submit" disabled={saveMutation.isPending || agreementQuery.isLoading}>
+              {saveMutation.isPending
+                ? 'Saving…'
+                : contactOnly
+                  ? 'Save contact details'
+                  : isEdit
+                    ? 'Save changes'
+                    : 'Create agreement'}
             </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate('/agreements')}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => navigate(isEdit ? `/agreements/${agreementId}` : '/agreements')}
+            >
               Cancel
             </Button>
           </div>
         </form>
       </Card>
+      )}
     </div>
   );
 }

@@ -257,10 +257,7 @@ export async function putGitHubFileText(
     if (response.status === 401 || response.status === 403) {
       throw mapGitHubHttpError(response.status, apiMessage);
     }
-    throw new GitHubCloudError(
-      apiMessage || 'Upload to GitHub failed.',
-      'UPLOAD_FAILED',
-    );
+    throw mapGitHubHttpError(response.status, apiMessage || 'Upload to GitHub failed.');
   }
 }
 
@@ -328,4 +325,67 @@ export async function listGitHubDirectory(
 
   const data = (await response.json()) as GitHubContentItem | GitHubContentItem[];
   return Array.isArray(data) ? data.filter((item) => item.type === 'file') : [];
+}
+
+/** Resolve where the live signing portal lives in the cloud repo. */
+async function resolveSigningPortalRemotePrefix(settings: GitHubSettings): Promise<string> {
+  const prefixes = ['sign', 'docs/sign'];
+  for (const prefix of prefixes) {
+    const existing = await getGitHubFileText(settings, `${prefix}/app.js`);
+    if (existing) return prefix;
+  }
+  // Default for project Pages URLs ending in /sign/
+  return 'sign';
+}
+
+/** Upload local signing portal files (app.js / index.html) to the GitHub Pages folder. */
+export async function publishSigningPortalToGitHub(
+  settings: GitHubSettings,
+): Promise<{ uploaded: string[]; remotePrefix: string }> {
+  const { readFileSync, existsSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { app } = await import('electron');
+
+  const candidates = [
+    join(process.cwd(), 'docs', 'sign'),
+    join(app.getAppPath(), 'docs', 'sign'),
+    join(__dirname, '../../docs/sign'),
+    join(__dirname, '../../../docs/sign'),
+  ];
+  const signDir = candidates.find((dir) => existsSync(join(dir, 'app.js')));
+  if (!signDir) {
+    throw new GitHubCloudError(
+      'Could not find docs/sign portal files to publish. Run SiteScop from the sitescop-v6 folder.',
+      'UPLOAD_FAILED',
+    );
+  }
+
+  const remotePrefix = await resolveSigningPortalRemotePrefix(settings);
+  const files = [
+    { local: 'app.js', remote: `${remotePrefix}/app.js` },
+    { local: 'index.html', remote: `${remotePrefix}/index.html` },
+  ] as const;
+
+  const uploaded: string[] = [];
+  for (const file of files) {
+    const full = join(signDir, file.local);
+    if (!existsSync(full)) continue;
+    const content = readFileSync(full, 'utf8');
+    const existing = await getGitHubFileText(settings, file.remote);
+    await putGitHubFileText(
+      settings,
+      file.remote,
+      content,
+      `SiteScop: publish signing portal ${file.local} (hosted offline submit v20)`,
+      settings.personalAccessToken,
+      existing?.sha,
+    );
+    uploaded.push(file.remote);
+  }
+
+  if (uploaded.length === 0) {
+    throw new GitHubCloudError('No portal files were published.', 'UPLOAD_FAILED');
+  }
+
+  return { uploaded, remotePrefix };
 }

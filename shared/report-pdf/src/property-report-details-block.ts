@@ -40,6 +40,7 @@ export const PROPERTY_REPORT_DETAILS_FIELDS: SectionFieldDef[] = [
   { key: 'clientType', label: 'Client Type' },
   { key: 'agencyName', label: 'Agency Name' },
   { key: 'agentName', label: 'Agent Name' },
+  { key: 'agentPhone', label: 'Agent Phone' },
   { key: 'agentMobile', label: 'Agent Mobile' },
   { key: 'agentEmail', label: 'Agent Email' },
   { key: 'clientName', label: 'Client Name' },
@@ -83,6 +84,7 @@ export function buildPropertyReportDetailsData(ctx: ReportRenderContext): Record
     clientType: jobInfo.clientType,
     agencyName: jobInfo.agencyName,
     agentName: jobInfo.agentName,
+    agentPhone: jobInfo.agentPhone,
     agentMobile: jobInfo.agentMobile,
     agentEmail: jobInfo.agentEmail,
     clientName: jobInfo.clientName?.trim() || ctx.job.clientName,
@@ -118,12 +120,16 @@ export function renderPropertyReportDetailsBlock(ctx: ReportRenderContext): stri
     Boolean(
       String(data.agencyName ?? '').trim() ||
         String(data.agentName ?? '').trim() ||
+        String(data.agentPhone ?? '').trim() ||
         String(data.agentMobile ?? '').trim() ||
         String(data.agentEmail ?? '').trim(),
     );
 
   const fieldDefs = PROPERTY_REPORT_DETAILS_FIELDS.filter((def) => {
-    if (!showAgentFields && ['agencyName', 'agentName', 'agentMobile', 'agentEmail'].includes(def.key)) {
+    if (
+      !showAgentFields &&
+      ['agencyName', 'agentName', 'agentPhone', 'agentMobile', 'agentEmail'].includes(def.key)
+    ) {
       return false;
     }
     return true;

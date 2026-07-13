@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ClipboardList, MapPin, Trash2, ExternalLink } from 'lucide-react';
 import { getSitescopApi } from '@/lib/sitescop-api';
 import { filterJobsBySearch } from '@/lib/job-search';
@@ -19,6 +19,8 @@ interface CreatedJobNotice {
 export function InProgressPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const waitingAgreement = searchParams.get('waitingAgreement') === '1';
   const notice = (location.state as CreatedJobNotice | null) ?? {};
   const [search, setSearch] = useState('');
   const { requestDelete, deleteDialog } = useJobDelete();
@@ -29,7 +31,12 @@ export function InProgressPage() {
     refetchOnMount: 'always',
   });
 
-  const filteredJobs = useMemo(() => filterJobsBySearch(jobs, search), [jobs, search]);
+  const scopedJobs = useMemo(() => {
+    if (!waitingAgreement) return jobs;
+    return jobs.filter((job) => job.agreementStatus === 'DRAFT' || job.agreementStatus === 'SENT');
+  }, [jobs, waitingAgreement]);
+
+  const filteredJobs = useMemo(() => filterJobsBySearch(scopedJobs, search), [scopedJobs, search]);
 
   useEffect(() => {
     void refetch();
@@ -49,6 +56,24 @@ export function InProgressPage() {
         </div>
       )}
 
+      {waitingAgreement && (
+        <div className="mb-6 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-text">
+          <p className="font-medium text-primary">Jobs waiting on agreement</p>
+          <p className="mt-1 text-text-light">
+            These jobs still need an agreement sent or signed. Open a job → <strong>Open agreement</strong> /{' '}
+            <strong>Create agreement</strong>, then send it to the client.
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-3"
+            onClick={() => navigate('/jobs/in-progress')}
+          >
+            Show all in-progress jobs
+          </Button>
+        </div>
+      )}
+
       {isError && (
         <div className="mb-6 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
           Could not load jobs: {error instanceof Error ? error.message : 'Unknown error'}
@@ -58,23 +83,31 @@ export function InProgressPage() {
         </div>
       )}
 
-      {!isLoading && jobs.length > 0 && (
+      {!isLoading && scopedJobs.length > 0 && (
         <JobListSearchBar
           value={search}
           onChange={setSearch}
           resultCount={filteredJobs.length}
-          totalCount={jobs.length}
+          totalCount={scopedJobs.length}
         />
       )}
 
       {isLoading ? (
         <p className="text-text-light">Loading jobs...</p>
-      ) : jobs.length === 0 ? (
+      ) : scopedJobs.length === 0 ? (
         <Card className="p-12 text-center">
           <ClipboardList className="mx-auto h-12 w-12 text-text-muted" />
-          <p className="mt-4 text-lg font-medium text-text">No jobs in progress</p>
+          <p className="mt-4 text-lg font-medium text-text">
+            {waitingAgreement ? 'No jobs waiting on agreements' : 'No jobs in progress'}
+          </p>
           <p className="mt-2 text-sm text-text-light">
-            Use <strong>Create New Job</strong> in the top bar or sidebar to add one.
+            {waitingAgreement
+              ? 'All in-progress jobs already have a signed agreement, or there are no open jobs.'
+              : (
+                <>
+                  Use <strong>Create New Job</strong> in the top bar or sidebar to add one.
+                </>
+              )}
           </p>
         </Card>
       ) : filteredJobs.length === 0 ? (

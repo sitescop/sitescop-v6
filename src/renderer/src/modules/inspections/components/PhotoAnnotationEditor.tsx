@@ -42,6 +42,8 @@ interface TextShape {
   y: number;
   text: string;
   fontSize: number;
+  /** Canvas-pixel wrap width so Done matches the typing box layout. */
+  maxWidth: number;
 }
 
 type EditorAction =
@@ -54,6 +56,10 @@ const COLORS: { value: EditorColor; label: string }[] = [
   { value: '#fdd835', label: 'Yellow' },
   { value: '#ffffff', label: 'White' },
 ];
+
+/** Matches the typing textarea max width in display pixels. */
+const TEXT_OVERLAY_MAX_DISPLAY_PX = 300;
+const TEXT_LINE_HEIGHT = 1.25;
 
 function drawArrow(ctx: CanvasRenderingContext2D, from: Point, to: Point, color: string, lineWidth = 4) {
   const angle = Math.atan2(to.y - from.y, to.x - from.x);
@@ -95,15 +101,65 @@ function drawPenStroke(ctx: CanvasRenderingContext2D, stroke: PenStroke) {
   ctx.stroke();
 }
 
+function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const paragraphs = text.replace(/\r\n/g, '\n').split('\n');
+  const lines: string[] = [];
+  for (const paragraph of paragraphs) {
+    if (paragraph.length === 0) {
+      lines.push('');
+      continue;
+    }
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      lines.push('');
+      continue;
+    }
+    let current = '';
+    for (const word of words) {
+      const next = current ? `${current} ${word}` : word;
+      if (!current || ctx.measureText(next).width <= maxWidth) {
+        current = next;
+        continue;
+      }
+      lines.push(current);
+      if (ctx.measureText(word).width > maxWidth) {
+        let chunk = '';
+        for (const char of word) {
+          const trial = chunk + char;
+          if (chunk && ctx.measureText(trial).width > maxWidth) {
+            lines.push(chunk);
+            chunk = char;
+          } else {
+            chunk = trial;
+          }
+        }
+        current = chunk;
+      } else {
+        current = word;
+      }
+    }
+    if (current) lines.push(current);
+  }
+  return lines.length > 0 ? lines : [''];
+}
+
 function drawOutlinedText(ctx: CanvasRenderingContext2D, shape: TextShape) {
-  const { text, x, y, color, fontSize } = shape;
+  const { text, x, y, color, fontSize, maxWidth } = shape;
   ctx.font = `600 ${fontSize}px Arial, Helvetica, sans-serif`;
   ctx.textBaseline = 'top';
   ctx.lineWidth = Math.max(2, fontSize / 8);
   ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-  ctx.strokeText(text, x, y);
   ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
+  const wrapWidth = maxWidth > 0 ? maxWidth : Number.POSITIVE_INFINITY;
+  const lines = Number.isFinite(wrapWidth)
+    ? wrapTextLines(ctx, text, wrapWidth)
+    : text.replace(/\r\n/g, '\n').split('\n');
+  const lineHeight = fontSize * TEXT_LINE_HEIGHT;
+  for (let i = 0; i < lines.length; i += 1) {
+    const lineY = y + i * lineHeight;
+    ctx.strokeText(lines[i], x, lineY);
+    ctx.fillText(lines[i], x, lineY);
+  }
 }
 
 function canvasToDisplay(
@@ -130,10 +186,14 @@ function measureTextBox(
   shape: TextShape,
 ): { width: number; height: number } {
   ctx.font = `600 ${shape.fontSize}px Arial, Helvetica, sans-serif`;
-  const lines = shape.text.split('\n');
-  const width = Math.max(...lines.map((line) => ctx.measureText(line).width), 1);
-  const lineHeight = shape.fontSize * 1.25;
-  return { width, height: lines.length * lineHeight };
+  const wrapWidth = shape.maxWidth > 0 ? shape.maxWidth : Number.POSITIVE_INFINITY;
+  const lines = Number.isFinite(wrapWidth)
+    ? wrapTextLines(ctx, shape.text, wrapWidth)
+    : shape.text.replace(/\r\n/g, '\n').split('\n');
+  const measured = Math.max(...lines.map((line) => ctx.measureText(line).width), 1);
+  const width = Number.isFinite(wrapWidth) ? Math.min(Math.max(measured, 1), wrapWidth) : measured;
+  const lineHeight = shape.fontSize * TEXT_LINE_HEIGHT;
+  return { width, height: Math.max(lines.length, 1) * lineHeight };
 }
 
 function findTextAtPoint(actions: EditorAction[], point: Point, canvas: HTMLCanvasElement): TextShape | null {
@@ -186,17 +246,23 @@ function textActions(actions: EditorAction[]): TextShape[] {
 export interface PhotoAnnotationEditorProps {
   open: boolean;
   dataUrl: string;
+  /** Clean photo before annotations; enables Reset to original. */
+  originalDataUrl?: string;
   title?: string;
   onClose: () => void;
   onSave: (dataUrl: string) => void;
+  /** Restore the stored original photo (parent updates dataUrl). */
+  onResetToOriginal?: () => void;
 }
 
 export function PhotoAnnotationEditor({
   open,
   dataUrl,
+  originalDataUrl,
   title = 'Edit photo',
   onClose,
   onSave,
+  onResetToOriginal,
 }: PhotoAnnotationEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -495,9 +561,11 @@ export function PhotoAnnotationEditor({
 
   const saveText = () => {
     const trimmed = textDraft.trim();
-    if (!trimmed || !textPlacement) return;
+    if (!trimmed || !textPlacement || !imageMeta) return;
     const canvas = canvasRef.current;
     const fontSize = canvas ? Math.max(18, Math.round(canvas.width / 32)) : 22;
+    const overlayDisplayWidth = Math.min(TEXT_OVERLAY_MAX_DISPLAY_PX, displayWidth * 0.92);
+    const maxWidth = (overlayDisplayWidth / displayWidth) * imageMeta.width;
     if (editingTextId) {
       updateTextShape(editingTextId, (shape) => ({
         ...shape,
@@ -506,6 +574,7 @@ export function PhotoAnnotationEditor({
         y: textPlacement.y,
         color,
         fontSize,
+        maxWidth,
       }));
       setSelectedTextId(editingTextId);
     } else {
@@ -519,6 +588,7 @@ export function PhotoAnnotationEditor({
           y: textPlacement.y,
           text: trimmed,
           fontSize,
+          maxWidth,
         },
       });
       setSelectedTextId(id);
@@ -541,6 +611,24 @@ export function PhotoAnnotationEditor({
     renderScene(ctx, image, actionsRef.current, undefined, { includeText: true });
     onSave(canvas.toDataURL('image/jpeg', 0.92));
   };
+
+  const handleResetToOriginal = () => {
+    if (!onResetToOriginal) return;
+    const confirmed = window.confirm(
+      'Reset this photo to the original (before any edits)? Current marks in this editor will be cleared.',
+    );
+    if (!confirmed) return;
+    setActions([]);
+    setDraftPen(null);
+    setDraftArrow(null);
+    clearTextEditing();
+    setSelectedTextId(null);
+    onResetToOriginal();
+  };
+
+  const canResetToOriginal = Boolean(
+    onResetToOriginal && originalDataUrl && originalDataUrl !== dataUrl,
+  );
 
   const displayHeight = imageMeta
     ? (displayWidth / imageMeta.width) * imageMeta.height
@@ -566,9 +654,17 @@ export function PhotoAnnotationEditor({
       size="full"
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            {canResetToOriginal ? (
+              <Button type="button" variant="secondary" size="sm" onClick={handleResetToOriginal}>
+                <RotateCcw className="mr-1 h-4 w-4" />
+                Reset to original
+              </Button>
+            ) : null}
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="secondary" size="sm" disabled={actions.length === 0} onClick={undo}>
               <RotateCcw className="mr-1 h-4 w-4" />
@@ -730,22 +826,29 @@ export function PhotoAnnotationEditor({
                         displayHeight,
                       );
                       const labelFontSize = (label.fontSize / imageMeta.width) * displayWidth;
+                      const labelMaxDisplayWidth =
+                        label.maxWidth > 0
+                          ? (label.maxWidth / imageMeta.width) * displayWidth
+                          : Math.min(TEXT_OVERLAY_MAX_DISPLAY_PX, displayWidth * 0.92);
                       const isSelected = selectedTextId === label.id;
                       return (
                         <div
                           key={label.id}
                           className={cn(
-                            'absolute z-10 max-w-[min(320px,92%)] select-none rounded px-1 py-0.5',
+                            'absolute z-10 select-none rounded px-1 py-0.5',
                             isSelected ? 'ring-2 ring-primary/80' : 'ring-1 ring-white/30',
                             textDrag?.id === label.id ? 'cursor-grabbing' : 'cursor-move',
                           )}
                           style={{
                             left: position.x,
                             top: position.y,
+                            width: labelMaxDisplayWidth,
                             color: label.color,
                             fontSize: labelFontSize,
                             fontWeight: 600,
-                            lineHeight: 1.25,
+                            lineHeight: TEXT_LINE_HEIGHT,
+                            whiteSpace: 'pre-wrap',
+                            overflowWrap: 'anywhere',
                             WebkitTextStroke: '0.5px rgba(0,0,0,0.85)',
                             textShadow: '0 1px 2px rgba(0,0,0,0.85)',
                           }}
@@ -765,7 +868,7 @@ export function PhotoAnnotationEditor({
                 : null}
               {tool === 'text' && textOverlayPosition ? (
                 <div
-                  className="absolute z-20 min-w-[180px] max-w-[min(300px,92%)]"
+                  className="absolute z-20"
                   style={{ left: textOverlayPosition.x, top: textOverlayPosition.y }}
                   onMouseDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
@@ -774,19 +877,22 @@ export function PhotoAnnotationEditor({
                     ref={textInputRef}
                     lang="en-AU"
                     spellCheck
-                    rows={3}
+                    rows={4}
                     value={textDraft}
                     placeholder="Type label text…"
-                    className="w-full resize-none rounded border border-primary/40 bg-black/80 px-2 py-1 text-sm font-semibold shadow-lg outline-none ring-2 ring-primary/40"
+                    className="w-full resize-y rounded border border-primary/40 bg-black/80 px-2 py-1 text-sm font-semibold shadow-lg outline-none ring-2 ring-primary/40"
                     style={{
+                      width: Math.min(TEXT_OVERLAY_MAX_DISPLAY_PX, displayWidth * 0.92),
                       color,
                       fontSize: previewFontSize,
-                      lineHeight: 1.3,
+                      lineHeight: TEXT_LINE_HEIGHT,
+                      whiteSpace: 'pre-wrap',
+                      overflowWrap: 'anywhere',
                       WebkitTextStroke: '0.5px rgba(0,0,0,0.85)',
                     }}
                     onChange={(event) => setTextDraft(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey) {
+                      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                         event.preventDefault();
                         saveText();
                       }
@@ -803,6 +909,7 @@ export function PhotoAnnotationEditor({
                     <Button type="button" variant="ghost" size="sm" onClick={cancelText}>
                       Cancel
                     </Button>
+                    <span className="self-center text-[10px] text-white/70">Enter = new line · Ctrl+Enter = Done</span>
                   </div>
                   <CommentWritingAssist variant="overlay" text={textDraft} onApplyText={setTextDraft} />
                 </div>

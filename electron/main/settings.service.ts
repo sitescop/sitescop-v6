@@ -23,6 +23,8 @@ import type {
   EmailMailClient,
   EmailSettings,
   EmailSettingsInput,
+  ReminderSettings,
+  ReminderSettingsInput,
   SmtpEncryption,
   GitHubSettingsInput,
   GitHubSettingsPublic,
@@ -63,6 +65,7 @@ interface StoredSettingsFile {
     encryptedSmtpPassword?: string;
     smtpPassword?: string;
   };
+  reminders?: Partial<ReminderSettings>;
   branding?: {
     logoFileName?: string;
   };
@@ -175,6 +178,17 @@ Kind regards,
   senderName: SITESCOP_COMPANY_NAME,
   senderEmail: SITESCOP_COMPANY_EMAIL,
   replyToEmail: '',
+};
+
+export const DEFAULT_REMINDERS: ReminderSettings = {
+  inspectionReminderEnabled: false,
+  inspectionReminderDaysBefore: 1,
+  overduePaymentReminderEnabled: false,
+  overduePaymentAfterDays: 7,
+  overduePaymentRepeatDays: 7,
+  whatsappHelperEnabled: false,
+  whatsappReminderTemplate:
+    'Hi {{firstName}}, reminder: your SiteScop inspection at {{propertyAddress}} is scheduled for {{inspectionDate}} at {{inspectionTime}}.',
 };
 
 function normalizeMailClient(value: unknown): EmailMailClient {
@@ -480,6 +494,73 @@ export function saveEmailSettings(input: EmailSettingsInput): EmailSettings {
   raw.email = stored;
   saveRaw(raw);
   return getEmailSettings();
+}
+
+function clampDays(value: unknown, fallback: number, min = 0, max = 60): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+export function getReminderSettings(): ReminderSettings {
+  const raw = loadRaw().reminders ?? {};
+  return {
+    inspectionReminderEnabled: Boolean(raw.inspectionReminderEnabled),
+    inspectionReminderDaysBefore: clampDays(
+      raw.inspectionReminderDaysBefore,
+      DEFAULT_REMINDERS.inspectionReminderDaysBefore,
+      0,
+      30,
+    ),
+    overduePaymentReminderEnabled: Boolean(raw.overduePaymentReminderEnabled),
+    overduePaymentAfterDays: clampDays(
+      raw.overduePaymentAfterDays,
+      DEFAULT_REMINDERS.overduePaymentAfterDays,
+      1,
+      90,
+    ),
+    overduePaymentRepeatDays: clampDays(
+      raw.overduePaymentRepeatDays,
+      DEFAULT_REMINDERS.overduePaymentRepeatDays,
+      1,
+      90,
+    ),
+    whatsappHelperEnabled: Boolean(raw.whatsappHelperEnabled),
+    whatsappReminderTemplate:
+      raw.whatsappReminderTemplate?.trim() || DEFAULT_REMINDERS.whatsappReminderTemplate,
+  };
+}
+
+export function saveReminderSettings(input: ReminderSettingsInput): ReminderSettings {
+  const stored: ReminderSettings = {
+    inspectionReminderEnabled: Boolean(input.inspectionReminderEnabled),
+    inspectionReminderDaysBefore: clampDays(
+      input.inspectionReminderDaysBefore,
+      DEFAULT_REMINDERS.inspectionReminderDaysBefore,
+      0,
+      30,
+    ),
+    overduePaymentReminderEnabled: Boolean(input.overduePaymentReminderEnabled),
+    overduePaymentAfterDays: clampDays(
+      input.overduePaymentAfterDays,
+      DEFAULT_REMINDERS.overduePaymentAfterDays,
+      1,
+      90,
+    ),
+    overduePaymentRepeatDays: clampDays(
+      input.overduePaymentRepeatDays,
+      DEFAULT_REMINDERS.overduePaymentRepeatDays,
+      1,
+      90,
+    ),
+    whatsappHelperEnabled: Boolean(input.whatsappHelperEnabled),
+    whatsappReminderTemplate:
+      input.whatsappReminderTemplate.trim() || DEFAULT_REMINDERS.whatsappReminderTemplate,
+  };
+  const raw = loadRaw();
+  raw.reminders = stored;
+  saveRaw(raw);
+  return getReminderSettings();
 }
 
 export function getDefaultInspectionPriceCents(inspectionType: InspectionType): number {

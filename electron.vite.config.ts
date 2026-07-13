@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
@@ -17,9 +17,20 @@ function copySpeechScriptsPlugin() {
   };
 }
 
+function copyHelpPlugin() {
+  return {
+    name: 'copy-help-assets',
+    closeBundle() {
+      const dest = resolve(__dirname, 'out/help');
+      mkdirSync(dest, { recursive: true });
+      cpSync(resolve(__dirname, 'electron/help'), dest, { recursive: true });
+    },
+  };
+}
+
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin(), copySpeechScriptsPlugin()],
+    plugins: [externalizeDepsPlugin(), copySpeechScriptsPlugin(), copyHelpPlugin()],
     build: {
       rollupOptions: {
         input: resolve(__dirname, 'electron/main/index.ts'),

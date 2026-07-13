@@ -311,6 +311,9 @@ function migrateLegacyJobInformationFields(
   if (!Array.isArray(job.incompleteConstructionPhotos)) {
     job.incompleteConstructionPhotos = [];
   }
+  if (typeof job.agentPhone !== 'string') {
+    job.agentPhone = '';
+  }
 
   return {
     ...form,
@@ -391,9 +394,18 @@ export function mergeJobContextIntoJobInformation(
   if (shouldUseJobAgentValue(jobInfo.agentName, jobInfo.clientName, context.agentName)) {
     patch.agentName = trimField(context.agentName);
   }
-  const agentMobile = context.agentMobile?.trim() || context.agentPhone?.trim();
-  if (shouldUseJobAgentValue(jobInfo.agentMobile, jobInfo.clientMobile, agentMobile)) {
-    patch.agentMobile = agentMobile;
+  if (shouldUseJobAgentValue(jobInfo.agentPhone, jobInfo.clientMobile, context.agentPhone)) {
+    patch.agentPhone = trimField(context.agentPhone);
+  }
+  if (shouldUseJobAgentValue(jobInfo.agentMobile, jobInfo.clientMobile, context.agentMobile)) {
+    patch.agentMobile = trimField(context.agentMobile);
+  } else if (
+    !trimField(jobInfo.agentMobile) &&
+    !trimField(context.agentMobile) &&
+    shouldUseJobAgentValue(jobInfo.agentMobile, jobInfo.clientMobile, context.agentPhone)
+  ) {
+    // Legacy jobs that only stored landline under agent phone — keep mobile usable.
+    patch.agentMobile = trimField(context.agentPhone);
   }
   if (shouldUseJobAgentValue(jobInfo.agentEmail, jobInfo.clientEmail, context.agentEmail)) {
     patch.agentEmail = trimField(context.agentEmail);
@@ -539,12 +551,65 @@ function hasLpgGasSelected(services: SharedInspectionSections['services']): bool
   return hasOption || hasOther;
 }
 
+/** Service photos that can be mirrored into obstruction photo fields. */
+function collectMirrorableServicePhotos(services: ServicesSection): InspectionPhotoRef[] {
+  return [
+    ...(services.airConPhotos ?? []),
+    ...(services.hotWaterPhotos ?? []),
+    ...(services.gasBottlePhotos ?? []),
+    ...(services.rainwaterTankPhotos ?? []),
+  ];
+}
+
+function collectExteriorServiceObstructionPhotos(services: ServicesSection): InspectionPhotoRef[] {
+  const photos: InspectionPhotoRef[] = [];
+  if (services.airConPresent === 'Yes') {
+    photos.push(...(services.airConPhotos ?? []));
+  }
+  if (services.hotWaterPresent === 'Yes' && services.hotWaterLocation !== 'Internal') {
+    photos.push(...(services.hotWaterPhotos ?? []));
+  }
+  if (hasLpgGasSelected(services)) {
+    photos.push(...(services.gasBottlePhotos ?? []));
+  }
+  if (services.rainwaterTankPresent === 'Yes') {
+    photos.push(...(services.rainwaterTankPhotos ?? []));
+  }
+  return photos;
+}
+
+function collectInteriorServiceObstructionPhotos(services: ServicesSection): InspectionPhotoRef[] {
+  if (services.hotWaterPresent === 'Yes' && services.hotWaterLocation === 'Internal') {
+    return [...(services.hotWaterPhotos ?? [])];
+  }
+  return [];
+}
+
+function syncObstructionPhotosWithServices(
+  existing: InspectionPhotoRef[] | undefined,
+  linked: InspectionPhotoRef[],
+  mirrorable: InspectionPhotoRef[],
+): InspectionPhotoRef[] {
+  const stripped = stripPhotosByKeys(existing ?? [], mirrorable);
+  return mergePhotoRefs(stripped, linked);
+}
+
+function stripPhotosByKeys(
+  photos: InspectionPhotoRef[],
+  remove: InspectionPhotoRef[],
+): InspectionPhotoRef[] {
+  const removeKeys = new Set(remove.map(photoRefKey));
+  if (removeKeys.size === 0) return photos;
+  return photos.filter((photo) => !removeKeys.has(photoRefKey(photo)));
+}
+
 function syncServiceObstructions(shared: SharedInspectionSections): SharedInspectionSections {
   const accessibility = { ...shared.accessibilityObstructions };
   const services = shared.services;
   const hotWaterExternal = services.hotWaterPresent === 'Yes' && services.hotWaterLocation !== 'Internal';
   const hotWaterInternal = services.hotWaterPresent === 'Yes' && services.hotWaterLocation === 'Internal';
   const hasLpg = hasLpgGasSelected(services);
+  const mirrorable = collectMirrorableServicePhotos(services);
 
   const exterior = setObstructionItem(
     setObstructionItem(
@@ -576,6 +641,16 @@ function syncServiceObstructions(shared: SharedInspectionSections): SharedInspec
       ...accessibility,
       interiorObstructions: interior,
       exteriorObstructions: exterior,
+      interiorObstructionPhotos: syncObstructionPhotosWithServices(
+        accessibility.interiorObstructionPhotos,
+        collectInteriorServiceObstructionPhotos(services),
+        mirrorable,
+      ),
+      exteriorObstructionPhotos: syncObstructionPhotosWithServices(
+        accessibility.exteriorObstructionPhotos,
+        collectExteriorServiceObstructionPhotos(services),
+        mirrorable,
+      ),
     },
   };
 }
@@ -593,7 +668,12 @@ export function collectLinkedServiceObstructionPhotos(services: ServicesSection)
   if (!hasLinkedServiceObstructionPhotos(services)) return [];
   return [
     ...services.photos,
+    ...(services.waterSupplyPhotos ?? []),
+    ...(services.sewerPhotos ?? []),
+    ...(services.electricityPhotos ?? []),
+    ...(services.gasPhotos ?? []),
     ...services.hotWaterPhotos,
+    ...(services.airConPhotos ?? []),
     ...services.gasBottlePhotos,
     ...services.rainwaterTankPhotos,
   ];

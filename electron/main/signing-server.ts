@@ -16,6 +16,10 @@ let server: Server | null = null;
 let portalBaseUrl = '';
 let portalPort = DEFAULT_PORT;
 
+export function getSigningPortalPort(): number {
+  return portalPort;
+}
+
 export function getSigningPortalBaseUrl(): string {
   return portalBaseUrl;
 }

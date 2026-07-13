@@ -12,6 +12,7 @@ import type {
   JobStatus,
 } from '../../shared/api-types.js';
 import { localDateKey } from './database.js';
+import { assertCompletePropertyAddress } from './property-address.js';
 
 function splitClientName(firstName: string, lastName: string) {
   return `${firstName.trim()} ${lastName.trim()}`.trim();
@@ -151,11 +152,12 @@ export function createJob(db: SqlDatabase, input: CreateJobInput): CreateJobResu
   const inspectionId = randomUUID();
   const jobNumber = nextJobNumber(db);
 
-  const addressParts = [input.propertyAddress.trim()];
+  const addressParts = [assertCompletePropertyAddress(input.propertyAddress)];
   if (input.propertySuburb?.trim()) {
     addressParts.push(input.propertySuburb.trim());
   }
   const fullAddress = addressParts.join(', ');
+  assertCompletePropertyAddress(fullAddress);
 
   let resolvedClientId = findClientByContact(db, input.clientEmail, input.clientMobile);
 

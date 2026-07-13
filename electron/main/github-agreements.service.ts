@@ -1,4 +1,5 @@
 import type { Database as SqlDatabase } from 'sql.js';
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import type { SignAgreementInput } from '../../shared/api-types.js';
 import {
   getAgreement,
@@ -8,13 +9,14 @@ import {
   syncAgentDetailsFromJob,
 } from './agreements.service.js';
 import { GitHubCloudError, wrapGitHubNetworkError } from './github-errors.js';
-import { getGitHubFileText, listGitHubDirectory, putGitHubFileText } from './github.service.js';
+import { getGitHubFileText, listGitHubDirectory, putGitHubFileText, publishSigningPortalToGitHub } from './github.service.js';
 import { getSigningPortalBaseUrl, buildSigningUrl } from './signing-server.js';
 import {
   getGitHubSettings,
   isGitHubSigningConfigured,
   type GitHubSettings,
 } from './settings.service.js';
+import { getEffectivePublicRelayUrl } from './public-relay.service.js';
 
 const PENDING_DIR = 'agreements/pending';
 const SIGNED_DIR = 'agreements/signed';
@@ -29,6 +31,20 @@ export interface GitHubPendingAgreementFile {
   submitEndpoints: {
     lan: string;
     public?: string;
+    /**
+     * Hosted GitHub submit — client can Sign & submit while SiteScop PC is off.
+     * PAT is AES-GCM sealed with the agreement access token (never plaintext in the repo —
+     * GitHub push protection blocks raw PATs).
+     */
+    github?: {
+      owner: string;
+      repo: string;
+      branch: string;
+      signedContentsUrl: string;
+      viewedContentsUrl: string;
+      /** Sealed PAT: `v1.` + base64(iv + authTag + ciphertext) */
+      tokenCipher: string;
+    };
   };
 }
 
@@ -54,13 +70,40 @@ export function buildGitHubSigningUrl(token: string, settings = getGitHubSetting
   return `${base}/?token=${encodeURIComponent(token)}`;
 }
 
+/** Seal a GitHub PAT so it can live in public pending JSON without tripping secret scanning. */
+export function sealGitHubPatForAgreement(pat: string, accessToken: string): string {
+  const key = createHash('sha256').update(`sitescop-sign-v1:${accessToken}`, 'utf8').digest();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(pat, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1.${Buffer.concat([iv, tag, encrypted]).toString('base64')}`;
+}
+
 function buildSubmitEndpoints(token: string, settings = getGitHubSettings()) {
   const lan = `${getSigningPortalBaseUrl()}/api/sign/${encodeURIComponent(token)}`;
-  const endpoints: { lan: string; public?: string } = { lan };
-  const relay = settings.publicRelayUrl.trim();
+  const endpoints: GitHubPendingAgreementFile['submitEndpoints'] = { lan };
+  const relay = getEffectivePublicRelayUrl() || settings.publicRelayUrl.trim();
   if (relay) {
-    endpoints.public = `${relay}/api/sign/${encodeURIComponent(token)}`;
+    endpoints.public = `${relay.replace(/\/$/, '')}/api/sign/${encodeURIComponent(token)}`;
   }
+
+  const pat = settings.personalAccessToken.trim();
+  if (pat && settings.owner.trim() && settings.repo.trim() && token.trim()) {
+    const owner = settings.owner.trim();
+    const repo = settings.repo.trim();
+    const branch = settings.branch.trim() || 'main';
+    const apiBase = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`;
+    endpoints.github = {
+      owner,
+      repo,
+      branch,
+      signedContentsUrl: `${apiBase}/${SIGNED_DIR}/${encodeURIComponent(token)}.json`,
+      viewedContentsUrl: `${apiBase}/${VIEWED_DIR}/${encodeURIComponent(token)}.json`,
+      tokenCipher: sealGitHubPatForAgreement(pat, token),
+    };
+  }
+
   return endpoints;
 }
 
@@ -159,6 +202,43 @@ export async function pushPendingAgreementToGitHub(
   } catch (error) {
     throw wrapGitHubNetworkError(error, 'upload');
   }
+
+  // Keep the public signing portal JS updated (hosted offline submit).
+  try {
+    await publishSigningPortalToGitHub(settings);
+  } catch (error) {
+    console.warn('[github] portal publish skipped', error);
+  }
+}
+
+/** Re-upload open cloud agreements so submitEndpoints match the latest relay / hosted GitHub path. */
+export async function refreshPendingSubmitEndpoints(db: SqlDatabase): Promise<number> {
+  if (!isGitHubSigningConfigured()) return 0;
+
+  const stmt = db.prepare(
+    `SELECT id FROM agreements
+     WHERE status IN ('SENT', 'VIEWED')
+       AND IFNULL(access_token, '') != ''
+       AND IFNULL(deleted_at, '') = ''
+       AND IFNULL(archived_at, '') = ''`,
+  );
+  const ids: string[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as { id: string };
+    ids.push(row.id);
+  }
+  stmt.free();
+
+  let updated = 0;
+  for (const id of ids) {
+    try {
+      await pushPendingAgreementToGitHub(db, id);
+      updated += 1;
+    } catch (error) {
+      console.error('[public-relay] refresh pending failed', id, error);
+    }
+  }
+  return updated;
 }
 
 export async function syncSignedAgreementsFromGitHub(

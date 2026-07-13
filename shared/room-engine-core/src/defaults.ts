@@ -28,6 +28,8 @@ import {
 } from './options.js';
 
 export const DEFAULT_WATER_SUPPLY_SELECTION = ['Town Water'] as const;
+export const DEFAULT_SERVICES_COMMENTS =
+  'Services were visually identified only. Specialist testing was not undertaken.';
 export const DEFAULT_ELECTRICITY_SELECTION = ['Mains'] as const;
 
 export const DEFAULT_INTERIOR_OBSTRUCTION_SELECTION = [
@@ -71,12 +73,23 @@ export function applyServicesDefaults(services: ServicesSection): ServicesSectio
     waterSupply: isCheckboxFieldEmpty(services.waterSupply)
       ? checkboxFieldFromPresets(DEFAULT_WATER_SUPPLY_SELECTION)
       : normalizeCheckboxField(services.waterSupply),
+    waterSupplyPhotos: Array.isArray(services.waterSupplyPhotos) ? services.waterSupplyPhotos : [],
     electricity: isCheckboxFieldEmpty(services.electricity)
       ? checkboxFieldFromPresets(DEFAULT_ELECTRICITY_SELECTION)
       : normalizeCheckboxField(services.electricity),
+    electricityPhotos: Array.isArray(services.electricityPhotos) ? services.electricityPhotos : [],
+    sewerPhotos: Array.isArray(services.sewerPhotos) ? services.sewerPhotos : [],
+    gasPhotos: Array.isArray(services.gasPhotos) ? services.gasPhotos : [],
     hotWaterPresent: services.hotWaterPresent?.trim() ? services.hotWaterPresent : 'Yes',
+    hotWaterPhotos: Array.isArray(services.hotWaterPhotos) ? services.hotWaterPhotos : [],
+    hotWaterComments: services.hotWaterComments ?? '',
     airConPresent: services.airConPresent?.trim() ? services.airConPresent : 'Yes',
+    airConPhotos: Array.isArray(services.airConPhotos) ? services.airConPhotos : [],
+    airConComments: services.airConComments ?? '',
     rainwaterTankPresent: services.rainwaterTankPresent?.trim() ? services.rainwaterTankPresent : 'Yes',
+    rainwaterTankPhotos: Array.isArray(services.rainwaterTankPhotos) ? services.rainwaterTankPhotos : [],
+    rainwaterTankComments: services.rainwaterTankComments ?? '',
+    comments: services.comments?.trim() ? services.comments : DEFAULT_SERVICES_COMMENTS,
   };
 }
 
@@ -283,7 +296,8 @@ export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspec
       clientType: 'Purchaser',
       agencyName: prefill?.agencyName?.trim() ?? '',
       agentName: prefill?.agentName ?? '',
-      agentMobile: prefill?.agentPhone ?? '',
+      agentPhone: prefill?.agentPhone ?? '',
+      agentMobile: prefill?.agentMobile ?? prefill?.agentPhone ?? '',
       agentEmail: prefill?.agentEmail ?? '',
       clientName: prefill?.clientName ?? '',
       clientMobile: prefill?.clientPhone ?? '',
@@ -304,24 +318,32 @@ export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspec
     },
     services: {
       ...base,
+      comments: DEFAULT_SERVICES_COMMENTS,
       waterSupply: checkboxFieldFromPresets(DEFAULT_WATER_SUPPLY_SELECTION),
       waterSupplyOther: '',
+      waterSupplyPhotos: [],
       sewer: emptyCheckboxField(),
       sewerOther: '',
+      sewerPhotos: [],
       electricity: checkboxFieldFromPresets(DEFAULT_ELECTRICITY_SELECTION),
       electricityOther: '',
+      electricityPhotos: [],
       gas: emptyCheckboxField(),
       gasOther: '',
+      gasPhotos: [],
       hotWaterPresent: 'Yes',
       hotWaterLocation: '',
       hotWaterType: emptyCheckboxField(),
       hotWaterTypeOther: '',
       hotWaterOperating: '',
       hotWaterPhotos: [],
+      hotWaterComments: '',
       airConPresent: 'Yes',
       airConType: emptyCheckboxField(),
       airConTypeOther: '',
       airConOperating: '',
+      airConPhotos: [],
+      airConComments: '',
       gasBottlePhotos: [],
       rainwaterTankPresent: 'Yes',
       rainwaterTankPhotos: [],

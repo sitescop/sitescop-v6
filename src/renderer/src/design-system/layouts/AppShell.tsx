@@ -84,8 +84,8 @@ export function AppShell() {
   const showUpgradeBanner = !isBridgeUpToDate() && staleFeatures.length > 0;
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 flex w-sidebar flex-col bg-sidebar text-white">
+    <div className="flex min-h-[calc(100vh-2.5rem)] bg-background">
+      <aside className="fixed bottom-0 left-0 top-10 z-30 flex w-sidebar flex-col bg-sidebar text-white">
         <div className="border-b border-white/10 px-6 py-5">
           <p className="text-lg font-bold tracking-tight">SiteScop</p>
           <p className="text-xs text-white/60">V6 · Local Edition</p>
@@ -132,7 +132,7 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="ml-sidebar flex min-h-screen flex-1 flex-col">
+      <div className="ml-sidebar flex min-h-[calc(100vh-2.5rem)] flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-topbar items-center justify-between border-b border-border bg-surface px-8 shadow-sm">
           <div>
             <h1 className="text-lg font-bold text-text">{header.title}</h1>

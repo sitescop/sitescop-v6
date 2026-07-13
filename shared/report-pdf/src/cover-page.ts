@@ -89,7 +89,12 @@ function renderDetailsTable(ctx: ReportRenderContext): string {
 
 function renderPropertyPhoto(ctx: ReportRenderContext): string {
   const frontPhoto = getPropertyFrontPhoto(ctx.formData);
-  const caption = frontPhoto?.caption?.trim();
+  const rawCaption = frontPhoto?.caption?.trim() || '';
+  const caption =
+    rawCaption && !/\.(png|jpe?g|gif|webp|heic|bmp|tiff?)$/i.test(rawCaption) &&
+    !/^(screenshot|screen shot|img[_-]?|image[_-]?|photo[_-]?|dsc[_-]?|pxl[_-]?)/i.test(rawCaption)
+      ? rawCaption
+      : '';
   const img = frontPhoto
     ? `<img src="${frontPhoto.dataUrl}" alt="${escapeHtml(caption || 'Property front photo')}" class="cover-photo-img" />`
     : `<div class="cover-photo-placeholder">Property front photo not provided</div>`;

@@ -15,6 +15,7 @@ import {
   Phone,
   Receipt,
   ScrollText,
+  Trash2,
   User,
   X,
 } from 'lucide-react';
@@ -178,6 +179,7 @@ function ClientPurchaserPanel({
   const [lastNameInput, setLastNameInput] = useState(lastName);
   const [mobileInput, setMobileInput] = useState(mobile);
   const [emailInput, setEmailInput] = useState(email);
+  const [propertyAddressInput, setPropertyAddressInput] = useState(primaryPropertyAddress ?? '');
 
   const fullName = `${firstName} ${lastName}`.trim();
 
@@ -187,8 +189,9 @@ function ClientPurchaserPanel({
       setLastNameInput(lastName);
       setMobileInput(mobile);
       setEmailInput(email);
+      setPropertyAddressInput(primaryPropertyAddress ?? '');
     }
-  }, [firstName, lastName, mobile, email, editing]);
+  }, [firstName, lastName, mobile, email, primaryPropertyAddress, editing]);
 
   const updateMutation = useMutation({
     mutationFn: (input: UpdateClientInput) => getClientsApi().update(clientId, input),
@@ -210,6 +213,7 @@ function ClientPurchaserPanel({
     setLastNameInput(lastName);
     setMobileInput(mobile);
     setEmailInput(email);
+    setPropertyAddressInput(primaryPropertyAddress ?? '');
   }
 
   function handleSubmit(e: FormEvent) {
@@ -218,11 +222,20 @@ function ClientPurchaserPanel({
       setFormError('First name and last name are required.');
       return;
     }
+    if (!propertyAddressInput.trim()) {
+      setFormError('Property address is required.');
+      return;
+    }
+    if (propertyAddressInput.trim().length < 8 || !/[A-Za-z]/.test(propertyAddressInput)) {
+      setFormError('Enter a full property address (street and suburb), not just a street number.');
+      return;
+    }
     updateMutation.mutate({
       firstName: firstNameInput.trim(),
       lastName: lastNameInput.trim(),
       email: emailInput.trim() || undefined,
       mobile: mobileInput.trim() || undefined,
+      propertyAddress: propertyAddressInput.trim(),
     });
   }
 
@@ -287,6 +300,17 @@ function ClientPurchaserPanel({
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               placeholder="Optional"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted">
+              Property address
+            </label>
+            <Input
+              value={propertyAddressInput}
+              onChange={(e) => setPropertyAddressInput(e.target.value)}
+              placeholder="Street, suburb, state"
+              required
             />
           </div>
           {formError ? (
@@ -461,7 +485,8 @@ function ClientAgentPanel({
   }
 
   const partyLabel = sourceJob ? orderingPartyLabel(sourceJob.orderingPartyType) : null;
-  const agentPhone = job?.agentMobile?.trim() || job?.agentPhone?.trim() || '';
+  const agentPhone = job?.agentPhone?.trim() || '';
+  const agentMobile = job?.agentMobile?.trim() || '';
 
   return (
     <div className="h-full rounded-xl border-2 border-primary/35 bg-gradient-to-br from-primary/20 via-primary/8 to-white p-4 shadow-sm md:p-5">
@@ -573,9 +598,16 @@ function ClientAgentPanel({
               </DetailField>
             ) : null}
             {agentPhone ? (
-              <DetailField label="Phone / mobile" icon={Phone}>
+              <DetailField label="Agent phone" icon={Phone}>
                 <a href={`tel:${agentPhone.replace(/\s/g, '')}`} className="text-primary hover:underline">
                   {agentPhone}
+                </a>
+              </DetailField>
+            ) : null}
+            {agentMobile ? (
+              <DetailField label="Agent mobile" icon={Phone}>
+                <a href={`tel:${agentMobile.replace(/\s/g, '')}`} className="text-primary hover:underline">
+                  {agentMobile}
                 </a>
               </DetailField>
             ) : null}
@@ -597,7 +629,8 @@ function JobAgentDetails({ job }: { job: ClientDetailJob }) {
   if (!jobHasAgentDetails(job)) return null;
 
   const partyLabel = orderingPartyLabel(job.orderingPartyType);
-  const agentPhone = job.agentMobile?.trim() || job.agentPhone?.trim() || '';
+  const agentPhone = job.agentPhone?.trim() || '';
+  const agentMobile = job.agentMobile?.trim() || '';
 
   return (
     <div className="border-b border-border/70 bg-primary/[0.03] px-4 py-3">
@@ -628,10 +661,23 @@ function JobAgentDetails({ job }: { job: ClientDetailJob }) {
           <div className="flex items-start gap-2 text-sm">
             <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" />
             <div>
-              <dt className="text-xs text-text-muted">Phone / mobile</dt>
+              <dt className="text-xs text-text-muted">Agent phone</dt>
               <dd>
                 <a href={`tel:${agentPhone.replace(/\s/g, '')}`} className="font-medium text-primary hover:underline">
                   {agentPhone}
+                </a>
+              </dd>
+            </div>
+          </div>
+        ) : null}
+        {agentMobile ? (
+          <div className="flex items-start gap-2 text-sm">
+            <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" />
+            <div>
+              <dt className="text-xs text-text-muted">Agent mobile</dt>
+              <dd>
+                <a href={`tel:${agentMobile.replace(/\s/g, '')}`} className="font-medium text-primary hover:underline">
+                  {agentMobile}
                 </a>
               </dd>
             </div>
@@ -1017,11 +1063,31 @@ function JobDocuments({
 export function ClientDetailPage() {
   const { clientId = '' } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ['client', clientId],
     queryFn: () => getClientsApi().get(clientId),
     enabled: Boolean(clientId),
+  });
+
+  const deleteClientMutation = useMutation({
+    mutationFn: () => getClientsApi().delete(clientId),
+    onSuccess: async (result) => {
+      setDeleteError(null);
+      await queryClient.invalidateQueries({ queryKey: ['clients'] });
+      await queryClient.invalidateQueries({ queryKey: ['recycle-bin'] });
+      await queryClient.invalidateQueries({ queryKey: ['jobs-in-progress'] });
+      await queryClient.invalidateQueries({ queryKey: ['jobs-completed'] });
+      await queryClient.invalidateQueries({ queryKey: ['agreements'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      window.alert(result.message);
+      navigate('/clients');
+    },
+    onError: (e) => {
+      setDeleteError(e instanceof Error ? e.message : 'Could not delete client');
+    },
   });
 
   if (isLoading) {
@@ -1057,6 +1123,7 @@ export function ClientDetailPage() {
 
         <div className="grid gap-4 p-4 md:grid-cols-2 md:gap-6 md:p-5">
           <ClientPurchaserPanel
+            key={client.id}
             clientId={client.id}
             firstName={client.firstName}
             lastName={client.lastName}
@@ -1168,6 +1235,37 @@ export function ClientDetailPage() {
         items={client.archivedAgreements ?? []}
         clientId={clientId}
       />
+
+      <Card className="space-y-3 border-danger/30 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-danger/10">
+            <Trash2 className="h-4 w-4 text-danger" />
+          </div>
+          <div>
+            <h3 className="font-bold text-text">Delete client</h3>
+            <p className="mt-1 text-sm text-text-light">
+              Removes this client from the Clients list and moves their jobs and agreements to the
+              Recycle Bin (you can restore jobs/agreements from there).
+            </p>
+          </div>
+        </div>
+        {deleteError ? <p className="text-sm font-medium text-danger">{deleteError}</p> : null}
+        <Button
+          variant="danger"
+          disabled={deleteClientMutation.isPending}
+          onClick={() => {
+            const ok = window.confirm(
+              `Delete ${client.firstName} ${client.lastName}?\n\nTheir jobs and agreements go to the Recycle Bin. The client disappears from the Clients list.`,
+            );
+            if (!ok) return;
+            setDeleteError(null);
+            deleteClientMutation.mutate();
+          }}
+        >
+          <Trash2 className="h-4 w-4" />
+          {deleteClientMutation.isPending ? 'Deleting…' : 'Delete this client'}
+        </Button>
+      </Card>
     </div>
   );
 }

@@ -92,6 +92,11 @@ export function NewJobPage() {
       setAddressError('Enter or select a street address.');
       return;
     }
+    if (propertyAddress.trim().length < 8 || !/[A-Za-z]/.test(propertyAddress)) {
+      setFormError('Enter a full property address (street and suburb), not just a street number.');
+      setAddressError('Enter a full street address.');
+      return;
+    }
     setAddressError('');
     if (!inspectionDate || !inspectionTime) {
       setFormError('Inspection date and time are required.');

@@ -535,3 +535,207 @@ export async function composeInvoiceEmailForJob(
     pdfPath: invoicePath,
   });
 }
+
+async function resolveInvoicePathForJob(db: SqlDatabase, jobId: string, jobNumber: string): Promise<{
+  invoicePath: string;
+  agreementNumber: string;
+  invoiceNumber: string;
+}> {
+  let invoicePath: string | null = null;
+  let agreementNumber = jobNumber;
+  const inv = db.prepare(
+    `SELECT invoice_path AS invoicePath, has_invoice AS hasInvoice FROM jobs WHERE id = ? LIMIT 1`,
+  );
+  inv.bind([jobId]);
+  if (inv.step()) {
+    const row = inv.getAsObject() as { invoicePath?: string | null; hasInvoice?: number };
+    if (row.hasInvoice && row.invoicePath) {
+      invoicePath = String(row.invoicePath);
+    }
+  }
+  inv.free();
+
+  const agr = db.prepare(
+    `SELECT agreement_number AS agreementNumber
+     FROM agreements
+     WHERE job_id = ?
+       AND status != 'CANCELLED'
+       AND IFNULL(deleted_at, '') = ''
+       AND IFNULL(archived_at, '') = ''
+     ORDER BY
+       CASE status WHEN 'SIGNED' THEN 0 WHEN 'VIEWED' THEN 1 WHEN 'SENT' THEN 2 ELSE 3 END,
+       updated_at DESC
+     LIMIT 1`,
+  );
+  agr.bind([jobId]);
+  if (agr.step()) {
+    agreementNumber = String((agr.getAsObject() as { agreementNumber: string }).agreementNumber);
+  }
+  agr.free();
+
+  if (!invoicePath || !existsSync(invoicePath)) {
+    const { generateInvoicePdfForJob } = await import('./invoices.service.js');
+    invoicePath = await generateInvoicePdfForJob(db, jobId);
+  }
+
+  return {
+    invoicePath,
+    agreementNumber,
+    invoiceNumber: `INV-${agreementNumber}`,
+  };
+}
+
+/** Overdue / unpaid payment reminder with invoice attached. */
+export async function composePaymentReminderEmail(
+  db: SqlDatabase,
+  jobId: string,
+  _user: SessionUser,
+): Promise<ComposeEmailResult> {
+  const job = getJobDetail(db, jobId);
+  if (!job) throw new Error('Job not found');
+  if (job.paymentReceived) {
+    throw new Error('This job is already marked as paid.');
+  }
+
+  const clientEmail = resolveClientEmail(db, jobId, job.email);
+  const invoice = await resolveInvoicePathForJob(db, jobId, job.jobNumber);
+  const company = getCompanySettings();
+
+  const subject = `Payment reminder — Invoice ${invoice.invoiceNumber} — ${job.propertyAddress}`;
+  const body = `Hello ${firstNameFrom(job.clientName)},
+
+This is a friendly reminder that payment for your SiteScop inspection is still outstanding.
+
+Property: ${job.propertyAddress}
+Job: ${job.jobNumber}
+Invoice: ${invoice.invoiceNumber}
+
+Please find the invoice attached. If you have already paid, thank you — you can ignore this message.
+
+Kind regards,
+${company.name || 'SiteScop'}
+${company.phone || ''}
+${company.email || ''}`.trim();
+
+  return promptAndOpenEmail({
+    clientEmail,
+    subject,
+    body,
+    pdfPath: invoice.invoicePath,
+  });
+}
+
+export interface BroadcastOfferInput {
+  subject: string;
+  body: string;
+}
+
+export interface BroadcastOfferResult {
+  attempted: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  message: string;
+  cancelled?: boolean;
+}
+
+/** One-click offer / advertisement email to all clients with a valid email. */
+export async function broadcastClientOfferEmail(
+  db: SqlDatabase,
+  input: BroadcastOfferInput,
+  _user: SessionUser,
+): Promise<BroadcastOfferResult> {
+  const subject = input.subject.trim();
+  const body = input.body.trim();
+  if (!subject || !body) {
+    throw new Error('Subject and message are required.');
+  }
+
+  const stmt = db.prepare(
+    `SELECT DISTINCT LOWER(TRIM(email)) AS emailKey, TRIM(email) AS email, first_name AS firstName
+     FROM clients
+     WHERE TRIM(COALESCE(email, '')) != ''
+     ORDER BY lower(last_name), lower(first_name)`,
+  );
+  const recipients: Array<{ email: string; firstName: string }> = [];
+  const seen = new Set<string>();
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as { emailKey: string; email: string; firstName: string };
+    const key = String(row.emailKey || '');
+    const email = firstValidClientEmail(String(row.email));
+    if (!email || !key || seen.has(key)) continue;
+    seen.add(key);
+    recipients.push({ email, firstName: String(row.firstName || 'Client') });
+  }
+  stmt.free();
+
+  if (recipients.length === 0) {
+    throw new Error('No client emails on file.');
+  }
+
+  if (!isSmtpSendReady()) {
+    throw new Error(
+      'SMTP must be enabled to send offers to all clients. Open Settings → Email, enable SMTP, save, then try again.',
+    );
+  }
+
+  const parent = parentWindow();
+  const confirm = parent
+    ? await dialog.showMessageBox(parent, {
+        type: 'question',
+        title: 'Send offer to all clients',
+        message: `Send this offer to ${recipients.length} client${recipients.length === 1 ? '' : 's'}?`,
+        detail: 'Each client with an email on file will receive the same message via SMTP.',
+        buttons: ['Send to all', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1,
+      })
+    : await dialog.showMessageBox({
+        type: 'question',
+        title: 'Send offer to all clients',
+        message: `Send this offer to ${recipients.length} clients?`,
+        buttons: ['Send to all', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+
+  if (confirm.response !== 0) {
+    return {
+      attempted: recipients.length,
+      sent: 0,
+      failed: 0,
+      skipped: recipients.length,
+      message: '',
+      cancelled: true,
+    };
+  }
+
+  let sent = 0;
+  let failed = 0;
+  for (const recipient of recipients) {
+    const personalized = body
+      .replace(/\{\{\s*firstName\s*\}\}/gi, recipient.firstName)
+      .replace(/\{\{\s*clientName\s*\}\}/gi, recipient.firstName);
+    try {
+      await sendSmtpEmail({
+        to: recipient.email,
+        subject,
+        text: personalized,
+      });
+      sent += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+
+  return {
+    attempted: recipients.length,
+    sent,
+    failed,
+    skipped: 0,
+    message:
+      failed > 0
+        ? `Sent ${sent} of ${recipients.length}. ${failed} failed.`
+        : `Sent offer to ${sent} client${sent === 1 ? '' : 's'}.`,
+  };
+}

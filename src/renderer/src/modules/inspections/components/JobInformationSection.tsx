@@ -113,9 +113,19 @@ function AgentDetailFields({
           className={INSPECTION_INPUT_CLASS}
         />
       </InspectionField>
+      <InspectionField id="job-agent-phone" label="Agent Phone" icon={Phone}>
+        <Input
+          id="job-agent-phone"
+          type="tel"
+          value={j.agentPhone}
+          onChange={(e) => onChange({ agentPhone: e.target.value })}
+          className={INSPECTION_INPUT_CLASS}
+        />
+      </InspectionField>
       <InspectionField id="job-agent-mobile" label="Agent Mobile" icon={Phone}>
         <Input
           id="job-agent-mobile"
+          type="tel"
           value={j.agentMobile}
           onChange={(e) => onChange({ agentMobile: e.target.value })}
           className={INSPECTION_INPUT_CLASS}
@@ -136,7 +146,11 @@ function AgentDetailFields({
 
 function hasAgentPartyData(j: JobInformationData): boolean {
   return Boolean(
-    j.agencyName?.trim() || j.agentName?.trim() || j.agentMobile?.trim() || j.agentEmail?.trim(),
+    j.agencyName?.trim() ||
+      j.agentName?.trim() ||
+      j.agentPhone?.trim() ||
+      j.agentMobile?.trim() ||
+      j.agentEmail?.trim(),
   );
 }
 

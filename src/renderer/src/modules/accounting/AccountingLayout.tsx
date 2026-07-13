@@ -8,6 +8,7 @@ import { getSitescopApi, hasAccountingApi } from '@/lib/sitescop-api';
 import { formatAud } from '@/modules/agreements/agreement-labels';
 import { ACCOUNTING_OVERDUE_DAYS } from '@/modules/accounting/accounting-utils';
 import { useAccountingRefresh } from '@/modules/accounting/useAccountingActions';
+import { AccountingInsightsPanel } from '@/modules/accounting/AccountingInsightsPanel';
 
 const tabs = [
   { to: '/accounting/awaiting', label: 'Awaiting payment' },
@@ -23,6 +24,12 @@ export function AccountingLayout() {
   const awaitingQuery = useQuery({
     queryKey: ['accounting-awaiting'],
     queryFn: () => getSitescopApi().accounting.listAwaitingPayment(),
+    enabled: apiReady,
+  });
+
+  const paidQuery = useQuery({
+    queryKey: ['accounting-paid'],
+    queryFn: () => getSitescopApi().accounting.listPaid(),
     enabled: apiReady,
   });
 
@@ -76,30 +83,11 @@ export function AccountingLayout() {
       </div>
 
       {summary ? (
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Card className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Revenue this week</p>
-            <p className="mt-1 text-2xl font-bold text-success">{formatAud(summary.revenueThisWeekCents)}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Revenue this month</p>
-            <p className="mt-1 text-2xl font-bold text-success">{formatAud(summary.revenueThisMonthCents)}</p>
-          </Card>
-          <Card className="border-danger/20 bg-danger/5 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Overdue</p>
-            <p className="mt-1 text-2xl font-bold text-danger">{summary.overdueJobCount}</p>
-            <p className="mt-1 text-sm text-text-light">
-              {summary.overdueAmountCents > 0 ? formatAud(summary.overdueAmountCents) : 'No amount on file'}
-              {' · '}
-              {ACCOUNTING_OVERDUE_DAYS}+ days
-            </p>
-          </Card>
-          <Card className="border-primary/20 bg-primary/5 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Report ready</p>
-            <p className="mt-1 text-2xl font-bold text-primary">{summary.readyToSendCount}</p>
-            <p className="mt-1 text-sm text-text-light">Unpaid jobs with reports — ready after payment</p>
-          </Card>
-        </div>
+        <AccountingInsightsPanel
+          summary={summary}
+          awaitingJobs={awaitingQuery.data ?? []}
+          paidJobs={paidQuery.data ?? []}
+        />
       ) : null}
 
       {summary && summary.overdueJobCount > 0 ? (

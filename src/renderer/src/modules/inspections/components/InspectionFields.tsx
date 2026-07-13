@@ -152,7 +152,6 @@ function readFilesAsPhotos(files: FileList, onBatch: (photos: InspectionPhotoRef
       batch[index] = {
         id: crypto.randomUUID(),
         dataUrl: reader.result as string,
-        caption: file.name,
         createdAt: new Date().toISOString(),
       };
       completed += 1;
@@ -221,12 +220,30 @@ export function PhotoField({
   const saveEditedPhoto = (nextDataUrl: string) => {
     if (!activePhoto || disabled) return;
     const next = safePhotos.map((photo) =>
-      photo.id === activePhoto.id ? { ...photo, dataUrl: nextDataUrl } : photo,
+      photo.id === activePhoto.id
+        ? {
+            ...photo,
+            // Keep the first clean photo; later edits keep annotating the current image.
+            originalDataUrl: photo.originalDataUrl ?? photo.dataUrl,
+            dataUrl: nextDataUrl,
+          }
+        : photo,
     );
     photosRef.current = next;
     onChange(next);
     setEditorOpen(false);
     setViewerOpen(true);
+  };
+
+  const resetPhotoToOriginal = () => {
+    if (!activePhoto?.originalDataUrl || disabled) return;
+    const next = safePhotos.map((photo) =>
+      photo.id === activePhoto.id
+        ? { ...photo, dataUrl: photo.originalDataUrl as string }
+        : photo,
+    );
+    photosRef.current = next;
+    onChange(next);
   };
 
   return (
@@ -370,12 +387,18 @@ export function PhotoField({
       <PhotoAnnotationEditor
         open={editorOpen && Boolean(activePhoto)}
         dataUrl={activePhoto?.dataUrl ?? ''}
+        originalDataUrl={activePhoto?.originalDataUrl}
         title={`${label} — Edit photo ${safePhotos.length ? activeIndex + 1 : 0}`}
         onClose={() => {
           setEditorOpen(false);
           setViewerOpen(true);
         }}
         onSave={saveEditedPhoto}
+        onResetToOriginal={
+          activePhoto?.originalDataUrl && activePhoto.originalDataUrl !== activePhoto.dataUrl
+            ? resetPhotoToOriginal
+            : undefined
+        }
       />
     </div>
   );

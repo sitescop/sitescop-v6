@@ -74,7 +74,7 @@ export function DashboardPage() {
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
           <SummaryCard label="Today's Jobs" value={summary?.todaysJobs ?? 0} accent="green" onClick={() => navigate('/jobs/today')} />
           <SummaryCard label="In Progress" value={summary?.inProgress ?? 0} accent="amber" onClick={() => navigate('/jobs/in-progress')} />
-          <SummaryCard label="Waiting Agreements" value={summary?.waitingAgreements ?? 0} accent="blue" onClick={() => navigate('/agreements?status=DRAFT')} />
+          <SummaryCard label="Waiting Agreements" value={summary?.waitingAgreements ?? 0} accent="blue" onClick={() => navigate('/jobs/in-progress?waitingAgreement=1')} />
           <SummaryCard label="Completed This Week" value={summary?.completedThisWeek ?? 0} accent="teal" onClick={() => navigate('/jobs/completed')} />
           <SummaryCard label="Awaiting payment" value={summary?.outstandingInvoices ?? 0} accent="red" onClick={() => navigate('/accounting/awaiting')} />
           <SummaryCard label="Upcoming Inspections" value={summary?.upcomingInspections ?? 0} accent="purple" onClick={() => navigate('/calendar?view=upcoming')} />

@@ -66,6 +66,35 @@ export type BillingSettingsInput = BillingSettings;
 export type EmailMailClient = 'zoho' | 'outlook' | 'system';
 export type SmtpEncryption = 'ssl' | 'tls' | 'none';
 
+export interface ReminderSettings {
+  /** Auto email: inspection coming up (needs SMTP). */
+  inspectionReminderEnabled: boolean;
+  /** Days before inspection date to send (1 = day before). */
+  inspectionReminderDaysBefore: number;
+  /** Auto email: overdue unpaid jobs (needs SMTP). */
+  overduePaymentReminderEnabled: boolean;
+  /** Days after signed/inspection date before first overdue reminder. */
+  overduePaymentAfterDays: number;
+  /** Minimum days between repeat overdue reminders for the same job. */
+  overduePaymentRepeatDays: number;
+  /**
+   * Optional WhatsApp helper only (opens chat — not silent auto-send).
+   * Full automatic WhatsApp requires WhatsApp Business API.
+   */
+  whatsappHelperEnabled: boolean;
+  whatsappReminderTemplate: string;
+}
+
+export type ReminderSettingsInput = ReminderSettings;
+
+export interface ReminderRunResult {
+  inspectionSent: number;
+  overdueSent: number;
+  skipped: number;
+  errors: string[];
+  message: string;
+}
+
 export interface EmailSettings {
   mailClient: EmailMailClient;
   fromEmail: string;
@@ -119,6 +148,7 @@ export interface AppSettingsOverview {
   report: ReportSettings;
   billing: BillingSettings;
   email: EmailSettings;
+  reminders: ReminderSettings;
   hasLogo: boolean;
   logoPreview: string | null;
 }
@@ -299,6 +329,8 @@ export interface SendAgreementResult {
   signingUrl: string;
   accessToken: string;
   signingMode: 'github' | 'local';
+  /** True when a public internet relay is available for off-Wi‑Fi signing. */
+  publicRelayReady?: boolean;
 }
 
 export interface GitHubSettingsPublic {
@@ -309,6 +341,11 @@ export interface GitHubSettingsPublic {
   pagesBaseUrl: string;
   publicRelayUrl: string;
   hasPersonalAccessToken: boolean;
+  publicRelayStatus?: {
+    activeUrl: string;
+    mode: 'manual' | 'auto' | 'none';
+    tunnelRunning: boolean;
+  };
 }
 
 export interface GitHubSettingsInput {
@@ -547,6 +584,8 @@ export interface UpdateClientInput {
   lastName: string;
   email?: string;
   mobile?: string;
+  /** Updates the client's primary (latest) job property address and linked agreements. */
+  propertyAddress?: string;
 }
 
 export interface UpdateClientAgentInput {
@@ -569,6 +608,52 @@ export interface AccountingSummary {
   overdueJobCount: number;
   overdueAmountCents: number;
   readyToSendCount: number;
+}
+
+export interface BroadcastOfferInput {
+  subject: string;
+  body: string;
+}
+
+export interface BroadcastOfferResult {
+  attempted: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  message: string;
+  cancelled?: boolean;
+}
+
+export interface DataArchiveSummary {
+  id: string;
+  createdAt: string;
+  folderPath: string;
+  jobCount: number;
+  agreementCount: number;
+  clientCount: number;
+  label: string;
+}
+
+export interface ArchiveAllWorkResult {
+  archive: DataArchiveSummary;
+  message: string;
+}
+
+export interface SoftDeleteClientResult {
+  message: string;
+  jobCount: number;
+  agreementCount: number;
+}
+
+export interface DeleteUnlockRequestResult {
+  ok: boolean;
+  message: string;
+  maskedEmail?: string;
+}
+
+export interface DeleteUnlockVerifyResult {
+  ok: boolean;
+  message: string;
 }
 
 export interface ClientAccountingRow {
@@ -605,6 +690,17 @@ export interface SitescopApi {
     version: string;
     /** Increment when preload adds new IPC modules — renderer uses this to detect stale installs. */
     bridgeVersion?: number;
+  };
+  app: {
+    toggleFullscreen: () => Promise<boolean>;
+    exitFullscreen: () => Promise<boolean>;
+    isFullscreen: () => Promise<boolean>;
+    reload: () => Promise<void>;
+    quit: () => Promise<void>;
+    openHelp: () => Promise<void>;
+    openAbout: () => Promise<void>;
+    zoom: (direction: 'in' | 'out' | 'reset') => Promise<void>;
+    edit: (action: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => Promise<void>;
   };
   auth: {
     login: (email: string, password: string, remember: boolean) => Promise<LoginResult>;
@@ -668,7 +764,11 @@ export interface SitescopApi {
     getSigningPortalBase: () => Promise<{ baseUrl: string; mode: 'github' | 'local' }>;
     resolveSigningUrl: (accessToken: string) => Promise<{ url: string; mode: 'github' | 'local' }>;
     syncFromGitHub: () => Promise<GitHubSyncResult>;
-    republishToGitHub: (agreementId: string) => Promise<void>;
+    republishToGitHub: (agreementId: string) => Promise<{
+      publicRelayReady: boolean;
+      hostedSubmitReady: boolean;
+      message: string;
+    }>;
     cancel: (agreementId: string) => Promise<void>;
     delete: (agreementId: string) => Promise<void>;
     generatePdf: (agreementId: string) => Promise<string>;
@@ -689,17 +789,29 @@ export interface SitescopApi {
     listByClient: () => Promise<ClientAccountingRow[]>;
     getSummary: () => Promise<AccountingSummary>;
     pushToXero: (jobId: string) => Promise<PushToXeroResult>;
+    emailPaymentReminder: (jobId: string) => Promise<ComposeEmailResult>;
+    broadcastOffer: (input: BroadcastOfferInput) => Promise<BroadcastOfferResult>;
   };
   clients: {
     list: (search?: string) => Promise<ClientRow[]>;
     get: (clientId: string) => Promise<ClientDetail>;
     update: (clientId: string, input: UpdateClientInput) => Promise<ClientDetail>;
     updateAgent: (clientId: string, input: UpdateClientAgentInput) => Promise<ClientDetail>;
+    delete: (clientId: string) => Promise<SoftDeleteClientResult>;
     openAgreementPdf: (agreementId: string) => Promise<void>;
     openInvoicePdf: (jobId: string) => Promise<void>;
     copyAgreementPdf: (agreementId: string) => Promise<CopyPdfResult>;
     copyInvoicePdf: (jobId: string) => Promise<CopyPdfResult>;
     copyAllJobDocuments: (jobId: string) => Promise<CopyPdfResult>;
+  };
+  dataArchive: {
+    list: () => Promise<DataArchiveSummary[]>;
+    archiveAll: () => Promise<ArchiveAllWorkResult>;
+    restore: (archiveId: string) => Promise<ArchiveAllWorkResult>;
+    openFolder: () => Promise<string>;
+    requestDeleteUnlock: (loginPassword: string) => Promise<DeleteUnlockRequestResult>;
+    verifyDeleteUnlock: (code: string) => Promise<DeleteUnlockVerifyResult>;
+    clearDeleteUnlock: () => Promise<void>;
   };
   shell: {
     openExternal: (url: string) => Promise<void>;
@@ -725,12 +837,21 @@ export interface SitescopApi {
     saveReport: (input: ReportSettingsInput) => Promise<ReportSettings>;
     saveBilling: (input: BillingSettingsInput) => Promise<BillingSettings>;
     saveEmail: (input: EmailSettingsInput) => Promise<EmailSettings>;
+    saveReminders: (input: ReminderSettingsInput) => Promise<ReminderSettings>;
+    runRemindersNow: () => Promise<ReminderRunResult>;
     testSmtp: (toEmail: string) => Promise<SmtpTestResult>;
     selectLogo: () => Promise<{ saved: boolean; logoPreview: string | null }>;
     removeLogo: () => Promise<void>;
     getGitHub: () => Promise<GitHubSettingsPublic>;
     saveGitHub: (input: GitHubSettingsInput) => Promise<GitHubSettingsPublic>;
     testGitHub: () => Promise<GitHubTestConnectionResult>;
+    ensurePublicRelay: () => Promise<{
+      ok: boolean;
+      activeUrl: string;
+      mode: 'manual' | 'auto' | 'none';
+      tunnelRunning: boolean;
+      message: string;
+    }>;
     getXero: () => Promise<XeroSettingsPublic>;
     saveXero: (input: XeroSettingsInput) => Promise<XeroSettingsPublic>;
     connectXero: () => Promise<{ tenantName: string }>;

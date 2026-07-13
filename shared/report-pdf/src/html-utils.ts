@@ -15,7 +15,12 @@ const EXTRA_PHOTO_KEYS = [
   'waterEscapingPhotos',
   'moistureEvidencePhotos',
   'incompleteConstructionPhotos',
+  'waterSupplyPhotos',
+  'sewerPhotos',
+  'electricityPhotos',
+  'gasPhotos',
   'hotWaterPhotos',
+  'airConPhotos',
   'gasBottlePhotos',
   'rainwaterTankPhotos',
   'plumbingDefectPhotos',
@@ -33,8 +38,12 @@ const INLINE_PHOTO_AFTER_FIELD: Partial<Record<string, (typeof EXTRA_PHOTO_KEYS)
   deformationEngineeringRequired: 'deformationPhotos',
   moistureSources: 'moistureSourcePhotos',
   safetyHazards: 'safetyHazardPhotos',
+  waterSupplyOther: 'waterSupplyPhotos',
+  sewer: 'sewerPhotos',
+  electricity: 'electricityPhotos',
+  gas: 'gasPhotos',
   hotWaterOperating: 'hotWaterPhotos',
-  gas: 'gasBottlePhotos',
+  airConOperating: 'airConPhotos',
   rainwaterTankPresent: 'rainwaterTankPhotos',
   incompleteConstruction: 'incompleteConstructionPhotos',
   evidenceOfWaterPooling: 'waterPoolingPhotos',
@@ -254,15 +263,35 @@ export function renderSupplementBlock(...parts: Array<string | undefined>): stri
   return `<div class="report-supplement-block">${content}</div>`;
 }
 
+function looksLikePhotoFileName(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/\.(png|jpe?g|gif|webp|heic|bmp|tiff?)$/i.test(text)) return true;
+  if (/^(screenshot|screen shot|img[_-]?|image[_-]?|photo[_-]?|dsc[_-]?|pxl[_-]?)/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function resolvePhotoCaption(
+  photo: InspectionPhotoRef,
+  photoNumber: number,
+  photosLength: number,
+  label?: string,
+): string {
+  const raw = photo.caption?.trim() || '';
+  if (raw && !looksLikePhotoFileName(raw)) return raw;
+  if (photosLength > 1) return `Photo ${photoNumber}`;
+  return label?.trim() || 'Inspection photo';
+}
+
 function renderPhotoFigure(
   photo: InspectionPhotoRef,
   photoNumber: number,
   photosLength: number,
   label?: string,
 ): string {
-  const captionText =
-    photo.caption?.trim() ||
-    (photosLength > 1 ? `Photo ${photoNumber}` : label?.trim() || 'Inspection photo');
+  const captionText = resolvePhotoCaption(photo, photoNumber, photosLength, label);
   return `<figure class="photo">
         <img src="${photo.dataUrl}" alt="${escapeHtml(captionText)}" />
         <figcaption class="photo-caption">${escapeHtml(captionText)}</figcaption>

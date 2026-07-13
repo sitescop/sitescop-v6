@@ -1,6 +1,6 @@
 import type { SitescopApi } from '@shared/api-types';
 
-export const CURRENT_BRIDGE_VERSION = 9;
+export const CURRENT_BRIDGE_VERSION = 12;
 
 /** True when running inside the Electron desktop window (not Chrome/Edge). */
 export function isDesktopApp(): boolean {
@@ -105,6 +105,7 @@ export function hasClientsApi(): boolean {
       window.sitescop?.clients?.get &&
       window.sitescop?.clients?.update &&
       window.sitescop?.clients?.updateAgent &&
+      window.sitescop?.clients?.delete &&
       window.sitescop?.clients?.openAgreementPdf &&
       window.sitescop?.clients?.openInvoicePdf &&
       window.sitescop?.clients?.copyAgreementPdf &&
@@ -120,6 +121,16 @@ export function hasAccountingApi(): boolean {
       window.sitescop?.accounting?.listByClient &&
       window.sitescop?.accounting?.getSummary &&
       window.sitescop?.accounting?.pushToXero,
+  );
+}
+
+export function hasDataArchiveApi(): boolean {
+  return Boolean(
+    window.sitescop?.dataArchive?.list &&
+      window.sitescop?.dataArchive?.archiveAll &&
+      window.sitescop?.dataArchive?.restore &&
+      window.sitescop?.dataArchive?.requestDeleteUnlock &&
+      window.sitescop?.dataArchive?.verifyDeleteUnlock,
   );
 }
 

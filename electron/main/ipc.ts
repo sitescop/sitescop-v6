@@ -6,7 +6,9 @@ import type {
   CompanySettingsInput,
   BillingSettingsInput,
   EmailSettingsInput,
+  ReminderSettingsInput,
   PasswordResetConfirmInput,
+  BroadcastOfferInput,
   CreateAgreementInput,
   CreateJobInput,
   DeleteJobInput,
@@ -29,12 +31,17 @@ import type {
 } from '../../shared/inspection-types.js';
 import { captureCurrentPosition } from './geolocation.service.js';
 import { cancelSpeechDictation, checkSpeechEngine, dictateComment, transcribeWavBase64 } from './speech.service.js';
-import { getSigningPortalBaseUrl } from './signing-server.js';
+import { getSigningPortalBaseUrl, getSigningPortalPort } from './signing-server.js';
 import {
   getActiveSigningUrl,
   pushPendingAgreementToGitHub,
   syncSignedAgreementsFromGitHub,
 } from './github-agreements.service.js';
+import {
+  getEffectivePublicRelayUrl,
+  getPublicRelayStatus,
+  startPublicRelayTunnel,
+} from './public-relay.service.js';
 import {
   getGitHubSettings,
   getGitHubSettingsPublic,
@@ -44,6 +51,8 @@ import {
   saveBillingSettings,
   getEmailSettings,
   saveEmailSettings,
+  getReminderSettings,
+  saveReminderSettings,
   getCompanyLogoDataUrl,
   getReportLogoPreviewDataUrl,
   hasCompanyLogo,
@@ -57,7 +66,7 @@ import {
   saveXeroSettings,
 } from './settings.service.js';
 import { connectXero, disconnectXero, pushJobInvoiceToXero } from './xero.service.js';
-import { testGitHubConnection } from './github.service.js';
+import { publishSigningPortalToGitHub, testGitHubConnection } from './github.service.js';
 import type { LocalDatabase } from './database.js';
 import {
   getDashboardSummary,
@@ -110,13 +119,26 @@ import {
   purgeRecycleBinItem,
   restoreRecycleBinItem,
 } from './recycle-bin.service.js';
-import { composeAgreementSigningEmail, composeClientEmail, composeInvoiceEmailForJob, composeJobReportsEmailToClient, composeReportEmailToClient } from './email.service.js';
+import { composeAgreementSigningEmail, composeClientEmail, composeInvoiceEmailForJob, composeJobReportsEmailToClient, composePaymentReminderEmail, composeReportEmailToClient, broadcastClientOfferEmail } from './email.service.js';
+import {
+  archiveAllWorkData,
+  listDataArchives,
+  openDataArchivesFolder,
+  restoreDataArchive,
+} from './data-archive.service.js';
+import {
+  clearDeleteUnlock,
+  isDeleteUnlocked,
+  requestDeleteUnlock,
+  verifyDeleteUnlock,
+} from './delete-unlock.service.js';
+import { processAutomaticReminders } from './reminders.service.js';
 import {
   assertJobPaidForReportDelivery,
   assertReportFilesPaidForDelivery,
 } from './job-payment.service.js';
 import { listCalendarEvents, listUpcomingJobs, rescheduleJob } from './calendar.service.js';
-import { listClients, getClientById, updateClient, updateClientAgent } from './clients.service.js';
+import { listClients, getClientById, updateClient, updateClientAgent, softDeleteClient } from './clients.service.js';
 import {
   listAwaitingPaymentJobs,
   listPaidJobs,
@@ -263,6 +285,76 @@ export function registerIpcHandlers() {
     const result = await pushJobInvoiceToXero(db.db, jobId);
     db.persist();
     return result;
+  });
+
+  ipcMain.handle('accounting:emailPaymentReminder', async (_event, jobId: string) => {
+    const db = requireAuth();
+    if (!currentSession) throw new Error('Not authenticated');
+    try {
+      return await composePaymentReminderEmail(db.db, jobId, currentSession);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to send payment reminder';
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle('accounting:broadcastOffer', async (_event, input: BroadcastOfferInput) => {
+    const db = requireAuth();
+    if (!currentSession) throw new Error('Not authenticated');
+    try {
+      return await broadcastClientOfferEmail(db.db, input, currentSession);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to send offer emails';
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle('dataArchive:list', async () => {
+    requireAuth();
+    return listDataArchives();
+  });
+
+  ipcMain.handle('dataArchive:requestDeleteUnlock', async (_event, loginPassword: string) => {
+    const db = requireAuth();
+    if (!currentSession) throw new Error('Not authenticated');
+    return requestDeleteUnlock(db.db, currentSession, String(loginPassword ?? ''));
+  });
+
+  ipcMain.handle('dataArchive:verifyDeleteUnlock', async (_event, code: string) => {
+    requireAuth();
+    if (!currentSession) throw new Error('Not authenticated');
+    return verifyDeleteUnlock(currentSession, String(code ?? ''));
+  });
+
+  ipcMain.handle('dataArchive:clearDeleteUnlock', async () => {
+    requireAuth();
+    clearDeleteUnlock();
+  });
+
+  ipcMain.handle('dataArchive:archiveAll', async () => {
+    const db = requireAuth();
+    if (!currentSession) throw new Error('Not authenticated');
+    if (!isDeleteUnlocked(currentSession.id)) {
+      throw new Error(
+        'Delete window is locked. Enter your login password, get the email code, then unlock again.',
+      );
+    }
+    const result = archiveAllWorkData(db.db);
+    db.persist();
+    clearDeleteUnlock();
+    return result;
+  });
+
+  ipcMain.handle('dataArchive:restore', async (_event, archiveId: string) => {
+    const db = requireAuth();
+    const result = restoreDataArchive(db.db, archiveId);
+    db.persist();
+    return result;
+  });
+
+  ipcMain.handle('dataArchive:openFolder', async () => {
+    requireAuth();
+    return openDataArchivesFolder();
   });
 
   ipcMain.handle('jobs:get', async (_event, jobId: string) => {
@@ -495,6 +587,10 @@ export function registerIpcHandlers() {
 
     if (isGitHubSigningConfigured()) {
       try {
+        // Ensure internet relay so clients off your Wi‑Fi can Sign & submit.
+        if (!getEffectivePublicRelayUrl()) {
+          await startPublicRelayTunnel(getSigningPortalPort());
+        }
         await pushPendingAgreementToGitHub(db.db, agreementId);
       } catch (error) {
         if (wasDraft) {
@@ -519,6 +615,7 @@ export function registerIpcHandlers() {
       accessToken: result.accessToken,
       signingUrl: active.url,
       signingMode: active.mode,
+      publicRelayReady: Boolean(getEffectivePublicRelayUrl()),
     };
   });
 
@@ -556,10 +653,39 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('agreements:republishToGitHub', async (_event, agreementId: string) => {
     const db = requireAuth();
+    if (!getEffectivePublicRelayUrl()) {
+      await startPublicRelayTunnel(getSigningPortalPort());
+    }
     syncAgentDetailsFromJob(db.db, agreementId);
     db.persist();
+
+    const settings = getGitHubSettings();
+    let portalMessage = '';
+    try {
+      const published = await publishSigningPortalToGitHub(settings);
+      portalMessage = ` Portal updated (${published.remotePrefix}/).`;
+    } catch (error) {
+      portalMessage = ` Portal publish failed: ${error instanceof Error ? error.message : 'unknown error'}.`;
+    }
+
     await pushPendingAgreementToGitHub(db.db, agreementId);
     db.persist();
+
+    const pending = getAgreement(db.db, agreementId);
+    const hasGithubSubmit = Boolean(
+      pending?.accessToken && settings.personalAccessToken.trim(),
+    );
+
+    return {
+      publicRelayReady: Boolean(getEffectivePublicRelayUrl()),
+      hostedSubmitReady: hasGithubSubmit,
+      message:
+        'Cloud signing page refreshed.' +
+        portalMessage +
+        (hasGithubSubmit
+          ? ' Ask the client to hard-refresh the link (Ctrl+F5 / clear cache), then Sign & submit again.'
+          : ' Save a GitHub PAT in Settings so hosted submit works while SiteScop is closed.'),
+    };
   });
 
   ipcMain.handle('agreements:cancel', async (_event, agreementId: string) => {
@@ -615,6 +741,13 @@ export function registerIpcHandlers() {
     const client = updateClientAgent(db.db, clientId, input);
     db.persist();
     return client;
+  });
+
+  ipcMain.handle('clients:delete', async (_event, clientId: string) => {
+    const db = requireAuth();
+    const result = softDeleteClient(db.db, clientId);
+    db.persist();
+    return result;
   });
 
   ipcMain.handle('clients:openAgreementPdf', async (_event, agreementId: string) => {
@@ -828,6 +961,7 @@ export function registerIpcHandlers() {
     report: getReportSettings(),
     billing: getBillingSettings(),
     email: getEmailSettings(),
+    reminders: getReminderSettings(),
     hasLogo: hasCompanyLogo(),
     logoPreview: getReportLogoPreviewDataUrl(),
   }));
@@ -850,6 +984,18 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:saveEmail', async (_event, input: EmailSettingsInput) => {
     requireAuth();
     return saveEmailSettings(input);
+  });
+
+  ipcMain.handle('settings:saveReminders', async (_event, input: ReminderSettingsInput) => {
+    requireAuth();
+    return saveReminderSettings(input);
+  });
+
+  ipcMain.handle('settings:runRemindersNow', async () => {
+    const db = requireAuth();
+    const result = await processAutomaticReminders(db.db);
+    if (result.inspectionSent > 0 || result.overdueSent > 0) db.persist();
+    return result;
   });
 
   ipcMain.handle('settings:testSmtp', async (_event, toEmail: string) => {
@@ -878,12 +1024,42 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('settings:getGitHub', async () => {
     requireAuth();
-    return getGitHubSettingsPublic();
+    return {
+      ...getGitHubSettingsPublic(),
+      publicRelayStatus: getPublicRelayStatus(),
+    };
   });
 
   ipcMain.handle('settings:saveGitHub', async (_event, input: GitHubSettingsInput) => {
     requireAuth();
-    return saveGitHubSettings(input);
+    const saved = saveGitHubSettings(input);
+    if (saved.enabled && !getEffectivePublicRelayUrl()) {
+      await startPublicRelayTunnel(getSigningPortalPort());
+    }
+    if (isGitHubSigningConfigured()) {
+      try {
+        const { publishSigningPortalToGitHub } = await import('./github.service.js');
+        await publishSigningPortalToGitHub(getGitHubSettings());
+      } catch (error) {
+        console.warn('[github] portal publish on save failed', error);
+      }
+    }
+    return {
+      ...saved,
+      publicRelayStatus: getPublicRelayStatus(),
+    };
+  });
+
+  ipcMain.handle('settings:ensurePublicRelay', async () => {
+    requireAuth();
+    const url = await startPublicRelayTunnel(getSigningPortalPort());
+    return {
+      ok: Boolean(url),
+      ...getPublicRelayStatus(),
+      message: url
+        ? 'Internet signing relay is ready. Keep SiteScop open while clients sign.'
+        : 'Could not start internet relay. Check your connection, or paste a Public Relay URL from Cloudflare Tunnel / ngrok.',
+    };
   });
 
   ipcMain.handle('settings:testGitHub', async () => {

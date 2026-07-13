@@ -1,13 +1,24 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { SitescopApi } from '../../shared/api-types.js';
 
-const BRIDGE_VERSION = 9;
+const BRIDGE_VERSION = 14;
 
 const api: SitescopApi = {
   meta: {
     isDesktop: true,
     version: '6.0.1',
     bridgeVersion: BRIDGE_VERSION,
+  },
+  app: {
+    toggleFullscreen: () => ipcRenderer.invoke('app:toggleFullscreen'),
+    exitFullscreen: () => ipcRenderer.invoke('app:exitFullscreen'),
+    isFullscreen: () => ipcRenderer.invoke('app:isFullscreen'),
+    reload: () => ipcRenderer.invoke('app:reload'),
+    quit: () => ipcRenderer.invoke('app:quit'),
+    openHelp: () => ipcRenderer.invoke('app:openHelp'),
+    openAbout: () => ipcRenderer.invoke('app:openAbout'),
+    zoom: (direction) => ipcRenderer.invoke('app:zoom', direction),
+    edit: (action) => ipcRenderer.invoke('app:edit', action),
   },
   auth: {
     login: (email, password, remember) =>
@@ -87,12 +98,25 @@ const api: SitescopApi = {
     listByClient: () => ipcRenderer.invoke('accounting:listByClient'),
     getSummary: () => ipcRenderer.invoke('accounting:getSummary'),
     pushToXero: (jobId) => ipcRenderer.invoke('accounting:pushToXero', jobId),
+    emailPaymentReminder: (jobId) => ipcRenderer.invoke('accounting:emailPaymentReminder', jobId),
+    broadcastOffer: (input) => ipcRenderer.invoke('accounting:broadcastOffer', input),
+  },
+  dataArchive: {
+    list: () => ipcRenderer.invoke('dataArchive:list'),
+    archiveAll: () => ipcRenderer.invoke('dataArchive:archiveAll'),
+    restore: (archiveId) => ipcRenderer.invoke('dataArchive:restore', archiveId),
+    openFolder: () => ipcRenderer.invoke('dataArchive:openFolder'),
+    requestDeleteUnlock: (loginPassword) =>
+      ipcRenderer.invoke('dataArchive:requestDeleteUnlock', loginPassword),
+    verifyDeleteUnlock: (code) => ipcRenderer.invoke('dataArchive:verifyDeleteUnlock', code),
+    clearDeleteUnlock: () => ipcRenderer.invoke('dataArchive:clearDeleteUnlock'),
   },
   clients: {
     list: (search) => ipcRenderer.invoke('clients:list', search),
     get: (clientId) => ipcRenderer.invoke('clients:get', clientId),
     update: (clientId, input) => ipcRenderer.invoke('clients:update', clientId, input),
     updateAgent: (clientId, input) => ipcRenderer.invoke('clients:updateAgent', clientId, input),
+    delete: (clientId) => ipcRenderer.invoke('clients:delete', clientId),
     openAgreementPdf: (agreementId) => ipcRenderer.invoke('clients:openAgreementPdf', agreementId),
     openInvoicePdf: (jobId) => ipcRenderer.invoke('clients:openInvoicePdf', jobId),
     copyAgreementPdf: (agreementId) => ipcRenderer.invoke('clients:copyAgreementPdf', agreementId),
@@ -131,12 +155,15 @@ const api: SitescopApi = {
     saveReport: (input) => ipcRenderer.invoke('settings:saveReport', input),
     saveBilling: (input) => ipcRenderer.invoke('settings:saveBilling', input),
     saveEmail: (input) => ipcRenderer.invoke('settings:saveEmail', input),
+    saveReminders: (input) => ipcRenderer.invoke('settings:saveReminders', input),
+    runRemindersNow: () => ipcRenderer.invoke('settings:runRemindersNow'),
     testSmtp: (toEmail) => ipcRenderer.invoke('settings:testSmtp', toEmail),
     selectLogo: () => ipcRenderer.invoke('settings:selectLogo'),
     removeLogo: () => ipcRenderer.invoke('settings:removeLogo'),
     getGitHub: () => ipcRenderer.invoke('settings:getGitHub'),
     saveGitHub: (input) => ipcRenderer.invoke('settings:saveGitHub', input),
     testGitHub: () => ipcRenderer.invoke('settings:testGitHub'),
+    ensurePublicRelay: () => ipcRenderer.invoke('settings:ensurePublicRelay'),
     getXero: () => ipcRenderer.invoke('settings:getXero'),
     saveXero: (input) => ipcRenderer.invoke('settings:saveXero', input),
     connectXero: () => ipcRenderer.invoke('settings:connectXero'),

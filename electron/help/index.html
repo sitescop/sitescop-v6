@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SiteScop V6 — Help</title>
+  <style>
+    :root {
+      --bg: #0f2e24;
+      --bg-2: #16382d;
+      --panel: #f7faf8;
+      --panel-2: #ffffff;
+      --ink: #13241c;
+      --muted: #4d6358;
+      --line: #d7e3dc;
+      --green: #1b6b4a;
+      --green-2: #248f63;
+      --gold: #c9a227;
+      --sky: #2a7d9b;
+      --coral: #c45c3e;
+      --shadow: 0 18px 40px rgba(8, 30, 22, 0.28);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(201, 162, 39, 0.22), transparent 32%),
+        radial-gradient(circle at 88% 0%, rgba(42, 125, 155, 0.25), transparent 28%),
+        linear-gradient(160deg, var(--bg), #0a1f18 55%, #12382c);
+    }
+    body { padding: 18px; }
+    .shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      background: var(--panel);
+      border-radius: 22px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      min-height: calc(100vh - 36px);
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+    .hero {
+      background: linear-gradient(120deg, #14533a, #1b6b4a 45%, #2a7d9b);
+      color: #fff;
+      padding: 22px 24px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -40px;
+      top: -50px;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: rgba(201, 162, 39, 0.28);
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.92;
+    }
+    .eyebrow span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 0 4px rgba(201, 162, 39, 0.25);
+    }
+    h1 {
+      margin: 10px 0 6px;
+      font-size: 28px;
+      line-height: 1.15;
+      font-weight: 800;
+    }
+    .hero p { margin: 0; max-width: 62ch; color: rgba(255,255,255,0.9); }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 14px 18px;
+      background: #eef6f1;
+      border-bottom: 1px solid var(--line);
+    }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #fff;
+      color: var(--green);
+      box-shadow: inset 0 0 0 1px #cfe0d6;
+    }
+    .tab.active {
+      background: linear-gradient(135deg, var(--green), var(--green-2));
+      color: #fff;
+      box-shadow: none;
+    }
+    .search-wrap {
+      flex: 1;
+      min-width: 240px;
+      position: relative;
+    }
+    .search-wrap input {
+      width: 100%;
+      border: 1px solid #bfd4c8;
+      border-radius: 14px;
+      padding: 12px 14px 12px 40px;
+      font-size: 15px;
+      outline: none;
+      background: #fff;
+    }
+    .search-wrap input:focus {
+      border-color: var(--green-2);
+      box-shadow: 0 0 0 3px rgba(36, 143, 99, 0.18);
+    }
+    .search-wrap::before {
+      content: "⌕";
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 480px;
+    }
+    @media (max-width: 900px) {
+      .content { grid-template-columns: 1fr; }
+      .toc { display: none; }
+    }
+    .toc {
+      background: var(--bg-2);
+      color: #e7f3ec;
+      padding: 18px 12px;
+      max-height: calc(100vh - 200px);
+      overflow-y: auto;
+    }
+    .toc h2 {
+      margin: 0 0 12px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9fcbb5;
+    }
+    .toc button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      background: transparent;
+      color: #e7f3ec;
+      padding: 9px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1.35;
+      margin-bottom: 3px;
+    }
+    .toc button:hover,
+    .toc button.active {
+      background: rgba(255,255,255,0.1);
+    }
+    .main {
+      padding: 20px 22px 28px;
+      background: linear-gradient(180deg, #fbfdfc, #f3f8f5);
+    }
+    .section {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px 18px 8px;
+      margin-bottom: 14px;
+      box-shadow: 0 8px 18px rgba(19, 36, 28, 0.04);
+    }
+    .section.hidden { display: none; }
+    .section h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section h4 {
+      margin: 14px 0 6px;
+      font-size: 14.5px;
+      color: var(--ink);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .b-green { background: var(--green); }
+    .b-gold { background: var(--gold); color: #1d1600; }
+    .b-sky { background: var(--sky); }
+    .b-coral { background: var(--coral); }
+    .section p, .section li {
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14.5px;
+    }
+    .section ul, .section ol { margin: 0 0 14px; padding-left: 18px; }
+    .section li { margin-bottom: 6px; }
+    .tip {
+      margin: 0 0 14px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #fff7e6;
+      border: 1px solid #f0d48a;
+      color: #6a5208;
+      font-size: 13.5px;
+    }
+    .warn {
+      margin: 0 0 14px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #fff0eb;
+      border: 1px solid #f0c4b8;
+      color: #7a3a28;
+      font-size: 13.5px;
+    }
+    .empty {
+      display: none;
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--muted);
+    }
+    .empty.show { display: block; }
+    .about {
+      display: none;
+      padding: 24px 22px 36px;
+      background: linear-gradient(180deg, #fbfdfc, #f3f8f5);
+    }
+    .about.show { display: block; }
+    .about-card {
+      background: linear-gradient(145deg, #14533a, #1f7a55 50%, #286f8d);
+      color: #fff;
+      border-radius: 22px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+    }
+    .about-card h2 { margin: 0 0 8px; font-size: 26px; }
+    .about-card p { margin: 0 0 10px; color: rgba(255,255,255,0.92); max-width: 68ch; line-height: 1.55; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .chip {
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .meta {
+      margin-top: 18px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+    .meta div {
+      background: rgba(255,255,255,0.1);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+    .meta strong { display: block; font-size: 12px; opacity: 0.8; margin-bottom: 4px; }
+    .about-grid {
+      display: grid;
+      gap: 14px;
+      margin-top: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .about-panel {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px;
+    }
+    .about-panel h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      color: var(--ink);
+    }
+    .about-panel p, .about-panel li {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .about-panel ul { margin: 0; padding-left: 18px; }
+    .about-panel li { margin-bottom: 6px; }
+    .contact-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      margin-top: 12px;
+      font-size: 14px;
+      color: rgba(255,255,255,0.95);
+    }
+    .contact-line span { white-space: nowrap; }
+    kbd {
+      font-family: Consolas, monospace;
+      background: #e8f0eb;
+      border: 1px solid #c5d8cc;
+      border-bottom-width: 2px;
+      border-radius: 6px;
+      padding: 1px 6px;
+      font-size: 12px;
+      color: var(--ink);
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <div class="eyebrow"><span></span> SiteScop V6 Help Centre</div>
+      <h1>Complete guide to SiteScop V6</h1>
+      <p>
+        Search any topic below, browse the table of contents, or open <strong>About</strong> for company
+        details. Press <kbd>F1</kbd> in the main app to open this guide anytime.
+      </p>
+    </header>
+
+    <div class="toolbar">
+      <div class="tabs">
+        <button class="tab active" id="tab-guide" type="button">User guide</button>
+        <button class="tab" id="tab-about" type="button">About us</button>
+      </div>
+      <div class="search-wrap" id="search-wrap">
+        <input id="search" type="search" placeholder="Search: login, calendar, accounting, SMTP, dictation, recycle bin…" autocomplete="off" />
+      </div>
+    </div>
+
+    <div class="content" id="guide-view">
+      <aside class="toc" id="toc"></aside>
+      <div class="main">
+        <div id="sections"></div>
+        <div class="empty" id="empty">No matching topics. Try “calendar”, “reminder”, “Xero”, “voice”, or “recycle”.</div>
+      </div>
+    </div>
+
+    <div class="about" id="about-view">
+      <div class="about-card">
+        <h2>About SiteScop V6</h2>
+        <p>
+          <strong>SiteScop V6 — Local Edition</strong> is a desktop Building &amp; Pest inspection platform
+          built for Australian inspectors. Agreements, jobs, inspection forms, PDF reports, invoices,
+          accounting, and client records are stored on <strong>your computer</strong> — not in a public cloud.
+        </p>
+        <p>
+          SiteScop helps you manage the full inspection workflow: send agreements for e-signature, schedule
+          jobs, complete building and pest inspections on site (including voice dictation), generate professional
+          PDF reports, track payments, and email clients — all from one desktop app.
+        </p>
+        <div class="chips">
+          <span class="chip">Agreements &amp; e-sign</span>
+          <span class="chip">GitHub client signing</span>
+          <span class="chip">Building &amp; Pest PDFs</span>
+          <span class="chip">Voice dictation</span>
+          <span class="chip">Calendar &amp; scheduling</span>
+          <span class="chip">Accounting &amp; Xero</span>
+          <span class="chip">SMTP email</span>
+          <span class="chip">Automatic reminders</span>
+          <span class="chip">Offline-first</span>
+        </div>
+        <div class="contact-line">
+          <span><strong>Sitescop PTY LTD</strong></span>
+          <span>ABN 67 134 217 039</span>
+          <span>0401 427 366</span>
+          <span>info@sitescop.com.au</span>
+          <span>www.sitescop.com.au</span>
+        </div>
+        <div class="meta">
+          <div><strong>Version</strong>6.0.0</div>
+          <div><strong>Edition</strong>Desktop / Local</div>
+          <div><strong>Platform</strong>Windows (x64)</div>
+          <div><strong>Data location</strong>This PC only</div>
+        </div>
+      </div>
+
+      <div class="about-grid">
+        <div class="about-panel">
+          <h3>How to open SiteScop</h3>
+          <ul>
+            <li><strong>Installed app:</strong> Desktop shortcut or Start Menu → <strong>SiteScop V6</strong>.</li>
+            <li><strong>Developer folder:</strong> Double-click <strong>START-SITESCOP.bat</strong> in the sitescop-v6 folder. Keep the black launcher window open while the app runs.</li>
+            <li><strong>Always use the desktop window</strong> titled SiteScop V6 — not Chrome, Edge, or another browser tab.</li>
+          </ul>
+        </div>
+        <div class="about-panel">
+          <h3>Privacy &amp; your data</h3>
+          <ul>
+            <li>Inspection data, clients, agreements, and reports live in a local database on this device.</li>
+            <li>Email is sent only when you (or automatic reminders) trigger it via your SMTP settings.</li>
+            <li>GitHub Cloud Signing uploads agreement files only when you enable and use that feature.</li>
+            <li>“Remember me” on login stores your email and password on this PC only.</li>
+          </ul>
+        </div>
+        <div class="about-panel">
+          <h3>What’s included in V6</h3>
+          <ul>
+            <li>Dashboard with today’s jobs and quick stats</li>
+            <li>Agreements with online signing (GitHub Pages optional)</li>
+            <li>Full inspection workspace — building, pest, and combined</li>
+            <li>PDF report generation with your logo and branding</li>
+            <li>Accounting with payment tracking, insights, and Xero sync</li>
+            <li>Calendar with drag-and-drop rescheduling</li>
+            <li>Recycle Bin for deleted jobs and agreements</li>
+            <li>Settings for company, billing, email, reminders, and more</li>
+          </ul>
+        </div>
+        <div class="about-panel">
+          <h3>After updates</h3>
+          <ul>
+            <li>Close <strong>every</strong> SiteScop window (and the launcher if using the .bat file).</li>
+            <li>Start again so new menus, Help, and features load correctly.</li>
+            <li>If a feature says “Restart app to enable”, run <strong>REPAIR-SITESCOP.bat</strong> then start again.</li>
+            <li>For a fresh installed copy, run the latest <strong>SiteScop V6 Setup 6.0.0.exe</strong> installer.</li>
+          </ul>
+        </div>
+        <div class="about-panel">
+          <h3>Support &amp; contact</h3>
+          <ul>
+            <li>Email: <strong>info@sitescop.com.au</strong></li>
+            <li>Phone: <strong>0401 427 366</strong></li>
+            <li>In-app help: <strong>Help → User Guide</strong> or press <kbd>F1</kbd></li>
+            <li>Configure SMTP under <strong>Settings → Email</strong> before using Forgot password or automatic reminders.</li>
+          </ul>
+        </div>
+        <div class="about-panel">
+          <h3>Copyright</h3>
+          <p style="margin:0;color:var(--muted);font-size:14px;line-height:1.55">
+            Copyright © SiteScop Inspections / Sitescop PTY LTD. SiteScop V6 is proprietary inspection
+            software. Report PDFs are confidential inspection documents for your clients.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const topics = [
+      {
+        id: 'start',
+        title: 'Getting started',
+        color: 'b-green',
+        keywords: 'start launch bat installer desktop login sign in window shortcut',
+        html: `
+          <p>SiteScop V6 runs as a <strong>desktop app</strong> on your Windows PC. Your database is local — browser tabs cannot access it.</p>
+          <h4>Opening the app</h4>
+          <ul>
+            <li><strong>Installed:</strong> Start Menu or Desktop → <strong>SiteScop V6</strong>.</li>
+            <li><strong>From source folder:</strong> Double-click <strong>START-SITESCOP.bat</strong>. First launch may take 30–60 seconds while it builds.</li>
+            <li>Look for the window titled <strong>SiteScop V6</strong> with the green menu bar (File, Edit, View, Help).</li>
+          </ul>
+          <h4>Signing in</h4>
+          <ul>
+            <li>Enter your inspector <strong>email</strong> and <strong>password</strong>.</li>
+            <li>Tick <strong>Remember me</strong> to save your login on this PC. Untick it to start with empty fields next time.</li>
+            <li>After a successful login with Remember me on, your credentials are restored when you reopen the app.</li>
+          </ul>
+          <div class="warn">Do not use Chrome or Edge to open SiteScop. If you see a “browser warning” page, close the browser and use the desktop app.</div>
+          <div class="tip">Keep the black START-SITESCOP launcher window open while developing. For installed apps, just keep SiteScop V6 running.</div>
+        `,
+      },
+      {
+        id: 'dashboard',
+        title: 'Dashboard',
+        color: 'b-green',
+        keywords: 'dashboard welcome today summary stats cards home',
+        html: `
+          <p>The <strong>Dashboard</strong> is your command centre when you sign in.</p>
+          <ul>
+            <li><strong>Summary cards</strong> — Today’s Jobs, In Progress, Waiting Agreements, Completed This Week, Awaiting payment, Upcoming Inspections. Click any card to jump to that section.</li>
+            <li><strong>Today’s Jobs</strong> — inspections scheduled for today, sorted by priority, status, and time.</li>
+            <li><strong>Recycle Bin alert</strong> — appears when deleted jobs or agreements can be restored.</li>
+            <li><strong>Refresh</strong> — updates counts and today’s list.</li>
+          </ul>
+          <div class="tip">Use the sidebar for full navigation: Create New Job, In Progress, Completed, Accounting, Agreements, Calendar, Recycle Bin, Clients, Settings.</div>
+        `,
+      },
+      {
+        id: 'menu',
+        title: 'Menu bar (File, Edit, View, Help)',
+        color: 'b-sky',
+        keywords: 'menu file edit view help fullscreen esc zoom reload quit f1',
+        html: `
+          <p>The green menu bar at the top of the desktop app provides quick actions:</p>
+          <ul>
+            <li><strong>File</strong> — <em>Reload SiteScop</em> (<kbd>Ctrl</kbd>+<kbd>R</kbd>), <em>Quit SiteScop</em> (<kbd>Ctrl</kbd>+<kbd>Q</kbd>).</li>
+            <li><strong>Edit</strong> — Undo, Redo, Cut, Copy, Paste, Select All (standard text editing in form fields).</li>
+            <li><strong>View</strong> — Zoom In/Out, Actual Size, Toggle Full Screen (<kbd>F11</kbd>), Exit Full Screen (<kbd>Esc</kbd>).</li>
+            <li><strong>Help</strong> — <em>User Guide (searchable)</em> (<kbd>F1</kbd>), <em>About SiteScop V6</em>.</li>
+          </ul>
+          <div class="tip">Press <kbd>Esc</kbd> to leave full screen. Press <kbd>F1</kbd> anytime to reopen this help guide.</div>
+        `,
+      },
+      {
+        id: 'jobs',
+        title: 'Jobs — create, progress & complete',
+        color: 'b-green',
+        keywords: 'job create new in progress completed today building pest combined status',
+        html: `
+          <h4>Create a job</h4>
+          <ul>
+            <li>Sidebar → <strong>Create New Job</strong>, or create from a signed agreement.</li>
+            <li>Choose inspection type: <strong>Building</strong>, <strong>Pest</strong>, or <strong>Combined</strong>.</li>
+            <li>Enter client details, property address, inspection date and time.</li>
+          </ul>
+          <h4>Job lists</h4>
+          <ul>
+            <li><strong>In Progress</strong> — active inspections not yet completed.</li>
+            <li><strong>Completed</strong> — finished jobs with PDF reports.</li>
+            <li><strong>Today’s Jobs</strong> — from Dashboard or sidebar filter.</li>
+          </ul>
+          <h4>Job details page</h4>
+          <ul>
+            <li>Open a job to see overview, client, agreement link, and actions.</li>
+            <li>Start or continue the <strong>inspection workspace</strong>.</li>
+            <li>Mark complete when the on-site inspection is finished.</li>
+            <li>Delete moves the job to the <strong>Recycle Bin</strong> (restorable).</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'inspection',
+        title: 'Inspection workspace & voice dictation',
+        color: 'b-green',
+        keywords: 'inspection workspace form room dictation voice dictate offline comments',
+        html: `
+          <p>The inspection workspace is where you complete the building and/or pest report on site.</p>
+          <ul>
+            <li>Navigate room by room — add comments, defects, photos, and conclusions.</li>
+            <li><strong>Combined</strong> jobs switch between building and pest sections in one workflow.</li>
+            <li>Data saves locally as you work — no internet required for the form itself.</li>
+          </ul>
+          <h4>Voice dictation</h4>
+          <ul>
+            <li>Tap <strong>Dictate</strong>, speak while the voice bar moves, then tap <strong>Stop</strong>.</li>
+            <li>Works <strong>offline</strong> on Windows desktop — no cloud speech service needed.</li>
+            <li>Test dictation under <strong>Settings → Voice</strong> before using it on inspections.</li>
+            <li>Edit transcribed text after dictation if needed.</li>
+          </ul>
+          <div class="warn">Voice dictation only works in the desktop app (START-SITESCOP.bat or installed SiteScop V6), not in a browser.</div>
+        `,
+      },
+      {
+        id: 'reports',
+        title: 'Reports & PDFs',
+        color: 'b-gold',
+        keywords: 'report pdf generate email both combined copy folder logo footer paid',
+        html: `
+          <ul>
+            <li>Generate PDF reports from the inspection workspace or completed job page when ready.</li>
+            <li><strong>Building</strong>, <strong>Pest</strong>, or both for <strong>Combined</strong> jobs.</li>
+            <li><strong>Email both reports to client</strong> — one email with both PDFs attached (Combined jobs).</li>
+            <li><strong>Open folder</strong> / <strong>Copy PDFs</strong> — access files outside SiteScop.</li>
+            <li>Company logo and colours come from <strong>Settings → Company &amp; Logo</strong> and <strong>Reports &amp; PDF</strong>.</li>
+            <li>Report delivery may require the job to be marked <strong>paid</strong> (depending on your workflow).</li>
+          </ul>
+          <div class="tip">Set PDF footer text and “Include logo on PDFs” under Settings → Reports &amp; PDF.</div>
+        `,
+      },
+      {
+        id: 'agreements',
+        title: 'Agreements & client signing',
+        color: 'b-coral',
+        keywords: 'agreement sign send link email draft signed revise archive create job',
+        html: `
+          <h4>Create &amp; send</h4>
+          <ul>
+            <li><strong>Agreements</strong> → <strong>New Agreement</strong> or open an existing draft.</li>
+            <li>Fill client, property, inspection type, and pricing (defaults from Settings → Billing).</li>
+            <li><strong>Send to client</strong> — emails a signing link (SMTP) or opens your mail app.</li>
+            <li>Track status: Draft, Sent, Signed.</li>
+          </ul>
+          <h4>After signing</h4>
+          <ul>
+            <li>Create the inspection <strong>job</strong> from the signed agreement when prompted.</li>
+            <li>Signed PDF is stored with the agreement and client record.</li>
+          </ul>
+          <h4>Revised agreements</h4>
+          <ul>
+            <li><strong>Create revised agreement</strong> — new draft; previous signed copy moves to client history.</li>
+            <li>Use when terms, price, or scope change after an earlier sign.</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'github',
+        title: 'GitHub Cloud Signing',
+        color: 'b-sky',
+        keywords: 'github pages signing portal token repository upload public link',
+        html: `
+          <p>Optional: host client signing pages on GitHub Pages so clients sign in their browser.</p>
+          <ol>
+            <li>Go to <strong>Settings → GitHub Signing</strong>.</li>
+            <li>Enable GitHub Cloud Signing.</li>
+            <li>Enter GitHub Owner, Repository, Branch, and GitHub Pages URL.</li>
+            <li>Add your Personal Access Token (stored securely on this desktop only).</li>
+            <li><strong>Save</strong> then <strong>Test Connection</strong>.</li>
+            <li>When sending agreements, SiteScop can upload to GitHub and provide a public signing URL.</li>
+          </ol>
+          <div class="tip">The inspector desktop app and client signing portal are separate: clients sign in the browser; your data stays local.</div>
+        `,
+      },
+      {
+        id: 'calendar',
+        title: 'Calendar & scheduling',
+        color: 'b-sky',
+        keywords: 'calendar month reschedule drag drop upcoming inspection date time',
+        html: `
+          <ul>
+            <li><strong>Calendar</strong> shows all scheduled inspections in a monthly grid.</li>
+            <li>Click a day to see jobs; click a job for details, reschedule, or open the job.</li>
+            <li><strong>Drag and drop</strong> jobs between days to reschedule quickly.</li>
+            <li>Change date and time in the reschedule dialog if you prefer typing.</li>
+            <li>Dashboard link <strong>Upcoming Inspections</strong> opens calendar upcoming view.</li>
+          </ul>
+          <div class="tip">Completed or archived jobs may not appear on the calendar — check Completed Jobs for history.</div>
+        `,
+      },
+      {
+        id: 'clients',
+        title: 'Clients',
+        color: 'b-green',
+        keywords: 'client contact email mobile history documents agreements jobs',
+        html: `
+          <ul>
+            <li><strong>Clients</strong> lists everyone from your jobs and agreements.</li>
+            <li>Open a client to see contact details, all jobs, agreements, and PDF documents.</li>
+            <li>Client email and mobile are used for agreements, invoices, reports, and reminders.</li>
+            <li>Agreement history shows signed and revised documents per client.</li>
+            <li>From client details you can email invoices or jump to related jobs.</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'accounting',
+        title: 'Accounting & payments',
+        color: 'b-gold',
+        keywords: 'accounting awaiting paid invoice overdue reminder xero insights payment',
+        html: `
+          <h4>Tabs</h4>
+          <ul>
+            <li><strong>Awaiting payment</strong> — signed jobs not yet marked paid.</li>
+            <li><strong>Paid</strong> — jobs with payment received.</li>
+            <li><strong>By client</strong> — totals grouped by client.</li>
+          </ul>
+          <h4>Insights panel</h4>
+          <ul>
+            <li>Weekly and monthly paid revenue summaries with a simple chart.</li>
+            <li><strong>Overdue</strong> — jobs signed many days ago still unpaid (alert banner when present).</li>
+            <li><strong>Ready to send</strong> — jobs where reports can be emailed after payment rules.</li>
+            <li><strong>Send payment reminder</strong> — manual email with invoice attached (SMTP required).</li>
+          </ul>
+          <h4>Actions on jobs</h4>
+          <ul>
+            <li>Mark as <strong>paid</strong>, email invoice, email reports.</li>
+            <li><strong>Send to Xero</strong> when Xero sync is configured (Settings → Xero &amp; MYOB).</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'recycle',
+        title: 'Recycle Bin',
+        color: 'b-coral',
+        keywords: 'recycle bin restore purge delete permanently job agreement trash',
+        html: `
+          <ul>
+            <li>Deleted jobs and agreements go to the <strong>Recycle Bin</strong> — not permanently removed immediately.</li>
+            <li><strong>Restore</strong> — brings the item back to normal lists.</li>
+            <li><strong>Delete permanently</strong> — cannot be undone; use carefully.</li>
+            <li>Filter by type: all, jobs only, or agreements only.</li>
+            <li>Dashboard shows a alert when the Recycle Bin has items.</li>
+            <li>Also accessible from <strong>Settings</strong> (Recycle Bin button).</li>
+          </ul>
+          <div class="warn">Clear test data (Settings → Login &amp; Password) permanently empties the Recycle Bin first, then archives all data.</div>
+        `,
+      },
+      {
+        id: 'email',
+        title: 'Email & SMTP',
+        color: 'b-sky',
+        keywords: 'email smtp zoho gmail send test password attach template invoice report agreement',
+        html: `
+          <p>Go to <strong>Settings → Email</strong>.</p>
+          <h4>SMTP send (recommended)</h4>
+          <ul>
+            <li>Enable SMTP to send directly from SiteScop with attachments.</li>
+            <li>Zoho AU example: host <strong>smtp.zoho.com.au</strong>, port <strong>465</strong>, encryption <strong>SSL</strong>.</li>
+            <li>Gmail and other providers work — use an <strong>app password</strong>, not your normal login password.</li>
+            <li><strong>Save</strong> then <strong>Save &amp; send test email</strong> to verify.</li>
+            <li>Required for: Forgot password, automatic reminders, payment reminders, and one-click sends with PDFs attached.</li>
+          </ul>
+          <h4>Without SMTP</h4>
+          <ul>
+            <li>Choose a mail client (Zoho browser, Outlook mailto, or system default).</li>
+            <li>SiteScop opens your mail app with the message pre-filled — you click Send manually.</li>
+          </ul>
+          <h4>Email templates</h4>
+          <ul>
+            <li>Customise subjects and bodies for: agreement signing, reports, invoices, and general messages.</li>
+            <li>Use placeholders like client name where shown in Settings.</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'reminders',
+        title: 'Automatic reminders',
+        color: 'b-sky',
+        keywords: 'reminder inspection overdue payment automatic smtp whatsapp template',
+        html: `
+          <p>Go to <strong>Settings → Reminders</strong>. Requires SMTP enabled under Email.</p>
+          <h4>Inspection reminder email</h4>
+          <ul>
+            <li>Automatically emails clients before their inspection with address, date, and time.</li>
+            <li>Set <strong>Days before inspection</strong> (e.g. 1 = day before).</li>
+          </ul>
+          <h4>Overdue payment reminder email</h4>
+          <ul>
+            <li>Emails clients with unpaid signed jobs; invoice PDF attached.</li>
+            <li><strong>First overdue after</strong> — days after signing before first reminder.</li>
+            <li><strong>Repeat every</strong> — days between repeat reminders.</li>
+          </ul>
+          <h4>When reminders run</h4>
+          <ul>
+            <li>While SiteScop is open, reminders are checked periodically.</li>
+            <li>If the PC was off, reminders <strong>catch up</strong> when you next start SiteScop.</li>
+          </ul>
+          <h4>WhatsApp helper</h4>
+          <ul>
+            <li>Stores a WhatsApp message template only — email is the automatic channel.</li>
+            <li>Silent auto-WhatsApp requires WhatsApp Business API (not included).</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'marketing',
+        title: 'Marketing & client offers',
+        color: 'b-gold',
+        keywords: 'marketing offer advertising broadcast email clients promotion',
+        html: `
+          <p>Go to <strong>Settings → Marketing</strong>.</p>
+          <ul>
+            <li>Compose a subject and message for a client offer or promotion.</li>
+            <li>Use <code>{{firstName}}</code> in the message for personalisation.</li>
+            <li>One click sends to <strong>every client with an email</strong> on file.</li>
+            <li>SMTP must be enabled under Settings → Email.</li>
+          </ul>
+          <div class="warn">Review your message carefully before sending — this goes to all clients at once.</div>
+        `,
+      },
+      {
+        id: 'password',
+        title: 'Login, password & Remember me',
+        color: 'b-coral',
+        keywords: 'login password remember me forgot reset change sign in',
+        html: `
+          <h4>Remember me</h4>
+          <ul>
+            <li>Tick <strong>Remember me</strong> on login to save email and password on this PC.</li>
+            <li>Untick it and sign in — saved credentials are cleared; next visit shows empty fields.</li>
+          </ul>
+          <h4>Forgot password</h4>
+          <ul>
+            <li>Login screen → <strong>Forgot email or password?</strong></li>
+            <li>Enter account email — SiteScop sends a reset code (SMTP required).</li>
+            <li>Paste code, set new password, sign in. Saved Remember me data is cleared after reset.</li>
+          </ul>
+          <h4>Change password (signed in)</h4>
+          <ul>
+            <li><strong>Settings → Login &amp; Password</strong> — current password, new password, confirm.</li>
+            <li>Login email is changed under <strong>Settings → Inspector</strong>.</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'settings-inspector',
+        title: 'Settings — Inspector profile',
+        color: 'b-green',
+        keywords: 'settings inspector profile name email mobile company login',
+        html: `
+          <ul>
+            <li><strong>First / last name</strong> — appears on reports and emails.</li>
+            <li><strong>Login email</strong> — your SiteScop sign-in email (also used for password reset).</li>
+            <li><strong>Mobile</strong> — contact on reports.</li>
+            <li><strong>Display company name</strong> — shown in the app header and documents.</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'settings-company',
+        title: 'Settings — Company & logo',
+        color: 'b-green',
+        keywords: 'settings company logo abn phone website address branding',
+        html: `
+          <ul>
+            <li>Company name, ABN, phone, email, website, business address.</li>
+            <li>Used on client signing pages, agreements, and PDF reports.</li>
+            <li><strong>Upload logo</strong> — shown on PDFs when enabled under Reports &amp; PDF.</li>
+            <li>Default SiteScop logo is used until you upload your own.</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'settings-billing',
+        title: 'Settings — Billing & invoices',
+        color: 'b-gold',
+        keywords: 'settings billing price gst building pest combined bank bsb invoice payment terms',
+        html: `
+          <h4>Inspection prices</h4>
+          <ul>
+            <li>Default prices for Building, Pest, and Combined inspections on new agreements.</li>
+            <li>Enter ex-GST or inc-GST — the other is calculated at 10% GST.</li>
+          </ul>
+          <h4>Invoice payment details</h4>
+          <ul>
+            <li>Bank account name, BSB, account number — printed on tax invoice PDFs.</li>
+            <li>Payment terms and payment notes (e.g. use invoice number as reference).</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'settings-reports',
+        title: 'Settings — Reports & PDF',
+        color: 'b-gold',
+        keywords: 'settings report pdf colour footer header logo primary secondary',
+        html: `
+          <ul>
+            <li><strong>Primary / secondary colours</strong> — report styling.</li>
+            <li><strong>PDF footer text</strong> — default confidentiality line on reports.</li>
+            <li><strong>Report header / footer note</strong> — optional extra text on PDFs.</li>
+            <li><strong>Include company logo on PDF reports</strong> — toggle logo from Company settings.</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'settings-security',
+        title: 'Settings — Login, password & test data',
+        color: 'b-coral',
+        keywords: 'settings security clear test data archive delete restore password code',
+        html: `
+          <h4>Change password</h4>
+          <ul>
+            <li>Current password, new password, confirm — then <strong>Change password</strong>.</li>
+          </ul>
+          <h4>Clear / delete test data</h4>
+          <ul>
+            <li>For wiping demo or test records before going live.</li>
+            <li>Permanently empties the Recycle Bin, then archives all clients, jobs, and agreements.</li>
+            <li>Requires: login password → one-time email code → confirm in delete window.</li>
+            <li>Archived snapshots appear in the list below — use <strong>Restore</strong> to bring data back.</li>
+            <li><strong>Open archives folder</strong> — view backup files on disk.</li>
+          </ul>
+          <div class="warn">Clear test data is destructive. Only use when you intentionally want to reset or archive everything.</div>
+        `,
+      },
+      {
+        id: 'settings-xero',
+        title: 'Settings — Xero & MYOB',
+        color: 'b-sky',
+        keywords: 'settings xero myob sync invoice connect accounting developer',
+        html: `
+          <h4>Xero sync</h4>
+          <ol>
+            <li>Create a Xero app at developer.xero.com.</li>
+            <li>Add the redirect URI shown in Settings (localhost callback).</li>
+            <li>Paste Client ID and Secret, set sales account code, save.</li>
+            <li>Click <strong>Connect to Xero</strong> and authorise.</li>
+            <li>In Accounting, use <strong>Send to Xero</strong> on paid or awaiting jobs.</li>
+          </ol>
+          <div class="tip">MYOB integration may be listed for future use — Xero is the primary sync in V6.</div>
+        `,
+      },
+      {
+        id: 'shortcuts',
+        title: 'Keyboard shortcuts',
+        color: 'b-sky',
+        keywords: 'shortcut keyboard f1 f11 f12 esc reload zoom quit',
+        html: `
+          <ul>
+            <li><kbd>F1</kbd> — Open Help (User Guide)</li>
+            <li><kbd>Ctrl</kbd> + <kbd>R</kbd> — Reload SiteScop</li>
+            <li><kbd>Ctrl</kbd> + <kbd>Q</kbd> — Quit SiteScop</li>
+            <li><kbd>F11</kbd> — Toggle full screen</li>
+            <li><kbd>Esc</kbd> — Exit full screen</li>
+            <li><kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> — Zoom in / out / actual size</li>
+            <li><kbd>F12</kbd> — Developer Tools (support / troubleshooting only)</li>
+          </ul>
+        `,
+      },
+      {
+        id: 'troubleshoot',
+        title: 'Troubleshooting & restart',
+        color: 'b-coral',
+        keywords: 'troubleshoot restart repair error menu not ready bridge smtp feature',
+        html: `
+          <h4>App won’t open or looks wrong</h4>
+          <ul>
+            <li>Close <strong>all</strong> SiteScop and Electron windows.</li>
+            <li>Run <strong>REPAIR-SITESCOP.bat</strong>, then <strong>START-SITESCOP.bat</strong>.</li>
+            <li>Ensure you use the desktop window, not a browser.</li>
+          </ul>
+          <h4>“Menu not ready” or “Restart app to enable”</h4>
+          <ul>
+            <li>The app session is stale after a code update. Full restart loads new features (Recycle Bin, SMTP, Accounting, etc.).</li>
+          </ul>
+          <h4>Help won’t open</h4>
+          <ul>
+            <li>Close SiteScop, run <strong>npm run build</strong> (or START-SITESCOP.bat which builds), then start again.</li>
+          </ul>
+          <h4>Email not sending</h4>
+          <ul>
+            <li>Check Settings → Email: SMTP on, correct host/port, app password saved.</li>
+            <li>Send test email. Check spam folder.</li>
+          </ul>
+          <h4>Installed app updates</h4>
+          <ul>
+            <li>Build a new installer (<strong>npm run build:installer</strong>) and run <strong>SiteScop V6 Setup 6.0.0.exe</strong> over the old install.</li>
+            <li>Your local database and settings are kept on the PC.</li>
+          </ul>
+        `,
+      },
+    ];
+
+    const sectionsEl = document.getElementById('sections');
+    const tocEl = document.getElementById('toc');
+    const emptyEl = document.getElementById('empty');
+    const searchEl = document.getElementById('search');
+    const guideView = document.getElementById('guide-view');
+    const aboutView = document.getElementById('about-view');
+    const searchWrap = document.getElementById('search-wrap');
+    const tabGuide = document.getElementById('tab-guide');
+    const tabAbout = document.getElementById('tab-about');
+
+    tocEl.innerHTML = '<h2>Topics</h2>' + topics.map((t) =>
+      `<button type="button" data-id="${t.id}">${t.title}</button>`
+    ).join('');
+
+    sectionsEl.innerHTML = topics.map((t) => `
+      <article class="section" id="sec-${t.id}" data-keys="${(t.title + ' ' + t.keywords).toLowerCase()}">
+        <h3><span class="badge ${t.color}">${t.title.charAt(0)}</span>${t.title}</h3>
+        ${t.html}
+      </article>
+    `).join('');
+
+    function showGuide() {
+      guideView.style.display = 'grid';
+      aboutView.classList.remove('show');
+      searchWrap.style.display = 'block';
+      tabGuide.classList.add('active');
+      tabAbout.classList.remove('active');
+    }
+
+    function showAbout() {
+      guideView.style.display = 'none';
+      aboutView.classList.add('show');
+      searchWrap.style.display = 'none';
+      tabAbout.classList.add('active');
+      tabGuide.classList.remove('active');
+    }
+
+    tabGuide.addEventListener('click', showGuide);
+    tabAbout.addEventListener('click', showAbout);
+
+    tocEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-id]');
+      if (!btn) return;
+      showGuide();
+      const el = document.getElementById('sec-' + btn.dataset.id);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      tocEl.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === btn));
+    });
+
+    function filter() {
+      const q = searchEl.value.trim().toLowerCase();
+      let shown = 0;
+      sectionsEl.querySelectorAll('.section').forEach((sec) => {
+        const match = !q || (sec.getAttribute('data-keys') || '').includes(q) || sec.textContent.toLowerCase().includes(q);
+        sec.classList.toggle('hidden', !match);
+        if (match) shown += 1;
+      });
+      emptyEl.classList.toggle('show', shown === 0);
+    }
+
+    searchEl.addEventListener('input', filter);
+
+    const hash = (location.hash || '').replace('#', '');
+    if (hash === 'about') showAbout();
+    else showGuide();
+  </script>
+</body>
+</html>

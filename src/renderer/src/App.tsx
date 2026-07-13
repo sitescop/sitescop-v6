@@ -5,10 +5,20 @@ import { LoginPage } from '@/modules/auth/LoginPage';
 import { AppRouter } from '@/app/AppRouter';
 import { BrowserWarningPage } from '@/modules/system/BrowserWarningPage';
 import { AgreementSignPage } from '@/modules/agreements/AgreementSignPage';
+import { AppMenuBar } from '@/components/AppMenuBar';
 import { isBrowserOnly, waitForSitescopApi } from '@/lib/sitescop-api';
 
 function isAgreementSignRoute(): boolean {
   return window.location.hash.includes('/agreements/sign/');
+}
+
+function withMenu(children: React.ReactNode) {
+  return (
+    <div className="min-h-screen pt-10">
+      <AppMenuBar />
+      {children}
+    </div>
+  );
 }
 
 export function App() {
@@ -86,8 +96,8 @@ export function App() {
   }
 
   if (startupError) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-8">
+    return withMenu(
+      <div className="flex min-h-[calc(100vh-2.5rem)] items-center justify-center bg-background p-8">
         <div className="max-w-md rounded-lg border border-danger/30 bg-surface p-8 text-center shadow-card">
           <h1 className="text-xl font-bold text-danger">SiteScop V6</h1>
           <p className="mt-4 text-sm text-text">{startupError}</p>
@@ -95,38 +105,38 @@ export function App() {
             Use START-SITESCOP.bat — not Chrome or Edge.
           </p>
         </div>
-      </div>
+      </div>,
     );
   }
 
   if (loading || !bridgeReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+    return withMenu(
+      <div className="flex min-h-[calc(100vh-2.5rem)] items-center justify-center bg-background">
         <div className="text-center">
           <p className="text-lg font-semibold text-primary">SiteScop V6 — Desktop App</p>
           <p className="mt-2 text-text-light">Starting local database...</p>
         </div>
-      </div>
+      </div>,
     );
   }
 
   if (!user) {
     if (bridgeReady && isAgreementSignRoute()) {
-      return (
+      return withMenu(
         <HashRouter>
           <Routes>
             <Route path="/agreements/sign/:token" element={<AgreementSignPage />} />
           </Routes>
-        </HashRouter>
+        </HashRouter>,
       );
     }
-    return <LoginPage />;
+    return withMenu(<LoginPage />);
   }
 
-  return (
+  return withMenu(
     <HashRouter>
       <AppRouter />
-    </HashRouter>
+    </HashRouter>,
   );
 }
 

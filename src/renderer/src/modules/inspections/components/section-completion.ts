@@ -24,17 +24,17 @@ import { InspectionRoomType } from '@shared/inspection-types';
 
 export type SectionCompletionStatus = 'not_started' | 'in_progress' | 'completed';
 
-/** Accordion colour from inspector workflow (open / close / next), not form defaults alone. */
+/** Accordion colour from saved form content (with open section shown as in-progress unless already complete). */
 export function resolveWorkflowSectionStatus(
   sectionId: string,
   openId: string | null,
   visitedIds: ReadonlySet<string>,
   completedIds: ReadonlySet<string>,
 ): SectionCompletionStatus {
-  if (!visitedIds.has(sectionId)) return 'not_started';
   if (openId === sectionId) return 'in_progress';
   if (completedIds.has(sectionId)) return 'completed';
-  return 'in_progress';
+  if (visitedIds.has(sectionId)) return 'in_progress';
+  return 'not_started';
 }
 
 const hasText = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;

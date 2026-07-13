@@ -588,7 +588,7 @@ function syncD11BarrierBridgingFromServices(
   const linkedPhotos = shouldLinkPhotos
     ? mergePhotoRefs(
         pest.d11BarrierBridging.photos,
-        [...services.photos, ...services.hotWaterPhotos, ...services.gasBottlePhotos],
+        [...services.photos, ...(services.waterSupplyPhotos ?? []), ...(services.sewerPhotos ?? []), ...(services.electricityPhotos ?? []), ...(services.gasPhotos ?? []), ...services.hotWaterPhotos, ...(services.airConPhotos ?? []), ...services.gasBottlePhotos],
       )
     : pest.d11BarrierBridging.photos;
 

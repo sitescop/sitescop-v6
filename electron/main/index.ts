@@ -1,13 +1,19 @@
-import { app, BrowserWindow, Menu, dialog, shell, session } from 'electron';
+import { app, BrowserWindow, Menu, dialog, shell, session, ipcMain } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDatabaseEmpty, openDatabase } from './database.js';
 import { initIpcStore, registerIpcHandlers } from './ipc.js';
 import { startSigningServer, stopSigningServer } from './signing-server.js';
-import { syncSignedAgreementsFromGitHub } from './github-agreements.service.js';
+import { refreshPendingSubmitEndpoints, syncSignedAgreementsFromGitHub } from './github-agreements.service.js';
 import { getGitHubSettings, isGitHubSigningConfigured } from './settings.service.js';
 import { closePdfBrowser } from './reports.service.js';
 import { seedDatabase } from './seed.js';
+import { openAboutWindow, openHelpWindow } from './help-window.js';
+import { startReminderScheduler, stopReminderScheduler } from './reminders.service.js';
+import {
+  startPublicRelayTunnel,
+  stopPublicRelayTunnel,
+} from './public-relay.service.js';
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = !app.isPackaged;
@@ -28,72 +34,74 @@ function toggleDevTools() {
   }
 }
 
-function buildAppMenu() {
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'Reload',
-          accelerator: 'CmdOrCtrl+R',
-          click: () => mainWindow?.webContents.reload(),
-        },
-        { type: 'separator' },
-        {
-          label: 'Quit SiteScop',
-          accelerator: 'CmdOrCtrl+Q',
-          click: () => app.quit(),
-        },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        {
-          label: 'Toggle Developer Tools',
-          accelerator: 'F12',
-          click: toggleDevTools,
-        },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Help',
-      submenu: [
-        {
-          label: 'About SiteScop V6',
-          click: () => {
-            dialog.showMessageBox(mainWindow!, {
-              type: 'info',
-              title: 'SiteScop V6',
-              message: 'SiteScop V6 — Local Edition',
-              detail:
-                'This is the desktop app. Do not open SiteScop in Chrome or Edge.\n\nUse START-SITESCOP.bat or run: npm run dev',
-            });
-          },
-        },
-      ],
-    },
-  ];
+function toggleFullScreen() {
+  if (!mainWindow) return false;
+  const next = !mainWindow.isFullScreen();
+  mainWindow.setFullScreen(next);
+  return next;
+}
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+function exitFullScreenIfNeeded() {
+  if (!mainWindow?.isFullScreen()) return false;
+  mainWindow.setFullScreen(false);
+  return true;
+}
+
+function openHelpSafe(section: 'guide' | 'about' = 'guide') {
+  try {
+    if (section === 'about') openAboutWindow();
+    else openHelpWindow('guide');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not open Help.';
+    dialog.showErrorBox('SiteScop V6 Help', message);
+  }
+}
+
+function buildAppMenu() {
+  // Custom green AppMenuBar in the UI is the only visible menu.
+  // Keep keyboard shortcuts via before-input-event / app IPC — not a second native bar.
+  Menu.setApplicationMenu(null);
+}
+
+function registerAppMenuIpc() {
+  ipcMain.handle('app:toggleFullscreen', async () => toggleFullScreen());
+  ipcMain.handle('app:exitFullscreen', async () => exitFullScreenIfNeeded());
+  ipcMain.handle('app:isFullscreen', async () => Boolean(mainWindow?.isFullScreen()));
+  ipcMain.handle('app:reload', async () => {
+    mainWindow?.webContents.reload();
+  });
+  ipcMain.handle('app:quit', async () => {
+    app.quit();
+  });
+  ipcMain.handle('app:openHelp', async () => {
+    openHelpSafe('guide');
+  });
+  ipcMain.handle('app:openAbout', async () => {
+    openHelpSafe('about');
+  });
+  ipcMain.handle('app:zoom', async (_event, direction: 'in' | 'out' | 'reset') => {
+    if (!mainWindow) return;
+    const contents = mainWindow.webContents;
+    if (direction === 'reset') {
+      contents.setZoomLevel(0);
+      return;
+    }
+    const current = contents.getZoomLevel();
+    contents.setZoomLevel(direction === 'in' ? current + 0.5 : current - 0.5);
+  });
+  ipcMain.handle(
+    'app:edit',
+    async (_event, action: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => {
+      if (!mainWindow) return;
+      const contents = mainWindow.webContents;
+      if (action === 'undo') contents.undo();
+      else if (action === 'redo') contents.redo();
+      else if (action === 'cut') contents.cut();
+      else if (action === 'copy') contents.copy();
+      else if (action === 'paste') contents.paste();
+      else if (action === 'selectAll') contents.selectAll();
+    },
+  );
 }
 
 function configureSpellCheck() {
@@ -161,9 +169,53 @@ function createWindow() {
     dialog.showErrorBox('SiteScop V6', `Failed to load app (${code}): ${description}`);
   });
 
-  mainWindow.webContents.on('before-input-event', (_event, input) => {
-    if (input.key === 'F12' && input.type === 'keyDown') {
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'F12') {
       toggleDevTools();
+      return;
+    }
+    if (input.key === 'F11') {
+      toggleFullScreen();
+      event.preventDefault();
+      return;
+    }
+    if (input.key === 'F1') {
+      openHelpSafe('guide');
+      event.preventDefault();
+      return;
+    }
+    if (input.key === 'Escape' && mainWindow?.isFullScreen()) {
+      mainWindow.setFullScreen(false);
+      event.preventDefault();
+      return;
+    }
+    const ctrl = input.control || input.meta;
+    if (ctrl && input.key.toLowerCase() === 'r' && !input.alt) {
+      mainWindow?.webContents.reload();
+      event.preventDefault();
+      return;
+    }
+    if (ctrl && input.key.toLowerCase() === 'q') {
+      app.quit();
+      event.preventDefault();
+      return;
+    }
+    if (ctrl && (input.key === '=' || input.key === '+')) {
+      const level = mainWindow?.webContents.getZoomLevel() ?? 0;
+      mainWindow?.webContents.setZoomLevel(level + 0.5);
+      event.preventDefault();
+      return;
+    }
+    if (ctrl && input.key === '-') {
+      const level = mainWindow?.webContents.getZoomLevel() ?? 0;
+      mainWindow?.webContents.setZoomLevel(level - 0.5);
+      event.preventDefault();
+      return;
+    }
+    if (ctrl && input.key === '0') {
+      mainWindow?.webContents.setZoomLevel(0);
+      event.preventDefault();
     }
   });
 
@@ -226,6 +278,7 @@ if (!gotLock) {
     }
 
     buildAppMenu();
+    registerAppMenuIpc();
     configureSpellCheck();
     configureAppPermissions();
 
@@ -239,10 +292,83 @@ if (!gotLock) {
         store.persist();
       }
 
+      try {
+        const { repairIncompletePropertyAddresses } = await import('./property-address.js');
+        const repaired = repairIncompletePropertyAddresses(store.db);
+        if (repaired.repairedJobs > 0 || repaired.repairedAgreements > 0) {
+          console.warn(
+            `[data-repair] Restored incomplete property addresses (jobs=${repaired.repairedJobs}, agreements=${repaired.repairedAgreements}).`,
+          );
+          store.persist();
+          if (repaired.jobIds.length > 0) {
+            void (async () => {
+              try {
+                const { generateAgreementPdfForId } = await import('./agreements.service.js');
+                const placeholders = repaired.jobIds.map(() => '?').join(', ');
+                const agrStmt = store.db.prepare(
+                  `SELECT id FROM agreements
+                   WHERE job_id IN (${placeholders})
+                     AND IFNULL(deleted_at, '') = ''`,
+                );
+                agrStmt.bind(repaired.jobIds);
+                const ids: string[] = [];
+                while (agrStmt.step()) {
+                  ids.push(String((agrStmt.getAsObject() as { id: string }).id));
+                }
+                agrStmt.free();
+                for (const agreementId of ids) {
+                  try {
+                    await generateAgreementPdfForId(store.db, agreementId);
+                  } catch (error) {
+                    console.warn('[data-repair] could not regenerate agreement PDF', agreementId, error);
+                  }
+                }
+                const { generateInvoicePdfForJob } = await import('./invoices.service.js');
+                for (const jobId of repaired.jobIds) {
+                  try {
+                    await generateInvoicePdfForJob(store.db, jobId);
+                  } catch (error) {
+                    console.warn('[data-repair] could not regenerate invoice PDF', jobId, error);
+                  }
+                }
+                store.persist();
+              } catch (error) {
+                console.warn('[data-repair] PDF regeneration skipped', error);
+              }
+            })();
+          }
+        }
+      } catch (error) {
+        console.warn('[data-repair] property address repair failed', error);
+      }
+
       initIpcStore(store);
-      await startSigningServer(() => store);
+      const signing = await startSigningServer(() => store);
+      startReminderScheduler(() => store.db, () => store.persist());
 
       if (isGitHubSigningConfigured()) {
+        void (async () => {
+          try {
+            const { publishSigningPortalToGitHub } = await import('./github.service.js');
+            await publishSigningPortalToGitHub(getGitHubSettings());
+          } catch (error) {
+            console.warn('[github] portal publish on startup failed', error);
+          }
+
+          const publicUrl = await startPublicRelayTunnel(signing.port);
+          if (!publicUrl) {
+            console.warn(
+              '[public-relay] Optional tunnel not started (hosted GitHub submit still works offline).',
+            );
+          }
+          try {
+            await refreshPendingSubmitEndpoints(store.db);
+            store.persist();
+          } catch (error) {
+            console.error('[github] could not refresh pending agreements', error);
+          }
+        })();
+
         const sync = () => {
           void syncSignedAgreementsFromGitHub(store.db).then(() => store.persist());
         };
@@ -271,7 +397,11 @@ if (!gotLock) {
   });
 
   app.on('before-quit', () => {
+    stopReminderScheduler();
+    stopPublicRelayTunnel({ clearSession: true });
     stopSigningServer();
     void closePdfBrowser();
   });
 }
+
+void isDev;

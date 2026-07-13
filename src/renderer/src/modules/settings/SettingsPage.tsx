@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
+  Bell,
   Building2,
   Cloud,
   DollarSign,
@@ -9,6 +10,7 @@ import {
   Link2,
   Lock,
   Mail,
+  Megaphone,
   Mic,
   Recycle,
   Settings as SettingsIcon,
@@ -25,16 +27,17 @@ import type {
   InspectorProfileInput,
   InspectionType,
   ReportSettingsInput,
+  ReminderSettingsInput,
   SmtpEncryption,
   SmtpTestResult,
   XeroSettingsInput,
 } from '@shared/api-types';
 import { audStringToExCents, gstPricePairFromExCents } from '@shared/gst-pricing';
-import { getSettingsApi, getSmtpSettingsApi, hasSmtpApi } from '@/lib/sitescop-api';
+import { getSettingsApi, getSitescopApi, getSmtpSettingsApi, hasDataArchiveApi, hasSmtpApi } from '@/lib/sitescop-api';
 import { useAuthStore } from '@/modules/auth/auth-store';
 import { VoiceDictationSettingsCard } from '@/modules/settings/VoiceDictationSettingsCard';
 import { GstPriceFieldPair } from '@/modules/billing/GstPriceFieldPair';
-import { Button, Card, Input, Select, Textarea } from '@/design-system/components';
+import { Button, Card, Input, Modal, Select, Textarea } from '@/design-system/components';
 
 type SettingsTab =
   | 'inspector'
@@ -42,6 +45,8 @@ type SettingsTab =
   | 'company'
   | 'billing'
   | 'email'
+  | 'marketing'
+  | 'reminders'
   | 'reports'
   | 'security'
   | 'github'
@@ -53,6 +58,8 @@ const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
   { id: 'company', label: 'Company & Logo', icon: Building2 },
   { id: 'billing', label: 'Billing & Invoices', icon: DollarSign },
   { id: 'email', label: 'Email', icon: Mail },
+  { id: 'marketing', label: 'Marketing', icon: Megaphone },
+  { id: 'reminders', label: 'Reminders', icon: Bell },
   { id: 'reports', label: 'Reports & PDF', icon: ImageIcon },
   { id: 'security', label: 'Login & Password', icon: Lock },
   { id: 'github', label: 'GitHub Signing', icon: Cloud },
@@ -92,6 +99,17 @@ const DEFAULT_EMAIL_FORM: EmailSettingsInput = {
   senderName: '',
   senderEmail: '',
   replyToEmail: '',
+};
+
+const DEFAULT_REMINDERS_FORM: ReminderSettingsInput = {
+  inspectionReminderEnabled: false,
+  inspectionReminderDaysBefore: 1,
+  overduePaymentReminderEnabled: false,
+  overduePaymentAfterDays: 7,
+  overduePaymentRepeatDays: 7,
+  whatsappHelperEnabled: false,
+  whatsappReminderTemplate:
+    'Hi {{firstName}}, reminder: your SiteScop inspection at {{propertyAddress}} is scheduled for {{inspectionDate}} at {{inspectionTime}}.',
 };
 
 function priceInputToCents(value: string, fallback: number): number {
@@ -139,6 +157,12 @@ export function SettingsPage() {
     queryFn: () => getSettingsApi().getXero(),
   });
 
+  const archivesQuery = useQuery({
+    queryKey: ['data-archives'],
+    queryFn: () => getSitescopApi().dataArchive.list(),
+    enabled: tab === 'security',
+  });
+
   const [profile, setProfile] = useState<InspectorProfileInput>({
     firstName: '',
     lastName: '',
@@ -182,6 +206,19 @@ export function SettingsPage() {
   const [showSmtpPassword, setShowSmtpPassword] = useState(false);
   const [smtpTestEmail, setSmtpTestEmail] = useState('');
   const [smtpTestResult, setSmtpTestResult] = useState<SmtpTestResult | null>(null);
+  const [reminders, setReminders] = useState<ReminderSettingsInput>(DEFAULT_REMINDERS_FORM);
+  const [offerSubject, setOfferSubject] = useState('Special offer from SiteScop');
+  const [offerBody, setOfferBody] = useState(
+    'Hello {{firstName}},\n\nWe have a special inspection offer available this month. Reply to this email or call us to book.\n\nKind regards,\nSiteScop',
+  );
+  const [offerFeedback, setOfferFeedback] = useState('');
+  const [deleteStep, setDeleteStep] = useState<'closed' | 'password' | 'code' | 'window'>('closed');
+  const [deleteLoginPassword, setDeleteLoginPassword] = useState('');
+  const [deleteEmailCode, setDeleteEmailCode] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteLocalMsg, setDeleteLocalMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(
+    null,
+  );
 
   const [priceInputs, setPriceInputs] = useState<Record<InspectionType, string>>({
     BUILDING: '550',
@@ -210,6 +247,9 @@ export function SettingsPage() {
   });
   const [personalAccessToken, setPersonalAccessToken] = useState('');
   const [testResult, setTestResult] = useState<GitHubTestConnectionResult | null>(null);
+  const [ensureRelayMessage, setEnsureRelayMessage] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
   const [xeroForm, setXeroForm] = useState<XeroSettingsInput>({
     enabled: false,
     clientId: '',
@@ -247,6 +287,9 @@ export function SettingsPage() {
         smtpPassword: '',
       });
       setSmtpTestEmail((current) => current || emailRest.senderEmail || emailRest.fromEmail || '');
+    }
+    if (appQuery.data.reminders) {
+      setReminders({ ...DEFAULT_REMINDERS_FORM, ...appQuery.data.reminders });
     }
     const prices = defaultPriceInputs(appQuery.data.billing);
     setPriceInputs(prices.ex);
@@ -392,6 +435,47 @@ export function SettingsPage() {
     },
   });
 
+  const saveRemindersMutation = useMutation({
+    mutationFn: () => getSettingsApi().saveReminders(reminders),
+    onSuccess: (saved) => {
+      clearStatus();
+      setReminders(saved);
+      setMessage('Automatic reminder settings saved.');
+      void queryClient.invalidateQueries({ queryKey: ['settings-app'] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not save reminder settings'),
+  });
+
+  const broadcastOfferMutation = useMutation({
+    mutationFn: () =>
+      getSitescopApi().accounting.broadcastOffer({
+        subject: offerSubject,
+        body: offerBody,
+      }),
+    onSuccess: (result) => {
+      if (result.cancelled) {
+        setOfferFeedback('');
+        return;
+      }
+      setOfferFeedback(result.message);
+      setError('');
+    },
+    onError: (err) => {
+      setOfferFeedback('');
+      setError(err instanceof Error ? err.message : 'Could not send offers');
+    },
+  });
+
+  const runRemindersMutation = useMutation({
+    mutationFn: () => getSettingsApi().runRemindersNow(),
+    onSuccess: (result) => {
+      clearStatus();
+      if (result.errors.length > 0) setError(result.errors.slice(0, 2).join(' · '));
+      setMessage(result.message);
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not run reminders'),
+  });
+
   const passwordMutation = useMutation({
     mutationFn: () => getSettingsApi().changePassword(passwordForm),
     onSuccess: () => {
@@ -400,6 +484,99 @@ export function SettingsPage() {
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     },
     onError: (e) => setError(e instanceof Error ? e.message : 'Could not change password'),
+  });
+
+  const archiveAllMutation = useMutation({
+    mutationFn: () => getSitescopApi().dataArchive.archiveAll(),
+    onSuccess: (result) => {
+      clearStatus();
+      setMessage(result.message);
+      setDeleteLocalMsg({ tone: 'ok', text: result.message });
+      setDeleteStep('closed');
+      setDeleteLoginPassword('');
+      setDeleteEmailCode('');
+      setDeleteConfirmText('');
+      void queryClient.invalidateQueries({ queryKey: ['data-archives'] });
+      void queryClient.invalidateQueries({ queryKey: ['clients'] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs-in-progress'] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs-completed'] });
+      void queryClient.invalidateQueries({ queryKey: ['agreements'] });
+      void queryClient.invalidateQueries({ queryKey: ['recycle-bin'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-awaiting'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-paid'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-summary'] });
+    },
+    onError: (e) => {
+      const text = e instanceof Error ? e.message : 'Could not archive data';
+      setError(text);
+      setDeleteLocalMsg({ tone: 'err', text });
+    },
+  });
+
+  const requestDeleteUnlockMutation = useMutation({
+    mutationFn: () => getSitescopApi().dataArchive.requestDeleteUnlock(deleteLoginPassword),
+    onSuccess: (result) => {
+      if (!result.ok) {
+        setDeleteLocalMsg({ tone: 'err', text: result.message });
+        return;
+      }
+      setDeleteLocalMsg({ tone: 'ok', text: result.message });
+      setDeleteStep('code');
+      setDeleteEmailCode('');
+    },
+    onError: (e) => {
+      setDeleteLocalMsg({
+        tone: 'err',
+        text: e instanceof Error ? e.message : 'Could not send delete code',
+      });
+    },
+  });
+
+  const verifyDeleteUnlockMutation = useMutation({
+    mutationFn: () => getSitescopApi().dataArchive.verifyDeleteUnlock(deleteEmailCode),
+    onSuccess: (result) => {
+      if (!result.ok) {
+        setDeleteLocalMsg({ tone: 'err', text: result.message });
+        return;
+      }
+      setDeleteLocalMsg({ tone: 'ok', text: result.message });
+      setDeleteStep('window');
+      setDeleteConfirmText('');
+    },
+    onError: (e) => {
+      setDeleteLocalMsg({
+        tone: 'err',
+        text: e instanceof Error ? e.message : 'Could not verify delete code',
+      });
+    },
+  });
+
+  const closeDeleteFlow = () => {
+    void getSitescopApi().dataArchive.clearDeleteUnlock?.();
+    setDeleteStep('closed');
+    setDeleteLoginPassword('');
+    setDeleteEmailCode('');
+    setDeleteConfirmText('');
+  };
+
+  const restoreArchiveMutation = useMutation({
+    mutationFn: (archiveId: string) => getSitescopApi().dataArchive.restore(archiveId),
+    onSuccess: (result) => {
+      clearStatus();
+      setMessage(result.message);
+      void queryClient.invalidateQueries({ queryKey: ['data-archives'] });
+      void queryClient.invalidateQueries({ queryKey: ['clients'] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs-in-progress'] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs-completed'] });
+      void queryClient.invalidateQueries({ queryKey: ['agreements'] });
+      void queryClient.invalidateQueries({ queryKey: ['recycle-bin'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-awaiting'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-paid'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounting-summary'] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not restore archive'),
   });
 
   const logoSelectMutation = useMutation({
@@ -462,6 +639,20 @@ export function SettingsPage() {
     },
   });
 
+  const ensureRelayMutation = useMutation({
+    mutationFn: () => getSettingsApi().ensurePublicRelay(),
+    onSuccess: (result) => {
+      setEnsureRelayMessage({ ok: result.ok, text: result.message });
+      void queryClient.invalidateQueries({ queryKey: ['settings-github'] });
+    },
+    onError: (e) => {
+      setEnsureRelayMessage({
+        ok: false,
+        text: e instanceof Error ? e.message : 'Could not start internet relay',
+      });
+    },
+  });
+
   const saveXeroMutation = useMutation({
     mutationFn: () =>
       getSettingsApi().saveXero({
@@ -506,6 +697,7 @@ export function SettingsPage() {
   });
 
   return (
+    <>
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -1006,6 +1198,191 @@ export function SettingsPage() {
         </Card>
       )}
 
+      {tab === 'marketing' && (
+        <Card className="space-y-4 p-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15">
+              <Megaphone className="h-5 w-5 text-accent" />
+            </div>
+            <div>
+              <h3 className="font-bold text-text">Client offers &amp; advertising</h3>
+              <p className="mt-1 text-sm text-text-light">
+                One click sends your offer to every client with an email on file (SMTP required in
+                Email). Use {'{{firstName}}'} in the message.
+              </p>
+            </div>
+          </div>
+          <Input
+            label="Subject"
+            value={offerSubject}
+            onChange={(e) => setOfferSubject(e.target.value)}
+          />
+          <Textarea
+            label="Message"
+            rows={6}
+            value={offerBody}
+            onChange={(e) => setOfferBody(e.target.value)}
+          />
+          <Button
+            onClick={() => {
+              setOfferFeedback('');
+              setError('');
+              broadcastOfferMutation.mutate();
+            }}
+            disabled={broadcastOfferMutation.isPending}
+          >
+            <Megaphone className="h-4 w-4" />
+            {broadcastOfferMutation.isPending ? 'Sending…' : 'Send offer to all clients'}
+          </Button>
+          {offerFeedback ? (
+            <p
+              className={`text-sm ${
+                offerFeedback.toLowerCase().includes('fail') ||
+                offerFeedback.toLowerCase().includes('could not')
+                  ? 'text-danger'
+                  : 'text-success'
+              }`}
+            >
+              {offerFeedback}
+            </p>
+          ) : null}
+        </Card>
+      )}
+
+      {tab === 'reminders' && (
+        <Card className="space-y-4 p-6">
+          <div>
+            <h3 className="font-bold text-text">Automatic reminders</h3>
+            <p className="mt-1 text-sm text-text-light">
+              Sends by SMTP while SiteScop is open, and catches up when you start the app if the PC
+              was off. Turn SMTP on under Email first.
+            </p>
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface px-3 py-3">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={reminders.inspectionReminderEnabled}
+              onChange={(e) =>
+                setReminders((c) => ({ ...c, inspectionReminderEnabled: e.target.checked }))
+              }
+            />
+            <span className="text-sm text-text">
+              <span className="font-semibold">Inspection reminder email</span>
+              <span className="mt-0.5 block text-text-light">
+                Auto email with address, date, and time before the inspection.
+              </span>
+            </span>
+          </label>
+          <Input
+            label="Days before inspection"
+            type="number"
+            value={String(reminders.inspectionReminderDaysBefore)}
+            onChange={(e) =>
+              setReminders((c) => ({
+                ...c,
+                inspectionReminderDaysBefore: Number(e.target.value) || 0,
+              }))
+            }
+            placeholder="1 = day before"
+          />
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface px-3 py-3">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={reminders.overduePaymentReminderEnabled}
+              onChange={(e) =>
+                setReminders((c) => ({ ...c, overduePaymentReminderEnabled: e.target.checked }))
+              }
+            />
+            <span className="text-sm text-text">
+              <span className="font-semibold">Overdue payment reminder email</span>
+              <span className="mt-0.5 block text-text-light">
+                Auto email with invoice attached for unpaid signed jobs.
+              </span>
+            </span>
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="First overdue after (days)"
+              type="number"
+              value={String(reminders.overduePaymentAfterDays)}
+              onChange={(e) =>
+                setReminders((c) => ({
+                  ...c,
+                  overduePaymentAfterDays: Number(e.target.value) || 1,
+                }))
+              }
+            />
+            <Input
+              label="Repeat overdue every (days)"
+              type="number"
+              value={String(reminders.overduePaymentRepeatDays)}
+              onChange={(e) =>
+                setReminders((c) => ({
+                  ...c,
+                  overduePaymentRepeatDays: Number(e.target.value) || 1,
+                }))
+              }
+            />
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface px-3 py-3">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={reminders.whatsappHelperEnabled}
+              onChange={(e) =>
+                setReminders((c) => ({ ...c, whatsappHelperEnabled: e.target.checked }))
+              }
+            />
+            <span className="text-sm text-text">
+              <span className="font-semibold">WhatsApp helper (template only)</span>
+              <span className="mt-0.5 block text-text-light">
+                Silent auto-WhatsApp needs WhatsApp Business API. This stores a template — email is
+                the automatic channel.
+              </span>
+            </span>
+          </label>
+          {reminders.whatsappHelperEnabled ? (
+            <Textarea
+              label="WhatsApp message template"
+              rows={4}
+              value={reminders.whatsappReminderTemplate}
+              onChange={(e) =>
+                setReminders((c) => ({ ...c, whatsappReminderTemplate: e.target.value }))
+              }
+            />
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              onClick={() => {
+                clearStatus();
+                saveRemindersMutation.mutate();
+              }}
+              disabled={saveRemindersMutation.isPending}
+            >
+              {saveRemindersMutation.isPending ? 'Saving…' : 'Save reminder settings'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={runRemindersMutation.isPending}
+              onClick={() => {
+                clearStatus();
+                runRemindersMutation.mutate();
+              }}
+            >
+              {runRemindersMutation.isPending ? 'Checking…' : 'Run reminders now'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {tab === 'reports' && (
         <Card className="space-y-4 p-6">
           <div>
@@ -1037,12 +1414,99 @@ export function SettingsPage() {
               Change your SiteScop login password. Your email is changed under Inspector profile.
             </p>
           </div>
-          <Input label="Current password" type="password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((c) => ({ ...c, currentPassword: e.target.value }))} />
-          <Input label="New password" type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((c) => ({ ...c, newPassword: e.target.value }))} />
-          <Input label="Confirm new password" type="password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm((c) => ({ ...c, confirmPassword: e.target.value }))} />
+          <Input label="Current password" type="password" revealable value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((c) => ({ ...c, currentPassword: e.target.value }))} />
+          <Input label="New password" type="password" revealable value={passwordForm.newPassword} onChange={(e) => setPasswordForm((c) => ({ ...c, newPassword: e.target.value }))} />
+          <Input label="Confirm new password" type="password" revealable value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm((c) => ({ ...c, confirmPassword: e.target.value }))} />
           <Button onClick={() => passwordMutation.mutate()} disabled={passwordMutation.isPending}>
             {passwordMutation.isPending ? 'Updating…' : 'Change password'}
           </Button>
+
+          <div className="mt-8 space-y-4 border-t border-border pt-6">
+            <div>
+              <h3 className="font-bold text-text">Clear test data</h3>
+              <p className="mt-1 text-sm text-text-light">
+                Empties the Recycle Bin permanently, then archives all clients, jobs, and agreements
+                (restore from the list below). Requires your login password, then a one-time email
+                code, then confirm in the delete window.
+              </p>
+            </div>
+            {!hasDataArchiveApi() ? (
+              <p className="text-sm text-danger">
+                Archive tools need a full restart. Close all SiteScop windows, then run START-SITESCOP.bat.
+              </p>
+            ) : (
+              <>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="danger"
+                disabled={archiveAllMutation.isPending}
+                onClick={() => {
+                  setDeleteLocalMsg(null);
+                  setDeleteLoginPassword('');
+                  setDeleteEmailCode('');
+                  setDeleteConfirmText('');
+                  setDeleteStep('password');
+                }}
+              >
+                Clear / delete test data…
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void getSitescopApi().dataArchive.openFolder();
+                }}
+              >
+                Open archives folder
+              </Button>
+            </div>
+            {deleteLocalMsg && deleteStep === 'closed' ? (
+              <p
+                className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                  deleteLocalMsg.tone === 'ok'
+                    ? 'border-success/40 bg-success/10 text-success'
+                    : 'border-danger/40 bg-danger/10 text-danger'
+                }`}
+              >
+                {deleteLocalMsg.text}
+              </p>
+            ) : null}
+
+            {archivesQuery.isLoading ? (
+              <p className="text-sm text-text-light">Loading archives…</p>
+            ) : (archivesQuery.data?.length ?? 0) === 0 ? (
+              <p className="text-sm text-text-light">No archives yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {(archivesQuery.data ?? []).map((archive) => (
+                  <li
+                    key={archive.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-text">{archive.label}</p>
+                      <p className="text-xs text-text-light">
+                        {archive.clientCount ?? 0} client(s) · {archive.jobCount} job(s) ·{' '}
+                        {archive.agreementCount} agreement(s)
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={restoreArchiveMutation.isPending}
+                      onClick={() => {
+                        clearStatus();
+                        restoreArchiveMutation.mutate(archive.id);
+                      }}
+                    >
+                      Restore
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+              </>
+            )}
+          </div>
         </Card>
       )}
 
@@ -1063,6 +1527,45 @@ export function SettingsPage() {
             <Input label="Repository Name" value={githubForm.repo} onChange={(e) => setGithubForm((c) => ({ ...c, repo: e.target.value }))} />
             <Input label="Branch" value={githubForm.branch} onChange={(e) => setGithubForm((c) => ({ ...c, branch: e.target.value }))} />
             <Input label="GitHub Pages URL" value={githubForm.pagesBaseUrl} onChange={(e) => setGithubForm((c) => ({ ...c, pagesBaseUrl: e.target.value }))} />
+          </div>
+          <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-4">
+            <div>
+              <h4 className="font-semibold text-text">Internet signing (clients off your Wi‑Fi)</h4>
+              <p className="mt-1 text-sm text-text-light">
+                Clients can <strong>Sign &amp; submit on GitHub</strong> even when SiteScop is closed.
+                When you open SiteScop later, it syncs and shows the agreement as Signed. Keep your
+                GitHub PAT saved — it is used for the hosted submit path on your signing repo.
+              </p>
+            </div>
+            <Input
+              label="Public Relay URL (optional override)"
+              value={githubForm.publicRelayUrl ?? ''}
+              onChange={(e) => setGithubForm((c) => ({ ...c, publicRelayUrl: e.target.value }))}
+              placeholder="Leave blank for auto tunnel, or paste https://….trycloudflare.com"
+            />
+            {githubQuery.data?.publicRelayStatus?.activeUrl ? (
+              <p className="text-sm text-success">
+                Active relay: <span className="break-all font-mono text-xs">{githubQuery.data.publicRelayStatus.activeUrl}</span>
+                {' '}({githubQuery.data.publicRelayStatus.mode})
+              </p>
+            ) : (
+              <p className="text-sm text-warning">
+                No internet relay active yet — remote Sign &amp; submit will fail until the tunnel starts.
+              </p>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={ensureRelayMutation.isPending}
+              onClick={() => ensureRelayMutation.mutate()}
+            >
+              {ensureRelayMutation.isPending ? 'Starting internet relay…' : 'Start / refresh internet relay'}
+            </Button>
+            {ensureRelayMessage ? (
+              <p className={`text-sm ${ensureRelayMessage.ok ? 'text-success' : 'text-danger'}`}>
+                {ensureRelayMessage.text}
+              </p>
+            ) : null}
           </div>
           <Input
             label="Personal Access Token (desktop only)"
@@ -1176,5 +1679,135 @@ export function SettingsPage() {
         </Card>
       )}
     </div>
+
+      <Modal
+        open={deleteStep !== 'closed'}
+        onClose={closeDeleteFlow}
+        title={
+          deleteStep === 'password'
+            ? 'Confirm login password'
+            : deleteStep === 'code'
+              ? 'Enter delete code'
+              : 'Delete window'
+        }
+        description={
+          deleteStep === 'password'
+            ? 'Enter your SiteScop login password. We will email a one-time delete code to your account email.'
+            : deleteStep === 'code'
+              ? 'Paste the delete password/code from your email to open the delete window.'
+              : 'Type DELETE to confirm, then archive. Or Exit without deleting.'
+        }
+        footer={
+          deleteStep === 'window' ? (
+            <>
+              <Button variant="secondary" onClick={closeDeleteFlow}>
+                Exit
+              </Button>
+              <Button
+                variant="danger"
+                disabled={
+                  archiveAllMutation.isPending || deleteConfirmText.trim().toUpperCase() !== 'DELETE'
+                }
+                onClick={() => {
+                  clearStatus();
+                  setDeleteLocalMsg(null);
+                  archiveAllMutation.mutate();
+                }}
+              >
+                {archiveAllMutation.isPending ? 'Archiving…' : 'Archive all clients, jobs & agreements'}
+              </Button>
+            </>
+          ) : (
+            <Button variant="secondary" onClick={closeDeleteFlow}>
+              Exit
+            </Button>
+          )
+        }
+      >
+        {deleteLocalMsg && deleteStep !== 'closed' ? (
+          <p
+            className={`mb-4 rounded-lg border px-3 py-2 text-sm font-medium ${
+              deleteLocalMsg.tone === 'ok'
+                ? 'border-success/40 bg-success/10 text-success'
+                : 'border-danger/40 bg-danger/10 text-danger'
+            }`}
+          >
+            {deleteLocalMsg.text}
+          </p>
+        ) : null}
+
+        {deleteStep === 'password' ? (
+          <div className="space-y-4">
+            <Input
+              label="Login password"
+              type="password"
+              revealable
+              value={deleteLoginPassword}
+              onChange={(e) => setDeleteLoginPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+            <Button
+              disabled={!deleteLoginPassword.trim() || requestDeleteUnlockMutation.isPending}
+              onClick={() => {
+                setDeleteLocalMsg(null);
+                requestDeleteUnlockMutation.mutate();
+              }}
+            >
+              {requestDeleteUnlockMutation.isPending
+                ? 'Sending email…'
+                : 'Send delete code to my email'}
+            </Button>
+          </div>
+        ) : null}
+
+        {deleteStep === 'code' ? (
+          <div className="space-y-4">
+            <Input
+              label="Delete code from email"
+              value={deleteEmailCode}
+              onChange={(e) => setDeleteEmailCode(e.target.value)}
+              placeholder="8-character code"
+              autoComplete="one-time-code"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={!deleteEmailCode.trim() || verifyDeleteUnlockMutation.isPending}
+                onClick={() => {
+                  setDeleteLocalMsg(null);
+                  verifyDeleteUnlockMutation.mutate();
+                }}
+              >
+                {verifyDeleteUnlockMutation.isPending ? 'Checking…' : 'Open delete window'}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={requestDeleteUnlockMutation.isPending || !deleteLoginPassword.trim()}
+                onClick={() => {
+                  setDeleteLocalMsg(null);
+                  requestDeleteUnlockMutation.mutate();
+                }}
+              >
+                Resend code
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {deleteStep === 'window' ? (
+          <div className="space-y-4">
+            <p className="text-sm text-text-light">
+              This empties the Recycle Bin permanently, then archives all current clients, jobs, and
+              agreements. Restore from Settings brings the archived set back.
+            </p>
+            <Input
+              label='Type DELETE to confirm'
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="DELETE"
+            />
+          </div>
+        ) : null}
+      </Modal>
+    </>
   );
 }

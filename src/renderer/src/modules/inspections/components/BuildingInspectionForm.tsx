@@ -345,9 +345,33 @@ export function BuildingInspectionForm({
       <InspectionAccordionSection id="services" title="Services" status={statuses.services}>
         <CheckboxGroupField disabled={disabled} label="Water Supply" options={WATER_SUPPLY_OPTIONS} value={s.waterSupply} onChange={(v) => patchShared('services', { waterSupply: v })} />
         <Input label="Water Supply Other" value={s.waterSupplyOther} onChange={(e) => patchShared('services', { waterSupplyOther: e.target.value })} />
+        <PhotoField
+          disabled={disabled}
+          label="Water Supply Photos"
+          photos={s.waterSupplyPhotos ?? []}
+          onChange={(photos) => patchShared('services', { waterSupplyPhotos: photos })}
+        />
         <CheckboxGroupField disabled={disabled} label="Sewer" options={SEWER_OPTIONS} value={s.sewer} onChange={(v) => patchShared('services', { sewer: v })} />
+        <PhotoField
+          disabled={disabled}
+          label="Sewer Photos"
+          photos={s.sewerPhotos ?? []}
+          onChange={(photos) => patchShared('services', { sewerPhotos: photos })}
+        />
         <CheckboxGroupField disabled={disabled} label="Electricity" options={ELECTRICITY_OPTIONS} value={s.electricity} onChange={(v) => patchShared('services', { electricity: v })} />
+        <PhotoField
+          disabled={disabled}
+          label="Electricity Photos"
+          photos={s.electricityPhotos ?? []}
+          onChange={(photos) => patchShared('services', { electricityPhotos: photos })}
+        />
         <CheckboxGroupField disabled={disabled} label="Gas" options={GAS_OPTIONS} value={s.gas} onChange={(v) => patchShared('services', { gas: v })} />
+        <PhotoField
+          disabled={disabled}
+          label="Gas Photos"
+          photos={s.gasPhotos ?? []}
+          onChange={(photos) => patchShared('services', { gasPhotos: photos })}
+        />
         <InspectionSubPanel title="Hot Water System">
           <div className="grid gap-4 md:grid-cols-3">
             <YesNoSelect label="Present?" value={s.hotWaterPresent} onChange={(v) => patchShared('services', { hotWaterPresent: v })} />
@@ -362,12 +386,23 @@ export function BuildingInspectionForm({
             <YesNoSelect label="Operating?" value={s.hotWaterOperating} onChange={(v) => patchShared('services', { hotWaterOperating: v })} includeNa />
           </div>
           {s.hotWaterPresent === 'Yes' ? (
-            <PhotoField
-              disabled={disabled}
-              label="Hot Water System Photos"
-              photos={s.hotWaterPhotos}
-              onChange={(photos) => patchShared('services', { hotWaterPhotos: photos })}
-            />
+            <div className="space-y-4">
+              <PhotoField
+                disabled={disabled}
+                label="Hot Water System Photos"
+                photos={s.hotWaterPhotos}
+                onChange={(photos) => patchShared('services', { hotWaterPhotos: photos })}
+              />
+              <Textarea
+                label="Hot Water System Comments"
+                commentsField
+                dictationSectionId="services-hot-water"
+                value={s.hotWaterComments ?? ''}
+                disabled={disabled}
+                onChange={(e) => patchShared('services', { hotWaterComments: e.target.value })}
+                rows={3}
+              />
+            </div>
           ) : null}
         </InspectionSubPanel>
         <InspectionSubPanel title="Air Conditioning">
@@ -376,6 +411,25 @@ export function BuildingInspectionForm({
             <CheckboxGroupField disabled={disabled} label="Type" options={AC_TYPES} value={s.airConType} onChange={(v) => patchShared('services', { airConType: v })} />
             <YesNoSelect label="Operating?" value={s.airConOperating} onChange={(v) => patchShared('services', { airConOperating: v })} includeNa />
           </div>
+          {s.airConPresent === 'Yes' ? (
+            <div className="space-y-4">
+              <PhotoField
+                disabled={disabled}
+                label="Air Conditioning Photos"
+                photos={s.airConPhotos ?? []}
+                onChange={(photos) => patchShared('services', { airConPhotos: photos })}
+              />
+              <Textarea
+                label="Air Conditioning Comments"
+                commentsField
+                dictationSectionId="services-air-conditioning"
+                value={s.airConComments ?? ''}
+                disabled={disabled}
+                onChange={(e) => patchShared('services', { airConComments: e.target.value })}
+                rows={3}
+              />
+            </div>
+          ) : null}
         </InspectionSubPanel>
         {normalizeCheckboxField(s.gas).selected.includes('LPG') || s.gasOther.toLowerCase().includes('lpg') ? (
           <PhotoField
@@ -532,7 +586,9 @@ export function BuildingInspectionForm({
         <SectionComments sectionId="accessibility" disabled={disabled} comments={a.comments} photos={a.photos} onCommentsChange={(v) => patchShared('accessibilityObstructions', { comments: v })} onPhotosChange={(v) => patchShared('accessibilityObstructions', { photos: v })} />
         {hasLinkedServiceObstructionPhotos(s) ? (
           <p className="text-xs text-text-muted">
-            Service photos (hot water, gas, air con, rainwater tank) are kept under <strong>Services &amp; Utilities</strong>, not in this comments photo field.
+            Matching service photos are copied into Interior/Exterior obstruction photos (hot water by
+            location, air con, LPG bottles, rainwater tank). They stay under Services too and are not
+            put in this Accessibility comments photo field.
           </p>
         ) : null}
       </InspectionAccordionSection>

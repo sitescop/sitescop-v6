@@ -10,6 +10,7 @@ import type {
   UpdateClientInput,
   UpdateClientAgentInput,
 } from '../../shared/api-types.js';
+import { assertCompletePropertyAddress } from './property-address.js';
 
 function findOtherClientByContact(
   db: SqlDatabase,
@@ -67,12 +68,17 @@ export function listClients(db: SqlDatabase, search?: string): ClientRow[] {
 
   if (term) {
     where = `
-      WHERE lower(c.first_name || ' ' || c.last_name) LIKE lower(?)
-         OR lower(c.email) LIKE lower(?)
-         OR replace(c.mobile, ' ', '') LIKE replace(?, ' ', '')
+      WHERE IFNULL(c.deleted_at, '') = ''
+        AND (
+          lower(c.first_name || ' ' || c.last_name) LIKE lower(?)
+          OR lower(c.email) LIKE lower(?)
+          OR replace(c.mobile, ' ', '') LIKE replace(?, ' ', '')
+        )
     `;
     const like = `%${term}%`;
     params.push(like, like, like);
+  } else {
+    where = ` WHERE IFNULL(c.deleted_at, '') = '' `;
   }
 
   const stmt = db.prepare(
@@ -251,7 +257,9 @@ function loadArchivedAgreementsForClient(
 export function getClientById(db: SqlDatabase, clientId: string): ClientDetail | null {
   const clientStmt = db.prepare(
     `SELECT id, first_name AS firstName, last_name AS lastName, email, mobile, created_at AS createdAt
-     FROM clients WHERE id = ? LIMIT 1`,
+     FROM clients
+     WHERE id = ? AND IFNULL(deleted_at, '') = ''
+     LIMIT 1`,
   );
   clientStmt.bind([clientId]);
   if (!clientStmt.step()) {
@@ -436,6 +444,18 @@ export function updateClient(
 
   const email = input.email?.trim().toLowerCase() || null;
   const mobile = input.mobile?.trim() || null;
+  const propertyAddressProvided = input.propertyAddress !== undefined;
+  const propertyAddress = input.propertyAddress?.trim() ?? '';
+
+  if (propertyAddressProvided && !propertyAddress) {
+    throw new Error('Property address is required');
+  }
+  if (propertyAddressProvided) {
+    assertCompletePropertyAddress(propertyAddress);
+  }
+  if (propertyAddressProvided && existing.jobs.length === 0) {
+    throw new Error('Add a job for this client before setting a property address');
+  }
 
   const duplicateId = findOtherClientByContact(db, email ?? undefined, mobile ?? undefined, clientId);
   if (duplicateId) {
@@ -462,6 +482,64 @@ export function updateClient(
       `,
       [clientName, email ?? '', mobile, clientId],
     );
+
+    if (propertyAddressProvided) {
+      const oldPrimary = existing.primaryPropertyAddress?.trim() || null;
+      let targetJobIds = (
+        oldPrimary
+          ? existing.jobs.filter((job) => job.propertyAddress.trim() === oldPrimary)
+          : existing.jobs.slice(0, 1)
+      ).map((job) => job.id);
+
+      if (targetJobIds.length === 0 && existing.jobs[0]) {
+        targetJobIds = [existing.jobs[0].id];
+      }
+
+      for (const jobId of targetJobIds) {
+        db.run(
+          `UPDATE jobs SET property_address = ?, updated_at = datetime('now') WHERE id = ?`,
+          [propertyAddress, jobId],
+        );
+
+        db.run(
+          `
+          UPDATE agreements
+          SET property_address = ?, updated_at = datetime('now')
+          WHERE job_id = ?
+            AND status != 'CANCELLED'
+            AND IFNULL(deleted_at, '') = ''
+          `,
+          [propertyAddress, jobId],
+        );
+
+        const inspStmt = db.prepare(
+          `SELECT id, form_data FROM inspections WHERE job_id = ? LIMIT 1`,
+        );
+        inspStmt.bind([jobId]);
+        if (inspStmt.step()) {
+          const row = inspStmt.getAsObject() as { id: string; form_data: string | null };
+          inspStmt.free();
+          if (row.form_data) {
+            try {
+              const formData = JSON.parse(String(row.form_data)) as {
+                jobInformation?: { propertyAddress?: string };
+              };
+              if (formData.jobInformation) {
+                formData.jobInformation.propertyAddress = propertyAddress;
+                db.run(`UPDATE inspections SET form_data = ?, updated_at = datetime('now') WHERE id = ?`, [
+                  JSON.stringify(formData),
+                  row.id,
+                ]);
+              }
+            } catch {
+              // leave inspection form_data unchanged if JSON is corrupt
+            }
+          }
+        } else {
+          inspStmt.free();
+        }
+      }
+    }
 
     db.run('COMMIT');
   } catch (error) {
@@ -544,4 +622,87 @@ export function updateClientAgent(
     throw new Error('Client not found after update');
   }
   return updated;
+}
+
+export interface SoftDeleteClientResult {
+  message: string;
+  jobCount: number;
+  agreementCount: number;
+}
+
+/**
+ * Soft-deletes a client and moves their active jobs/agreements into the recycle bin.
+ */
+export function softDeleteClient(db: SqlDatabase, clientId: string): SoftDeleteClientResult {
+  const existing = db.prepare(
+    `SELECT id FROM clients WHERE id = ? AND IFNULL(deleted_at, '') = '' LIMIT 1`,
+  );
+  existing.bind([clientId]);
+  if (!existing.step()) {
+    existing.free();
+    throw new Error('Client not found or already deleted.');
+  }
+  existing.free();
+
+  const jobIds: string[] = [];
+  const jobsStmt = db.prepare(
+    `SELECT id FROM jobs WHERE client_id = ? AND IFNULL(deleted_at, '') = ''`,
+  );
+  jobsStmt.bind([clientId]);
+  while (jobsStmt.step()) {
+    jobIds.push(String((jobsStmt.getAsObject() as { id: string }).id));
+  }
+  jobsStmt.free();
+
+  let agreementCount = 0;
+  const reason = `Client deleted ${new Date().toISOString().slice(0, 19)}`;
+
+  for (const jobId of jobIds) {
+    const agrStmt = db.prepare(
+      `SELECT id FROM agreements
+       WHERE job_id = ? AND IFNULL(deleted_at, '') = ''`,
+    );
+    agrStmt.bind([jobId]);
+    const agreementIds: string[] = [];
+    while (agrStmt.step()) {
+      agreementIds.push(String((agrStmt.getAsObject() as { id: string }).id));
+    }
+    agrStmt.free();
+
+    for (const agreementId of agreementIds) {
+      db.run(
+        `UPDATE agreements SET
+           deleted_at = datetime('now'),
+           deleted_reason = ?,
+           updated_at = datetime('now')
+         WHERE id = ?`,
+        [reason, agreementId],
+      );
+      agreementCount += 1;
+    }
+
+    db.run(
+      `UPDATE jobs SET
+         deleted_at = datetime('now'),
+         cancel_reason = 'OTHER',
+         cancel_notes = ?,
+         updated_at = datetime('now')
+       WHERE id = ?`,
+      [reason, jobId],
+    );
+  }
+
+  db.run(
+    `UPDATE clients SET
+       deleted_at = datetime('now'),
+       deleted_reason = ?
+     WHERE id = ?`,
+    [reason, clientId],
+  );
+
+  return {
+    jobCount: jobIds.length,
+    agreementCount,
+    message: `Client deleted. ${jobIds.length} job(s) and ${agreementCount} agreement(s) moved to Recycle Bin.`,
+  };
 }

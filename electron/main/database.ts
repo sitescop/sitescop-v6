@@ -176,6 +176,7 @@ function migrate(db: SqlDatabase) {
 
   ensureJobColumns(db);
   ensureAgreementColumns(db);
+  ensureClientColumns(db);
   ensureUserColumns(db);
   backfillInspections(db);
   backfillCompletedJobInspections(db);
@@ -225,6 +226,8 @@ function ensureJobColumns(db: SqlDatabase) {
     ['payment_received', 'INTEGER NOT NULL DEFAULT 0'],
     ['paid_at', 'TEXT'],
     ['xero_invoice_id', 'TEXT'],
+    ['inspection_reminder_for_date', 'TEXT'],
+    ['overdue_reminder_last_sent_at', 'TEXT'],
   ];
   for (const [name, type] of alters) {
     if (!columnExists(db, 'jobs', name)) {
@@ -244,6 +247,19 @@ function ensureUserColumns(db: SqlDatabase) {
       db.run(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
     }
   }
+}
+
+function ensureClientColumns(db: SqlDatabase) {
+  const alters: Array<[string, string]> = [
+    ['deleted_at', 'TEXT'],
+    ['deleted_reason', 'TEXT'],
+  ];
+  for (const [name, type] of alters) {
+    if (!columnExists(db, 'clients', name)) {
+      db.run(`ALTER TABLE clients ADD COLUMN ${name} ${type}`);
+    }
+  }
+  db.run(`CREATE INDEX IF NOT EXISTS idx_clients_deleted ON clients(deleted_at)`);
 }
 
 function ensureAgreementColumns(db: SqlDatabase) {

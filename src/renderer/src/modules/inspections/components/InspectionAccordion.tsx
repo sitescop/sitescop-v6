@@ -82,7 +82,7 @@ export function InspectionAccordion({
   defaultOpenId?: string;
   className?: string;
   routeIds?: string[];
-  /** Persists visited/completed section colours for this inspection session. */
+  /** Optional session snapshot of visited sections (navigation only; heading colour uses form completion). */
   workflowStorageKey?: string;
 }) {
   const storageKey = workflowStorageKey
@@ -232,7 +232,12 @@ export function InspectionAccordionSection({
   const fallbackId = useId();
   const sectionId = id || fallbackId;
   const isOpen = ctx ? ctx.openId === sectionId : true;
-  const displayStatus = ctx ? ctx.resolveSectionStatus(sectionId) : status;
+  // Prefer saved form completion so greens survive close/reopen; only mark in-progress while open.
+  const displayStatus: SectionCompletionStatus = isOpen
+    ? status === 'completed'
+      ? 'completed'
+      : 'in_progress'
+    : status;
   const openedRef = useRef(false);
 
   useEffect(() => {

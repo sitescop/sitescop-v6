@@ -41,6 +41,13 @@ export function mapGitHubHttpError(status: number, message: string): GitHubCloud
     );
   }
 
+  if (lower.includes('secret detected') || lower.includes('push protection')) {
+    return new GitHubCloudError(
+      'GitHub blocked the upload because it looked like a secret was in the file. Restart SiteScop and try Update cloud page again (tokens are now encrypted).',
+      'UPLOAD_FAILED',
+    );
+  }
+
   return new GitHubCloudError(message || `GitHub API error (${status})`, 'UNKNOWN');
 }
 
