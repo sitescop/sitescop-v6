@@ -1,6 +1,7 @@
 import { normalizeCheckboxField } from './defaults.js';
 import {
   applyDerivedMajorDefectFields,
+  filterFilledCrackingEntries,
   generateDeformationTradeRecommendations,
   generateFinishElementConduciveRecommendations,
   generateMoistureTradeRecommendations,
@@ -28,8 +29,7 @@ export function generateMajorDefectAutoRecommendations(majorDefects: MajorDefect
   const structural = checkboxItems(derived.structuralMovement);
   const deformation = checkboxItems(derived.deformation);
   const safety = checkboxItems(derived.safetyHazards);
-  const notInspected = checkboxItems(derived.areasNotInspected);
-  const cracking = derived.crackingEntries ?? [];
+  const cracking = filterFilledCrackingEntries(derived.crackingEntries);
 
   if (
     structural.length > 0 ||
@@ -48,7 +48,8 @@ export function generateMajorDefectAutoRecommendations(majorDefects: MajorDefect
   recs.push(...generateDeformationTradeRecommendations(derived));
   recs.push(...generateFinishElementConduciveRecommendations(derived));
 
-  if (includesItem(derived.safetyHazards, 'Electrical Hazard')) {
+  if (includesItem(derived.safetyHazards, 'Electrical Hazard') ||
+    includesItem(derived.safetyHazards, 'Exposed electrical components')) {
     recs.push('Licensed Electrician Recommended');
   }
   if (safety.some((item) => /asbestos/i.test(item))) {
@@ -56,12 +57,6 @@ export function generateMajorDefectAutoRecommendations(majorDefects: MajorDefect
   }
   if (safety.length > 0) {
     recs.push(`Address major safety hazards identified during inspection: ${safety.join(', ')}.`);
-  }
-
-  if (notInspected.length > 0) {
-    recs.push(
-      'Further inspection is recommended when inaccessible or obstructed areas can be made safely available.',
-    );
   }
 
   if (structural.length > 0) {
@@ -81,8 +76,7 @@ export function generateMajorDefectConclusionAddendum(majorDefects: MajorDefects
   const moisture = checkboxItems(majorDefects.moistureSources);
   const conducive = checkboxItems(majorDefects.conditionsConducive);
   const safety = checkboxItems(majorDefects.safetyHazards);
-  const notInspected = checkboxItems(majorDefects.areasNotInspected);
-  const cracking = majorDefects.crackingEntries ?? [];
+  const cracking = filterFilledCrackingEntries(majorDefects.crackingEntries);
 
   if (structural.length) {
     parts.push(`Structural movement was noted affecting: ${structural.join(', ')}.`);
@@ -119,9 +113,6 @@ export function generateMajorDefectConclusionAddendum(majorDefects: MajorDefects
   if (safety.length) {
     parts.push(`Major safety hazards were identified including: ${safety.join(', ')}.`);
   }
-  if (notInspected.length) {
-    parts.push(`The following areas were not fully inspected: ${notInspected.join('; ')}.`);
-  }
 
   if (!parts.length) return '';
   return `Major defects and significant items identified during this inspection include the following. ${parts.join(' ')} Refer to the Major Defects section and recommendations for further action.`;
@@ -136,7 +127,7 @@ export function suggestConclusionRatingsFromMajorDefects(
   const moisture = checkboxItems(majorDefects.moistureSources);
   const conducive = checkboxItems(majorDefects.conditionsConducive);
   const safety = checkboxItems(majorDefects.safetyHazards);
-  const cracking = majorDefects.crackingEntries ?? [];
+  const cracking = filterFilledCrackingEntries(majorDefects.crackingEntries);
 
   const hasStructuralIssue =
     structural.length > 0 ||

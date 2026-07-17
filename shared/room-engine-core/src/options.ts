@@ -138,6 +138,7 @@ export const EXTERIOR_OBSTRUCTIONS = [
 
 export const ROOF_SPACE_OBSTRUCTIONS = [
   'Low pitched and boxed in areas in roof space',
+  'The roof space at the eaves has insufficient clearance for safe access and inspection.',
   'Insulation',
   'Sarking',
   'Ducting and/or machinery',
@@ -239,6 +240,35 @@ export const ROOF_EXTERIOR_DEFECTS = [
 ] as const;
 
 export const ROOF_SPACE_DEFECTS = ['Roof Framing', 'Insulation', 'Ventilation', 'Moisture Evidence'] as const;
+
+/** Clickable roof-space framing members for the interactive diagram. */
+export const ROOF_FRAMING_ELEMENTS = [
+  'Rafter',
+  'Under-purlin',
+  'Purlin',
+  'Collar tie',
+  'Ridge board',
+  'Ceiling joist',
+  'Strut',
+  'Hanging beam',
+  'Wall plate',
+] as const;
+
+/** Defect conditions selectable after clicking a roof framing member. */
+export const ROOF_FRAMING_DEFECT_CONDITIONS = [
+  'Bending',
+  'Sagging',
+  'Cracking',
+  'Not braced properly',
+  'Not enough support',
+] as const;
+
+/** Trades selectable after clicking a roof framing member. */
+export const ROOF_FRAMING_TRADE_RECOMMENDATIONS = [
+  'Structural engineer',
+  'Carpenter',
+  'Roofer',
+] as const;
 
 export const BATHROOM_TYPES = ['Main', 'Ensuite', 'Master bed', 'Toilet'] as const;
 

@@ -1,4 +1,5 @@
 import {
+  startTransition,
   createContext,
   useCallback,
   useContext,
@@ -14,6 +15,7 @@ import { cn } from '@/lib/cn';
 import { getAdjacentRouteSection } from './inspection-route';
 import { InspectionSectionNav } from './InspectionSectionNav';
 import { resolveWorkflowSectionStatus, type SectionCompletionStatus } from './section-completion';
+import { useWorkspaceSectionFilter } from '@/modules/inspections/workspace/WorkspaceSectionFilterContext';
 
 interface InspectionAccordionContextValue {
   openId: string | null;
@@ -27,6 +29,7 @@ interface InspectionAccordionContextValue {
 const InspectionAccordionContext = createContext<InspectionAccordionContextValue | null>(null);
 
 const ACCORDION_SCROLL_OFFSET = 76;
+const WORKFLOW_SNAPSHOT_DEBOUNCE_MS = 200;
 
 interface WorkflowSnapshot {
   visited: string[];
@@ -92,6 +95,7 @@ export function InspectionAccordion({
   const [openId, setOpenIdState] = useState<string | null>(defaultOpenId ?? null);
   const [visitedIds, setVisitedIds] = useState<Set<string>>(() => new Set(initialWorkflow.visited));
   const [completedIds, setCompletedIds] = useState<Set<string>>(() => new Set(initialWorkflow.completed));
+  const snapshotTimerRef = useRef<number | null>(null);
 
   const markVisited = useCallback((id: string) => {
     setVisitedIds((current) => {
@@ -117,19 +121,33 @@ export function InspectionAccordion({
   }, [defaultOpenId, markVisited]);
 
   useEffect(() => {
-    saveWorkflowSnapshot(storageKey, visitedIds, completedIds);
+    if (snapshotTimerRef.current != null) {
+      window.clearTimeout(snapshotTimerRef.current);
+    }
+    snapshotTimerRef.current = window.setTimeout(() => {
+      saveWorkflowSnapshot(storageKey, visitedIds, completedIds);
+      snapshotTimerRef.current = null;
+    }, WORKFLOW_SNAPSHOT_DEBOUNCE_MS);
+    return () => {
+      if (snapshotTimerRef.current != null) {
+        window.clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
+      }
+    };
   }, [storageKey, visitedIds, completedIds]);
 
   const setOpenId = useCallback(
     (id: string | null) => {
-      setOpenIdState((current) => {
-        if (current && current !== id) {
-          markCompleted(current);
-        }
-        if (id) {
-          markVisited(id);
-        }
-        return id;
+      startTransition(() => {
+        setOpenIdState((current) => {
+          if (current && current !== id) {
+            markCompleted(current);
+          }
+          if (id) {
+            markVisited(id);
+          }
+          return id;
+        });
       });
     },
     [markCompleted, markVisited],
@@ -137,16 +155,18 @@ export function InspectionAccordion({
 
   const toggle = useCallback(
     (id: string) => {
-      setOpenIdState((current) => {
-        if (current === id) {
-          markCompleted(id);
-          return null;
-        }
-        if (current) {
-          markCompleted(current);
-        }
-        markVisited(id);
-        return id;
+      startTransition(() => {
+        setOpenIdState((current) => {
+          if (current === id) {
+            markCompleted(id);
+            return null;
+          }
+          if (current) {
+            markCompleted(current);
+          }
+          markVisited(id);
+          return id;
+        });
       });
     },
     [markCompleted, markVisited],
@@ -165,20 +185,7 @@ export function InspectionAccordion({
 
   useEffect(() => {
     if (!openId) return;
-
-    // Pin the header before the open animation shifts layout.
     requestAnimationFrame(() => scrollHeaderIntoPlace(openId));
-
-    const panel = document.getElementById(`${openId}-panel`);
-    const onTransitionEnd = (event: TransitionEvent) => {
-      if (event.propertyName !== 'grid-template-rows') return;
-      scrollHeaderIntoPlace(openId);
-    };
-    panel?.addEventListener('transitionend', onTransitionEnd);
-
-    return () => {
-      panel?.removeEventListener('transitionend', onTransitionEnd);
-    };
   }, [openId]);
 
   const value = useMemo(
@@ -218,13 +225,58 @@ export function InspectionAccordionSection({
   title,
   status,
   children,
+  render,
   className,
   onOpen,
 }: {
   id: string;
   title: string;
   status: SectionCompletionStatus;
-  children: ReactNode;
+  children?: ReactNode;
+  /** Lazy body — only invoked while this section is open (keeps closed sections cheap). */
+  render?: () => ReactNode;
+  className?: string;
+  onOpen?: () => void;
+}) {
+  const sectionFilter = useWorkspaceSectionFilter();
+  if (sectionFilter && sectionFilter !== id) {
+    return null;
+  }
+  if (sectionFilter) {
+    return (
+      <div className="inspection-workspace-section-body space-y-3 [content-visibility:auto] [contain-intrinsic-size:1px_1200px] md:space-y-4">
+        {render ? render() : children}
+      </div>
+    );
+  }
+  return (
+    <AccordionSectionChrome
+      id={id}
+      title={title}
+      status={status}
+      className={className}
+      onOpen={onOpen}
+      render={render}
+    >
+      {children}
+    </AccordionSectionChrome>
+  );
+}
+
+function AccordionSectionChrome({
+  id,
+  title,
+  status,
+  children,
+  render,
+  className,
+  onOpen,
+}: {
+  id: string;
+  title: string;
+  status: SectionCompletionStatus;
+  children?: ReactNode;
+  render?: () => ReactNode;
   className?: string;
   onOpen?: () => void;
 }) {
@@ -239,6 +291,29 @@ export function InspectionAccordionSection({
       : 'in_progress'
     : status;
   const openedRef = useRef(false);
+  const renderTimerRef = useRef<number | null>(null);
+  const [shouldRenderBody, setShouldRenderBody] = useState(isOpen);
+
+  useEffect(() => {
+    if (renderTimerRef.current != null) {
+      window.cancelAnimationFrame(renderTimerRef.current);
+      renderTimerRef.current = null;
+    }
+    if (!isOpen) {
+      setShouldRenderBody(false);
+      return;
+    }
+    renderTimerRef.current = window.requestAnimationFrame(() => {
+      setShouldRenderBody(true);
+      renderTimerRef.current = null;
+    });
+    return () => {
+      if (renderTimerRef.current != null) {
+        window.cancelAnimationFrame(renderTimerRef.current);
+        renderTimerRef.current = null;
+      }
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -253,6 +328,8 @@ export function InspectionAccordionSection({
   const handleToggle = () => {
     ctx?.toggle(sectionId);
   };
+
+  const body = isOpen && shouldRenderBody ? (render ? render() : children) : null;
 
   return (
     <section
@@ -314,17 +391,15 @@ export function InspectionAccordionSection({
 
       <div
         id={`${sectionId}-panel`}
-        className={cn(
-          'grid transition-[grid-template-rows] duration-300 ease-in-out motion-reduce:transition-none',
-          isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
-        )}
+        hidden={!isOpen}
+        className={cn(isOpen ? 'block' : 'hidden')}
       >
-        <div className="overflow-hidden">
-          <div className="inspection-accordion-panel space-y-3 p-4 md:space-y-4 md:p-5">
-            {children}
+        {body ? (
+          <div className="inspection-accordion-panel space-y-3 p-4 [content-visibility:auto] [contain-intrinsic-size:1px_1200px] md:space-y-4 md:p-5">
+            {body}
             <InspectionSectionNav sectionId={sectionId} />
           </div>
-        </div>
+        ) : null}
       </div>
     </section>
   );

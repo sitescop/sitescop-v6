@@ -24,6 +24,8 @@ export interface SectionBase {
   photos: InspectionPhotoRef[];
   /** When true, detailed fields are collapsed in workflow and omitted from PDF tables. */
   noMajorDefectObserved?: boolean;
+  /** When true, detailed fields are collapsed; inspector records defects via comments/photos. */
+  majorDefectObserved?: boolean;
 }
 
 export interface JobInformationSection extends SectionBase {
@@ -139,6 +141,8 @@ export interface RoofExteriorSection extends SectionBase {
 
 export interface RoofSpaceSection extends SectionBase {
   defects: CheckboxFieldState;
+  /** Named framing members selected via the interactive roof diagram. */
+  framingElements: CheckboxFieldState;
 }
 
 export interface KitchenSection extends SectionBase {
@@ -244,6 +248,8 @@ export interface MajorDefectRollupDismissed {
   conditionsConducive: string[];
   areasNotInspected: string[];
   safetyHazards: string[];
+  /** Dismissed auto cracking entry ids; use '*' to suppress all auto cracking entries. */
+  crackingEntries: string[];
 }
 
 export type MajorDefectRollupDismissibleField = keyof MajorDefectRollupDismissed;

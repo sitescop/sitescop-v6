@@ -5,6 +5,8 @@ import type {
   MoistureTestingSection,
 } from '../../room-engine-core/src/index.js';
 import {
+  applyDerivedMajorDefectFields,
+  filterFilledCrackingEntries,
   generateMajorDefectAutoRecommendations,
   normalizeCheckboxField,
   normalizeFinishElementDamageEntry,
@@ -53,7 +55,7 @@ function observedItemsAnswer(items: string[], sectionName: string): string {
 }
 
 function crackingSummaryAnswer(majorDefects: MajorDefectsSection | undefined): string {
-  const cracking = majorDefects?.crackingEntries ?? [];
+  const cracking = filterFilledCrackingEntries(majorDefects?.crackingEntries);
   if (!cracking.length) return 'was not observed.';
   const locations = cracking.map((entry) => entry.location.trim()).filter(Boolean);
   if (locations.length) {
@@ -99,18 +101,28 @@ function moistureEvidenceAnswer(moistureTesting: MoistureTestingSection | undefi
   return `was observed — ${escapeHtml(parts.join('; '))} ${seeSection(MOISTURE_TESTING_SECTION_NAME)}`;
 }
 
+function isYesAnswer(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === 'yes';
+}
+
+/** Yes when structural/deformation ticks, crack engineering, or derived eng fields say so. */
 function engineeringRecommendedAnswer(majorDefects: MajorDefectsSection | undefined): string {
   if (!majorDefects) return 'No';
-  const cracking = majorDefects.crackingEntries ?? [];
+  const derived = applyDerivedMajorDefectFields(majorDefects);
+  const cracking = filterFilledCrackingEntries(derived.crackingEntries);
   const recommended =
-    majorDefects.structuralEngineeringRequired === 'Yes' ||
-    majorDefects.deformationEngineeringRequired === 'Yes' ||
-    cracking.some((entry) => entry.engineeringRequired === 'Yes');
+    isYesAnswer(derived.structuralEngineeringRequired) ||
+    isYesAnswer(derived.deformationEngineeringRequired) ||
+    isYesAnswer(majorDefects.structuralEngineeringRequired) ||
+    isYesAnswer(majorDefects.deformationEngineeringRequired) ||
+    checkboxItems(majorDefects.structuralMovement).length > 0 ||
+    checkboxItems(majorDefects.deformation).length > 0 ||
+    cracking.some((entry) => isYesAnswer(entry.engineeringRequired));
   return recommended ? `Yes ${seeSection(MAJOR_DEFECTS_SECTION_NAME)}` : 'No';
 }
 
 function crackingMonitoringAnswer(majorDefects: MajorDefectsSection | undefined): string {
-  const cracking = majorDefects?.crackingEntries ?? [];
+  const cracking = filterFilledCrackingEntries(majorDefects?.crackingEntries);
   const recommended = cracking.some((entry) => entry.monitoringRecommended === 'Yes');
   return recommended ? `Yes ${seeSection(MAJOR_DEFECTS_SECTION_NAME)}` : 'No';
 }

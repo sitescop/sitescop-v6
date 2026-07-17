@@ -73,6 +73,12 @@ export interface D11BarrierBridgingSection extends SectionBase {
   evidenceItems: CheckboxFieldState;
 }
 
+export interface D12UntreatedTimberSection extends SectionBase {
+  summaryAnswer: string;
+  evidenceItems: CheckboxFieldState;
+  recommendation: string;
+}
+
 export interface D13ConduciveConditionsSection extends SectionBase {
   summaryDuringInspection: string;
   otherEvidenceAnswer: string;
@@ -111,6 +117,7 @@ export interface PestInspectionSections {
   d9SubfloorVentilation: D9SubfloorVentilationSection;
   d10ExcessiveMoisture: D10ExcessiveMoistureSection;
   d11BarrierBridging: D11BarrierBridgingSection;
+  d12UntreatedTimber: D12UntreatedTimberSection;
   d13ConduciveConditions: D13ConduciveConditionsSection;
   d14MajorSafetyHazards: D14MajorSafetyHazardsSection;
   pestConclusion: PestConclusionSection;
@@ -131,6 +138,7 @@ export const PEST_INSPECTION_SECTION_KEYS: PestInspectionSectionKey[] = [
   'd9SubfloorVentilation',
   'd10ExcessiveMoisture',
   'd11BarrierBridging',
+  'd12UntreatedTimber',
   'd13ConduciveConditions',
   'd14MajorSafetyHazards',
   'pestConclusion',
@@ -149,6 +157,7 @@ export const PEST_INSPECTION_SECTION_LABELS: Record<PestInspectionSectionKey, st
   d9SubfloorVentilation: 'D9 Lack of Adequate Subfloor Ventilation',
   d10ExcessiveMoisture: 'D10 The Presence of Excessive Moisture',
   d11BarrierBridging: 'D11 Bridging of Termite Barriers',
+  d12UntreatedTimber: 'D12 Untreated or Non-Durable Timber Used in a Hazardous Environment',
   d13ConduciveConditions: 'D13 Other Conditions Conducive',
   d14MajorSafetyHazards: 'D14 Major Safety Hazards',
   pestConclusion: 'Section E — Conclusion & Certification',

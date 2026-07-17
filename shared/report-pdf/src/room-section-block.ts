@@ -1,5 +1,7 @@
 import {
+  isMajorDefectObserved,
   isNoMajorDefectObserved,
+  majorDefectRoomPdfComments,
   noMajorDefectRoomPdfComments,
   resolveRoomReportLabels,
   type RoomReportLabelInput,
@@ -13,16 +15,28 @@ export function renderRoomSectionBlock(
   resolvedLabels: string[],
   labelIndex: number,
 ): string {
-  const noMajorDefect = isNoMajorDefectObserved(
-    room.data as { noMajorDefectObserved?: boolean; comments?: string },
-  );
-  const title = noMajorDefect ? room.label : resolvedLabels[labelIndex];
-  const sectionData = noMajorDefect
-    ? {
-        ...room.data,
-        comments: noMajorDefectRoomPdfComments(room.roomType, room.data),
-      }
-    : room.data;
+  const data = room.data as {
+    noMajorDefectObserved?: boolean;
+    majorDefectObserved?: boolean;
+    comments?: string;
+  };
+  const noMajorDefect = isNoMajorDefectObserved(data);
+  const majorDefect = isMajorDefectObserved(data);
+  // Always prefer resolved labels (Master Bedroom, Ensuite, Bedroom 1…) over the
+  // static DB room.label ("Bedroom 1") so PDF matches the type selected in workspace.
+  const title = resolvedLabels[labelIndex] || room.label;
+  const sectionData =
+    noMajorDefect
+      ? {
+          ...room.data,
+          comments: noMajorDefectRoomPdfComments(room.roomType, room.data),
+        }
+      : majorDefect
+        ? {
+            ...room.data,
+            comments: majorDefectRoomPdfComments(room.roomType, room.data),
+          }
+        : room.data;
 
   return renderSectionBlock(
     title,

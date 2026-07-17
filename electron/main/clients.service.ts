@@ -20,7 +20,11 @@ function findOtherClientByContact(
 ): string | null {
   if (email?.trim()) {
     const stmt = db.prepare(
-      `SELECT id FROM clients WHERE lower(email) = lower(?) AND id != ? LIMIT 1`,
+      `SELECT id FROM clients
+       WHERE lower(email) = lower(?)
+         AND id != ?
+         AND IFNULL(deleted_at, '') = ''
+       LIMIT 1`,
     );
     stmt.bind([email.trim(), excludeClientId]);
     if (stmt.step()) {
@@ -34,7 +38,11 @@ function findOtherClientByContact(
   if (mobile?.trim()) {
     const normalized = mobile.replace(/\s/g, '');
     const stmt = db.prepare(
-      `SELECT id FROM clients WHERE replace(mobile, ' ', '') = ? AND id != ? LIMIT 1`,
+      `SELECT id FROM clients
+       WHERE replace(mobile, ' ', '') = ?
+         AND id != ?
+         AND IFNULL(deleted_at, '') = ''
+       LIMIT 1`,
     );
     stmt.bind([normalized, excludeClientId]);
     if (stmt.step()) {

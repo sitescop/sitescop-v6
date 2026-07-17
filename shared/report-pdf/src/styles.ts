@@ -825,6 +825,7 @@ h3 {
   max-height: 100px;
   max-width: 280px;
   display: block;
+  background: #ffffff;
 }
 
 .signature-missing {
@@ -835,11 +836,30 @@ h3 {
 
 .legal-section {
   page-break-before: always;
+  break-before: page;
 }
 
-.legal-section h1,
+/* Each legal document can split across pages — avoid blank pages from oversized "keep together" blocks. */
+.legal-doc {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.legal-doc + .legal-doc {
+  break-before: page;
+  page-break-before: always;
+}
+
+.legal-section h1 {
+  color: ${primaryColor};
+  break-after: avoid-page;
+  page-break-after: avoid;
+}
+
 .legal-section h2 {
   color: ${primaryColor};
+  break-after: avoid-page;
+  page-break-after: avoid;
 }
 
 .legal-section .warning {
@@ -847,6 +867,8 @@ h3 {
   border-left: 5px solid #d32f2f;
   padding: 12px;
   margin: 14px 0;
+  break-inside: auto;
+  page-break-inside: auto;
 }
 
 .legal-section .note {
@@ -854,6 +876,14 @@ h3 {
   border-left: 5px solid #d4aa00;
   padding: 12px;
   margin: 14px 0;
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.legal-section hr {
+  break-after: avoid-page;
+  page-break-after: avoid;
+  margin: 16px 0;
 }
 `;
 }

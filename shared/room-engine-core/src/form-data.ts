@@ -53,6 +53,34 @@ export interface InspectionEnrichmentOptions {
   preserveAccessibilityPhotos?: boolean;
 }
 
+const SHARED_FULL_ENRICH_SECTIONS = new Set<string>([
+  'services',
+  'propertyDescription',
+  'accessibilityObstructions',
+  'inspectorHazardAssessment',
+]);
+
+const BUILDING_FULL_ENRICH_SECTIONS = new Set<string>([
+  'subfloor',
+  'majorDefects',
+  'conclusion',
+  'recommendations',
+]);
+
+const PEST_FULL_ENRICH_SECTIONS = new Set<string>([
+  'undetectedTimberPestRisk',
+  'd1ActiveTermites',
+  'd2ManagementProposal',
+  'd3TermiteWorkings',
+  'd4PreviousTreatment',
+  'd10ExcessiveMoisture',
+  'd11BarrierBridging',
+  'd12UntreatedTimber',
+  'd13ConduciveConditions',
+  'd14MajorSafetyHazards',
+  'pestConclusion',
+]);
+
 /** Shared by building, pest, and combined — Job Information through Roof Space (kitchen excluded). */
 export interface SharedInspectionSections {
   inspectorHazardAssessment: InspectorHazardAssessmentSection;
@@ -527,16 +555,22 @@ function setObstructionItem(
   return { selected: [...new Set(selected)], custom: [...new Set(custom)] };
 }
 
+/** Prefer photo id so we never hash multi‑MB dataUrl strings on every enrich. */
+function photoRefKey(photo: InspectionPhotoRef): string {
+  if (photo.id) return photo.id;
+  const url = photo.dataUrl ?? '';
+  if (!url) return '';
+  return `anon:${url.length}:${url.slice(0, 48)}`;
+}
+
 function mergePhotoRefs(
   existing: InspectionPhotoRef[],
   incoming: InspectionPhotoRef[],
 ): InspectionPhotoRef[] {
   const merged = [...existing];
-  const seen = new Set(
-    existing.map((photo) => `${photo.id ?? ''}|${photo.dataUrl ?? ''}`),
-  );
+  const seen = new Set(existing.map(photoRefKey));
   for (const photo of incoming) {
-    const key = `${photo.id ?? ''}|${photo.dataUrl ?? ''}`;
+    const key = photoRefKey(photo);
     if (seen.has(key)) continue;
     merged.push(photo);
     seen.add(key);
@@ -677,10 +711,6 @@ export function collectLinkedServiceObstructionPhotos(services: ServicesSection)
     ...services.gasBottlePhotos,
     ...services.rainwaterTankPhotos,
   ];
-}
-
-function photoRefKey(photo: InspectionPhotoRef): string {
-  return `${photo.id ?? ''}|${photo.dataUrl ?? ''}`;
 }
 
 /** Removes service-section photos that were previously auto-merged into accessibility comments. */
@@ -837,10 +867,10 @@ export function enrichSharedSections(
   };
 }
 
-export function enrichInspectionFormData(
+function enrichSharedBase(
   form: InspectionFormDataV2,
   options?: InspectionEnrichmentOptions,
-): InspectionFormDataV2 {
+): SharedInspectionSections {
   const sharedBase = {
     ...form.shared,
     inspectorHazardAssessment:
@@ -862,30 +892,118 @@ export function enrichInspectionFormData(
       };
     }
   }
-  const shared = enrichSharedSections(sharedBase, {
+  return enrichSharedSections(sharedBase, {
     preserveAccessibilityPhotos: options?.preserveAccessibilityPhotos,
   });
-  const building = form.building ? enrichBuildingExtension(form.building, shared, options?.rooms) : undefined;
+}
+
+function enrichPestWithContext(
+  pest: PestInspectionSections | undefined,
+  shared: SharedInspectionSections,
+  building: BuildingExtensionSections | undefined,
+): PestInspectionSections | undefined {
+  if (!pest) return undefined;
   const subfloorPresent = resolveSubfloorPresent(
     shared.propertyDescription,
     building?.subfloor,
     shared.accessibilityObstructions,
   );
   const subfloorApplicable = isSubfloorApplicable(subfloorPresent);
-  let pest = form.pest
-    ? applyPestSectionUpdates(form.pest, shared.accessibilityObstructions, shared.services, {
-        subfloorApplicable,
-      })
-    : undefined;
-  if (pest) {
-    pest = applyPestConclusionUpdates(pest, building);
-    pest = enrichPestConclusion(pest, { building });
-  }
+  let next = applyPestSectionUpdates(pest, shared.accessibilityObstructions, shared.services, {
+    subfloorApplicable,
+  });
+  next = applyPestConclusionUpdates(next, building);
+  return enrichPestConclusion(next, { building });
+}
+
+export function enrichInspectionFormData(
+  form: InspectionFormDataV2,
+  options?: InspectionEnrichmentOptions,
+): InspectionFormDataV2 {
+  const shared = enrichSharedBase(form, options);
+  const building = form.building ? enrichBuildingExtension(form.building, shared, options?.rooms) : undefined;
+  const pest = enrichPestWithContext(form.pest, shared, building);
   return {
     version: INSPECTION_FORM_VERSION,
     shared,
     building,
     pest,
+  };
+}
+
+export function enrichInspectionFormDataForSection(
+  form: InspectionFormDataV2,
+  realm: InspectionFormRealm,
+  section: string,
+  options?: InspectionEnrichmentOptions,
+): InspectionFormDataV2 {
+  if (realm === 'shared') {
+    if (!SHARED_FULL_ENRICH_SECTIONS.has(section)) {
+      return {
+        version: INSPECTION_FORM_VERSION,
+        shared: form.shared,
+        building: form.building ? applyBuildingElectricalDefaults(form.building) : undefined,
+        pest: form.pest,
+      };
+    }
+    const shared = enrichSharedBase(form, options);
+    const shouldRefreshBuilding = section !== 'inspectorHazardAssessment';
+    const building = form.building && shouldRefreshBuilding
+      ? enrichBuildingExtension(form.building, shared, options?.rooms)
+      : form.building ? applyBuildingElectricalDefaults(form.building) : undefined;
+    const pest = shouldRefreshBuilding ? enrichPestWithContext(form.pest, shared, building) : form.pest;
+    return {
+      version: INSPECTION_FORM_VERSION,
+      shared,
+      building,
+      pest,
+    };
+  }
+
+  if (realm === 'building') {
+    const shared = form.shared;
+    if (!form.building) {
+      return {
+        version: INSPECTION_FORM_VERSION,
+        shared,
+        pest: form.pest,
+      };
+    }
+    const shouldRefreshBuilding = BUILDING_FULL_ENRICH_SECTIONS.has(section);
+    const building = shouldRefreshBuilding
+      ? enrichBuildingExtension(form.building, shared, options?.rooms)
+      : applyBuildingElectricalDefaults(form.building);
+    const shouldRefreshPest = shouldRefreshBuilding && section === 'subfloor';
+    return {
+      version: INSPECTION_FORM_VERSION,
+      shared,
+      building,
+      pest: shouldRefreshPest ? enrichPestWithContext(form.pest, shared, building) : form.pest,
+    };
+  }
+
+  if (!form.pest) {
+    return {
+      version: INSPECTION_FORM_VERSION,
+      shared: form.shared,
+      building: form.building,
+    };
+  }
+
+  if (!PEST_FULL_ENRICH_SECTIONS.has(section)) {
+    return {
+      version: INSPECTION_FORM_VERSION,
+      shared: form.shared,
+      building: form.building,
+      pest: form.pest,
+    };
+  }
+
+  return {
+    version: INSPECTION_FORM_VERSION,
+    shared: form.shared,
+    building: form.building,
+    pest: enrichPestWithContext(form.pest, form.shared, form.building),
   };
 }
 

@@ -329,7 +329,9 @@ export async function listGitHubDirectory(
 
 /** Resolve where the live signing portal lives in the cloud repo. */
 async function resolveSigningPortalRemotePrefix(settings: GitHubSettings): Promise<string> {
-  const prefixes = ['sign', 'docs/sign'];
+  // GitHub Pages for this repo serves from /docs, so docs/sign must win when
+  // both folders exist — publishing to root sign/ never reaches the live site.
+  const prefixes = ['docs/sign', 'sign'];
   for (const prefix of prefixes) {
     const existing = await getGitHubFileText(settings, `${prefix}/app.js`);
     if (existing) return prefix;
@@ -364,6 +366,8 @@ export async function publishSigningPortalToGitHub(
   const files = [
     { local: 'app.js', remote: `${remotePrefix}/app.js` },
     { local: 'index.html', remote: `${remotePrefix}/index.html` },
+    // style.css must republish too, otherwise CSS fixes never reach phones.
+    { local: 'style.css', remote: `${remotePrefix}/style.css` },
   ] as const;
 
   const uploaded: string[] = [];

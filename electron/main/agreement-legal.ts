@@ -17,6 +17,7 @@ export interface AgreementLegalContent {
 const LEGAL_FILES: Array<{ file: string; title: string }> = [
   { file: 'inspection-limitations.html', title: 'Inspection Limitations' },
   { file: 'scope.html', title: 'Scope of Inspection' },
+  { file: 'definitions.html', title: 'Definitions' },
   { file: 'terms-conditions.html', title: 'Terms and Conditions' },
   { file: 'privacy-policy.html', title: 'Privacy Policy' },
   { file: 'client-declaration.html', title: 'Client Declaration' },
@@ -117,19 +118,33 @@ export function resolveLegalSections(
     return fresh;
   }
 
-  return {
-    sections: stored.sections.map((section) => {
-      const freshSection = freshById.get(section.id);
-      const content = section.content?.trim()
-        ? section.content
-        : (freshSection?.content ?? '');
-      return {
-        ...section,
-        content,
-        contentHtml: freshSection?.contentHtml,
-      };
-    }),
-  };
+  const storedById = new Map(stored.sections.map((section) => [section.id, section]));
+  const sections: AgreementLegalSection[] = [];
+
+  // Keep current legal pack order; insert any newly added files (e.g. Definitions).
+  for (const freshSection of fresh.sections) {
+    const existing = storedById.get(freshSection.id);
+    if (!existing) {
+      sections.push(freshSection);
+      continue;
+    }
+    const content = existing.content?.trim() ? existing.content : freshSection.content;
+    sections.push({
+      ...existing,
+      title: existing.title?.trim() || freshSection.title,
+      content,
+      contentHtml: freshSection.contentHtml,
+    });
+  }
+
+  // Preserve any custom stored sections not in the current pack.
+  for (const existing of stored.sections) {
+    if (!freshById.has(existing.id)) {
+      sections.push(existing);
+    }
+  }
+
+  return { sections };
 }
 
 export function inspectionTypeLabel(type: InspectionType): string {

@@ -16,3 +16,4 @@ export * from './major-defects-conclusion.js';
 export * from './major-defects-rules.js';
 export * from './major-defects-rollup.js';
 export * from './form-data.js';
+export * from './photo-cache.js';

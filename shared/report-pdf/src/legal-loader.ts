@@ -5,6 +5,7 @@ import type { LegalReportKind } from './types.js';
 const LEGAL_FILES = [
   'inspection-limitations.html',
   'scope.html',
+  'definitions.html',
   'terms-conditions.html',
   'privacy-policy.html',
   'client-declaration.html',

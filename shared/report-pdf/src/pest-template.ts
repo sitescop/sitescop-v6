@@ -33,6 +33,7 @@ const PEST_PDF_SECTION_TITLES: Record<string, string> = {
   d9SubfloorVentilation: 'D9 — Lack of Adequate Subfloor Ventilation',
   d10ExcessiveMoisture: 'D10 — The Presence of Excessive Moisture',
   d11BarrierBridging: 'D11 — Bridging of Termite Barriers',
+  d12UntreatedTimber: 'D12 — Untreated or Non-Durable Timber Used in a Hazardous Environment',
   d13ConduciveConditions: 'D13 — Other Conditions Conducive',
   d14MajorSafetyHazards: 'D14 — Major Safety Hazards',
 };
@@ -70,6 +71,11 @@ const PEST_SECTION_FIELD_LABELS: Partial<Record<string, Record<string, string>>>
   d11BarrierBridging: {
     summaryAnswer: 'Bridging of Termite Barriers',
   },
+  d12UntreatedTimber: {
+    summaryAnswer: 'Untreated or Non-Durable Timber Used in a Hazardous Environment',
+    evidenceItems: 'Evidence items',
+    recommendation: 'Recommendation',
+  },
   d13ConduciveConditions: {
     summaryDuringInspection: 'Other Conditions Conducive',
   },
@@ -83,9 +89,6 @@ const SHARED_SECTION_TITLES: Record<string, string> = {
   propertyDescription: 'Property Description',
   accessibilityObstructions: 'Accessibility & Obstructions',
   siteConditions: 'Site Conditions',
-  external: 'External Building Elements',
-  roofExterior: 'Roof Exterior',
-  roofSpace: 'Roof Space',
 };
 
 export { resolvePestReportTitle } from './property-report-details-block.js';
@@ -114,9 +117,13 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
     );
   }
 
+  // Building-only shared sections excluded from the pest report.
+  const pestSkippedSharedSections = new Set(['external', 'roofExterior', 'roofSpace']);
+
   const sectionCBlocks: string[] = [];
   for (const key of SHARED_INSPECTION_SECTION_KEYS) {
     if (key === 'jobInformation') continue;
+    if (pestSkippedSharedSections.has(key)) continue;
 
     const data = sharedSectionDataForReport(key, ctx.formData.shared);
     const extraSkip =
@@ -152,10 +159,17 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
         const override = PEST_SECTION_FIELD_LABELS[key]?.[def.key];
         return override ? { ...def, label: override } : def;
       });
+      const extraSkip = new Set<string>();
+      if (
+        key === 'd12UntreatedTimber' &&
+        !String(data.recommendation ?? '').trim()
+      ) {
+        extraSkip.add('recommendation');
+      }
       const block = renderSectionBlock(
         pestPdfSectionTitle(key),
         data,
-        new Set(),
+        extraSkip,
         PEST_SECTION_FIELD_LABELS[key],
         fieldDefs,
       );

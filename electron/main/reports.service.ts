@@ -22,6 +22,7 @@ import {
 import { setLegalBasePath } from '../../shared/report-pdf/src/legal-loader.js';
 import type { ReportRenderContext } from '../../shared/report-pdf/src/types.js';
 import { getInspectionByJob } from './inspections.service.js';
+import { compressPhotosForPdf } from './pdf-photo-compress.js';
 
 export type ReportType = 'BUILDING' | 'PEST';
 
@@ -139,20 +140,22 @@ async function buildRenderContext(
   const inspectorName =
     inspection.inspectorName.trim() || `${user.firstName} ${user.lastName}`.trim();
 
+  const enrichedRooms = inspection.rooms.map((room) => ({
+    id: room.id,
+    label: room.label,
+    roomType: room.roomType,
+    roomIndex: room.roomIndex,
+    data: mergeRoomDataForReport(room.roomType, room.roomIndex, room.data),
+  }));
+  const roomLabels = resolveRoomReportLabels(enrichedRooms);
+  const labeledRooms = enrichedRooms.map((room, index) => ({
+    ...room,
+    label: roomLabels[index] ?? room.label,
+  }));
+
   if (formData.building) {
-    const enrichedRooms = inspection.rooms.map((room) => ({
-      id: room.id,
-      label: room.label,
-      roomType: room.roomType,
-      roomIndex: room.roomIndex,
-      data: mergeRoomDataForReport(room.roomType, room.roomIndex, room.data),
-    }));
-    const roomLabels = resolveRoomReportLabels(enrichedRooms);
     formData = enrichInspectionFormData(formData, {
-      rooms: enrichedRooms.map((room, index) => ({
-        ...room,
-        label: roomLabels[index],
-      })),
+      rooms: labeledRooms,
     });
   }
 
@@ -165,6 +168,13 @@ async function buildRenderContext(
       }),
     };
   }
+
+  // Full-resolution photos can be tens of MB and crash Chromium during PDF print.
+  formData = compressPhotosForPdf(formData);
+  const pdfRooms = labeledRooms.map((room) => ({
+    ...room,
+    data: compressPhotosForPdf(room.data),
+  }));
 
   const branding = getResolvedCompanyBranding();
   const agreementNumber = getAgreementNumberForJob(db, jobId);
@@ -195,11 +205,11 @@ async function buildRenderContext(
       email: user.email,
     },
     formData,
-    rooms: inspection.rooms.map((room) => ({
-      label: room.label,
-      roomType: room.roomType,
-      roomIndex: room.roomIndex,
-      data: mergeRoomDataForReport(room.roomType, room.roomIndex, room.data),
+    rooms: pdfRooms.map(({ label, roomType, roomIndex, data }) => ({
+      label,
+      roomType,
+      roomIndex,
+      data,
     })),
     reportType: 'BUILDING',
     agreementNumber,

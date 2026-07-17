@@ -4,6 +4,7 @@ import { applyDerivedMajorDefectFields } from './major-defects-rules.js';
 import {
   SITE_DRAINAGE_CONCERNS,
 } from './options.js';
+import { isMajorDefectObserved, MAJOR_DEFECT_OBSERVED_COMMENT } from './property-profile.js';
 import type {
   AccessibilityObstructionsSection,
   CheckboxFieldState,
@@ -22,6 +23,7 @@ import type {
   RoofExteriorSection,
   RoofSpaceSection,
   SiteConditionsSection,
+  SectionBase,
 } from './types.js';
 
 export interface MajorDefectRollupRoom {
@@ -46,23 +48,25 @@ export interface MajorDefectRollupInput {
     laundry: LaundrySection;
     moistureTesting: MoistureTestingSection;
     subfloor?: SubfloorSection;
+    fencing?: SectionBase;
+    outbuildings?: SectionBase;
+    corrosion?: SectionBase;
   };
   rooms?: MajorDefectRollupRoom[];
   subfloorApplicable?: boolean;
 }
-
-
-const SKIP_INACCESSIBLE = new Set(['All areas permitted entry', 'Not applicable']);
 
 export interface MajorDefectAutoSuggestions {
   structuralMovement: string[];
   deformation: string[];
   moistureSources: string[];
   conditionsConducive: string[];
-  areasNotInspected: string[];
+  /** Always empty — Areas Not Inspected is no longer used in major defects. */
+  areasNotInspected: [];
   safetyHazards: string[];
   crackingEntries: CrackingEntry[];
-  plumbingDefectPhotos: InspectionPhotoRef[];
+  /** Always empty — plumbing photos are no longer auto-linked into major defects. */
+  plumbingDefectPhotos: [];
 }
 
 export function emptyMajorDefectRollupDismissed(): MajorDefectRollupDismissed {
@@ -73,6 +77,7 @@ export function emptyMajorDefectRollupDismissed(): MajorDefectRollupDismissed {
     conditionsConducive: [],
     areasNotInspected: [],
     safetyHazards: [],
+    crackingEntries: [],
   };
 }
 
@@ -119,7 +124,8 @@ export function updateMajorDefectCheckboxField(
   autoItems: string[],
 ): Partial<MajorDefectsSection> {
   const dismissed = normalizeRollupDismissed(majorDefects.rollupDismissed);
-  const prevItems = checkboxItems(majorDefects[field]);
+  const prevField = majorDefects[field];
+  const prevItems = Array.isArray(prevField) ? [] : checkboxItems(prevField);
   const nextItems = checkboxItems(next);
   const dismissedSet = new Set(dismissed[field]);
 
@@ -128,25 +134,22 @@ export function updateMajorDefectCheckboxField(
     if (nextItems.includes(item)) dismissedSet.delete(item);
   }
 
-  return {
+  const partial: Partial<MajorDefectsSection> = {
     [field]: next,
     rollupDismissed: { ...dismissed, [field]: [...dismissedSet] },
   };
-}
 
-function mergePhotoRefs(
-  existing: InspectionPhotoRef[],
-  incoming: InspectionPhotoRef[],
-): InspectionPhotoRef[] {
-  const merged = [...existing];
-  const seen = new Set(existing.map((photo) => `${photo.id ?? ''}|${photo.dataUrl ?? ''}`));
-  for (const photo of incoming) {
-    const key = `${photo.id ?? ''}|${photo.dataUrl ?? ''}`;
-    if (seen.has(key)) continue;
-    merged.push(photo);
-    seen.add(key);
+  // Keep engineering Yes/No in sync as soon as structural/deformation ticks change.
+  if (field === 'structuralMovement' || field === 'deformation') {
+    const derived = applyDerivedMajorDefectFields({
+      ...majorDefects,
+      ...partial,
+    } as MajorDefectsSection);
+    partial.structuralEngineeringRequired = derived.structuralEngineeringRequired;
+    partial.deformationEngineeringRequired = derived.deformationEngineeringRequired;
   }
-  return merged;
+
+  return partial;
 }
 
 function isYes(value: unknown): boolean {
@@ -182,23 +185,31 @@ function createAutoCrackingEntry(id: string, location: string, comments = ''): C
 function syncCrackingEntries(
   current: CrackingEntry[],
   autoEntries: CrackingEntry[],
+  dismissedAutoIds: readonly string[] = [],
 ): CrackingEntry[] {
+  const suppressAllAuto = dismissedAutoIds.includes('*');
+  const dismissed = new Set(dismissedAutoIds);
   const manual = current.filter((entry) => !entry.id.startsWith('auto-'));
   const byId = new Map(manual.map((entry) => [entry.id, entry]));
-  for (const entry of autoEntries) {
-    const existing = current.find((item) => item.id === entry.id);
-    byId.set(
-      entry.id,
-      existing
-        ? {
-            ...existing,
-            location: entry.location,
-            comments: entry.comments || existing.comments,
-            photos: existing.photos ?? [],
-          }
-        : entry,
-    );
+
+  if (!suppressAllAuto) {
+    for (const entry of autoEntries) {
+      if (dismissed.has(entry.id)) continue;
+      const existing = current.find((item) => item.id === entry.id);
+      byId.set(
+        entry.id,
+        existing
+          ? {
+              ...existing,
+              location: entry.location,
+              comments: entry.comments || existing.comments,
+              photos: existing.photos ?? [],
+            }
+          : entry,
+      );
+    }
   }
+
   return [...byId.values()];
 }
 
@@ -217,16 +228,99 @@ function mapInspectorHazardsToSafety(hazards: string[]): string[] {
   return [...new Set(mapped)];
 }
 
+function sectionHasMajorQuick(section: SectionBase | Record<string, unknown> | undefined): boolean {
+  if (!section) return false;
+  return isMajorDefectObserved(section as { majorDefectObserved?: boolean; comments?: string });
+}
+
+function usablePhotos(section: SectionBase | Record<string, unknown> | undefined): InspectionPhotoRef[] {
+  const photos = (section as { photos?: InspectionPhotoRef[] } | undefined)?.photos;
+  if (!Array.isArray(photos)) return [];
+  return photos.filter(
+    (photo) => typeof photo?.dataUrl === 'string' && photo.dataUrl.trim().length > 20,
+  );
+}
+
+function mergeUniquePhotos(
+  current: InspectionPhotoRef[] | undefined,
+  incoming: InspectionPhotoRef[],
+): InspectionPhotoRef[] {
+  const byId = new Map<string, InspectionPhotoRef>();
+  for (const photo of current ?? []) {
+    if (photo?.id) byId.set(photo.id, photo);
+  }
+  for (const photo of incoming) {
+    if (photo?.id) byId.set(photo.id, photo);
+  }
+  return [...byId.values()];
+}
+
+function appendUniqueCommentBlock(existing: string, block: string): string {
+  const current = existing.trim();
+  const next = block.trim();
+  if (!next) return current;
+  if (!current) return next;
+  if (current.includes(next)) return current;
+  return `${current}\n\n${next}`;
+}
+
+/** Collect "Major defect observed" quick-actions from rooms and building sections. */
+export function collectMajorDefectQuickFindings(input: MajorDefectRollupInput): {
+  labels: string[];
+  commentBlocks: string[];
+  photos: InspectionPhotoRef[];
+  safetyLabels: string[];
+} {
+  const labels: string[] = [];
+  const commentBlocks: string[] = [];
+  const photos: InspectionPhotoRef[] = [];
+  const safetyLabels: string[] = [];
+
+  const pushFinding = (label: string, section: SectionBase | Record<string, unknown> | undefined) => {
+    if (!sectionHasMajorQuick(section)) return;
+    labels.push(label);
+    safetyLabels.push(`Major defect observed — ${label}`);
+    const comments = String((section as { comments?: string }).comments ?? '').trim();
+    if (comments) {
+      commentBlocks.push(`${label}: ${comments}`);
+    } else {
+      commentBlocks.push(`${label}: ${MAJOR_DEFECT_OBSERVED_COMMENT}`);
+    }
+    photos.push(...usablePhotos(section));
+  };
+
+  pushFinding('External', input.shared.external);
+  pushFinding('Roof Exterior', input.shared.roofExterior);
+  pushFinding('Roof Space', input.shared.roofSpace);
+  pushFinding('Kitchen', input.building.kitchen);
+  pushFinding('Laundry', input.building.laundry);
+  pushFinding('Moisture & Thermal Testing', input.building.moistureTesting);
+  if (input.subfloorApplicable !== false) pushFinding('Subfloor', input.building.subfloor);
+  pushFinding('Fencing', input.building.fencing);
+  pushFinding('Outbuildings', input.building.outbuildings);
+  pushFinding('Corrosion', input.building.corrosion);
+
+  for (const room of input.rooms ?? []) {
+    const label = room.label?.trim() || room.roomType;
+    pushFinding(label, room.data);
+  }
+
+  return {
+    labels: [...new Set(labels)],
+    commentBlocks,
+    photos,
+    safetyLabels: [...new Set(safetyLabels)],
+  };
+}
+
 export function collectMajorDefectAutoSuggestions(input: MajorDefectRollupInput): MajorDefectAutoSuggestions {
   const { shared, building, rooms = [] } = input;
   const structural = new Set<string>();
   const deformation = new Set<string>();
   const moisture = new Set<string>();
   const conducive = new Set<string>();
-  const notInspected = new Set<string>();
   const safety = new Set<string>();
   const autoCracking: CrackingEntry[] = [];
-  const plumbingPhotos: InspectionPhotoRef[] = [];
 
   if (hasCracking(shared.external.damageObserved)) {
     structural.add('Walls');
@@ -269,19 +363,15 @@ export function collectMajorDefectAutoSuggestions(input: MajorDefectRollupInput)
 
   if (isYes(building.kitchen.leakInsideCabinet)) {
     moisture.add('Plumbing Leak');
-    plumbingPhotos.push(...building.kitchen.photos);
   }
   if (hasMoistureDamage(building.kitchen.moistureDamage)) {
     moisture.add('Plumbing Leak');
-    plumbingPhotos.push(...building.kitchen.photos);
   }
   if (isYes(building.laundry.activeLeak) || isYes(building.laundry.leakage) || isYes(building.laundry.waterPooling)) {
     moisture.add('Plumbing Leak');
-    plumbingPhotos.push(...building.laundry.photos, ...building.laundry.waterPoolingPhotos);
   }
   if (hasMoistureDamage(building.laundry.moistureDamage)) {
     moisture.add('Plumbing Leak');
-    plumbingPhotos.push(...building.laundry.photos, ...building.laundry.waterPoolingPhotos);
   }
 
   if (building.moistureTesting.visualMoistureEvidence === 'Yes') {
@@ -289,7 +379,6 @@ export function collectMajorDefectAutoSuggestions(input: MajorDefectRollupInput)
   }
   if (building.moistureTesting.excessiveMoistureEvidence === 'Yes') {
     moisture.add('Plumbing Leak');
-    plumbingPhotos.push(...building.moistureTesting.moistureMeterPhotos);
   }
 
   if (input.subfloorApplicable !== false && building.subfloor) {
@@ -320,28 +409,7 @@ export function collectMajorDefectAutoSuggestions(input: MajorDefectRollupInput)
       if (isYes(room.data.waterPoolingPresent) || hasMoistureDamage(room.data.moistureDamage)) {
         moisture.add('Plumbing Leak');
       }
-      const bathPhotos = [
-        ...(Array.isArray(room.data.waterPoolingPhotos) ? (room.data.waterPoolingPhotos as InspectionPhotoRef[]) : []),
-        ...(Array.isArray(room.data.moistureEvidencePhotos) ? (room.data.moistureEvidencePhotos as InspectionPhotoRef[]) : []),
-        ...(Array.isArray(room.data.waterEscapingPhotos) ? (room.data.waterEscapingPhotos as InspectionPhotoRef[]) : []),
-        ...(Array.isArray(room.data.photos) ? (room.data.photos as InspectionPhotoRef[]) : []),
-      ];
-      if (bathPhotos.length) plumbingPhotos.push(...bathPhotos);
     }
-
-    const accessAvailable = String(room.data.accessAvailable ?? 'Yes');
-    if (accessAvailable === 'No') {
-      const reason = String(room.data.noAccessReason ?? '').trim();
-      notInspected.add(reason ? `${room.label} — ${reason}` : room.label);
-    }
-  }
-
-  for (const area of checkboxItems(shared.accessibilityObstructions.inaccessibleAreas)) {
-    if (!SKIP_INACCESSIBLE.has(area)) notInspected.add(area);
-  }
-  for (const line of shared.accessibilityObstructions.inaccessibleCustomLines ?? []) {
-    const text = line.trim();
-    if (text) notInspected.add(text);
   }
 
   const inspectorHazards = checkboxItems(shared.inspectorHazardAssessment.hazards);
@@ -352,15 +420,20 @@ export function collectMajorDefectAutoSuggestions(input: MajorDefectRollupInput)
     safety.add('Electrical Hazard');
   }
 
+  const quick = collectMajorDefectQuickFindings(input);
+  if (quick.labels.length > 0) {
+    safety.add('Structural Hazard');
+  }
+
   return {
     structuralMovement: [...structural],
     deformation: [...deformation],
     moistureSources: [...moisture],
     conditionsConducive: [...conducive],
-    areasNotInspected: [...notInspected],
+    areasNotInspected: [],
     safetyHazards: [...safety],
     crackingEntries: autoCracking,
-    plumbingDefectPhotos: mergePhotoRefs([], plumbingPhotos),
+    plumbingDefectPhotos: [],
   };
 }
 
@@ -393,10 +466,18 @@ export function applyMajorDefectsRollup(
 
   const auto = collectMajorDefectAutoSuggestions(input);
   const dismissed = normalizeRollupDismissed(migratedMajorDefects.rollupDismissed);
+  const quick = collectMajorDefectQuickFindings(input);
+
+  let rolledComments = migratedMajorDefects.comments ?? '';
+  for (const block of quick.commentBlocks) {
+    rolledComments = appendUniqueCommentBlock(rolledComments, block);
+  }
 
   const nextMajorDefects: MajorDefectsSection = {
     ...migratedMajorDefects,
     rollupDismissed: dismissed,
+    comments: rolledComments,
+    photos: mergeUniquePhotos(migratedMajorDefects.photos, quick.photos),
     structuralMovement: mergeAutoCheckboxPreservingManual(
       migratedMajorDefects.structuralMovement,
       auto.structuralMovement,
@@ -417,21 +498,18 @@ export function applyMajorDefectsRollup(
       auto.conditionsConducive,
       dismissed.conditionsConducive,
     ),
-    areasNotInspected: mergeAutoCheckboxPreservingManual(
-      migratedMajorDefects.areasNotInspected,
-      auto.areasNotInspected,
-      dismissed.areasNotInspected,
-    ),
+    areasNotInspected: emptyCheckboxField(),
     safetyHazards: mergeAutoCheckboxPreservingManual(
       migratedMajorDefects.safetyHazards,
       auto.safetyHazards,
       dismissed.safetyHazards,
     ),
-    crackingEntries: syncCrackingEntries(migratedMajorDefects.crackingEntries, auto.crackingEntries),
-    plumbingDefectPhotos: mergePhotoRefs(
-      migratedMajorDefects.plumbingDefectPhotos,
-      auto.plumbingDefectPhotos,
+    crackingEntries: syncCrackingEntries(
+      migratedMajorDefects.crackingEntries,
+      auto.crackingEntries,
+      dismissed.crackingEntries,
     ),
+    plumbingDefectPhotos: [],
   };
 
   return applyDerivedMajorDefectFields(nextMajorDefects);

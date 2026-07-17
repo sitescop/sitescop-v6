@@ -31,10 +31,32 @@ const NO_EVIDENCE_FOUND_ALIASES = new Set([
 
 const PRESENCE_UNDETERMINED_ALIASES = new Set([
   PRESENCE_UNDETERMINED,
+  'Presence was undetermined',
   'Presence Undetermined',
   'Presence undetermined',
   'Undetermined',
 ]);
+
+/** D12 — Untreated or non-durable timber in a hazardous environment. */
+export const D12_EVIDENCE_FOUND = 'The following evidence was found';
+export const D12_NO_EVIDENCE_FOUND = 'No evidence was found';
+export const D12_PRESENCE_UNDETERMINED = 'Presence was undetermined';
+export const D12_EVIDENCE_ANSWERS = [
+  D12_EVIDENCE_FOUND,
+  D12_NO_EVIDENCE_FOUND,
+  D12_PRESENCE_UNDETERMINED,
+] as const;
+
+export const D12_UNTREATED_TIMBER_ITEMS = [
+  'Timber fences',
+  'Retaining wall and/or landscaping timbers',
+  'Decking',
+  'Pergola and/or patio posts',
+  'Additional structures',
+] as const;
+
+export const D12_UNTREATED_TIMBER_RECOMMENDATION =
+  'These items should be adjusted to provide a minimum of 75 mm ground clearance, or replaced with termite and decay resistant materials.';
 
 /** True when a stored pest answer means evidence was found (includes legacy values). */
 export function isPestEvidenceFound(value: string | undefined | null): boolean {
@@ -58,9 +80,18 @@ export function isPestPresenceUndetermined(value: string | undefined | null): bo
 export function formatPestEvidenceAnswer(value: string | undefined | null): string {
   const trimmed = (value ?? '').trim();
   if (!trimmed) return '';
-  if (isPestEvidenceFound(trimmed)) return EVIDENCE_FOUND;
-  if (isPestNoEvidenceFound(trimmed)) return NO_EVIDENCE_FOUND;
-  if (isPestPresenceUndetermined(trimmed)) return PRESENCE_UNDETERMINED;
+  if (isPestEvidenceFound(trimmed)) {
+    if (/^the following evidence was found/i.test(trimmed)) return D12_EVIDENCE_FOUND;
+    return EVIDENCE_FOUND;
+  }
+  if (isPestNoEvidenceFound(trimmed)) {
+    if (/^no evidence was found/i.test(trimmed)) return D12_NO_EVIDENCE_FOUND;
+    return NO_EVIDENCE_FOUND;
+  }
+  if (isPestPresenceUndetermined(trimmed)) {
+    if (/^presence was undetermined/i.test(trimmed)) return D12_PRESENCE_UNDETERMINED;
+    return PRESENCE_UNDETERMINED;
+  }
   return trimmed;
 }
 

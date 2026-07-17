@@ -1,3 +1,4 @@
+import { memo, useRef } from 'react';
 import type { BedroomRoomData } from '@sitescop/room-engine-core';
 import {
   defaultIfEmptySmokeAlarmStatus,
@@ -11,19 +12,25 @@ import {
   WALL_DEFECTS,
 } from '@sitescop/room-engine-core';
 import { Select } from '@/design-system/components';
-import { CheckboxGroupField, InspectionSubsectionHeading, RatingSelect, SectionComments, YesNoSelect } from './InspectionFields';
+import { CheckboxGroupField, InspectionSubsectionHeading, RatingSelect, YesNoSelect } from './InspectionFields';
 
 interface BedroomRoomFormProps {
   data: BedroomRoomData;
-  onChange: (data: BedroomRoomData) => void;
+  onPatch: (partial: Partial<BedroomRoomData>) => void;
   disabled?: boolean;
 }
 
 const conditionOptions = FIXTURE_CONDITION;
 
-export function BedroomRoomForm({ data, onChange, disabled = false }: BedroomRoomFormProps) {
+export const BedroomRoomForm = memo(function BedroomRoomForm({
+  data,
+  onPatch,
+  disabled = false,
+}: BedroomRoomFormProps) {
+  const onPatchRef = useRef(onPatch);
+  onPatchRef.current = onPatch;
   const set = <K extends keyof BedroomRoomData>(key: K, value: BedroomRoomData[K]) => {
-    onChange({ ...data, [key]: value });
+    onPatchRef.current({ [key]: value } as Partial<BedroomRoomData>);
   };
 
   return (
@@ -47,7 +54,8 @@ export function BedroomRoomForm({ data, onChange, disabled = false }: BedroomRoo
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {(['door', 'handle', 'window', 'windowLock', 'wardrobe', 'slidingDoor', 'mirror'] as const).map((field) => (
-          <RatingSelect disabled={disabled}
+          <RatingSelect
+            disabled={disabled}
             key={field}
             label={field.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())}
             value={data[field]}
@@ -80,13 +88,6 @@ export function BedroomRoomForm({ data, onChange, disabled = false }: BedroomRoo
       <CheckboxGroupField disabled={disabled} label="Walls" options={WALL_DEFECTS} value={data.walls} onChange={(v) => set('walls', v)} />
       <CheckboxGroupField disabled={disabled} label="Ceiling" options={WALL_DEFECTS} value={data.ceiling} onChange={(v) => set('ceiling', v)} />
       <CheckboxGroupField disabled={disabled} label="Damage Observed" options={['Cracking', 'Moisture Damage', 'Other']} value={data.damageObserved} onChange={(v) => set('damageObserved', v)} />
-
-      <SectionComments sectionId="bedrooms" disabled={disabled}
-        comments={data.comments}
-        photos={data.photos}
-        onCommentsChange={(v) => set('comments', v)}
-        onPhotosChange={(v) => set('photos', v)}
-      />
     </div>
   );
-}
+});

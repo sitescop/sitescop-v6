@@ -1,10 +1,13 @@
 import { emptySectionBase, emptyCheckboxField, normalizeCheckboxField } from './defaults.js';
 import type { CheckboxFieldState, PrefillJobContext } from './types.js';
-import type { D13ConduciveConditionsSection, D9SubfloorVentilationSection, PestInspectionSections } from './pest-types.js';
+import type { D12UntreatedTimberSection, D13ConduciveConditionsSection, D9SubfloorVentilationSection, PestInspectionSections } from './pest-types.js';
 import {
   CONDUCIVE_RECOMMENDATION_PRESETS,
+  D12_NO_EVIDENCE_FOUND,
+  D12_UNTREATED_TIMBER_RECOMMENDATION,
   EVIDENCE_FOUND,
   formatPestEvidenceAnswer,
+  isPestEvidenceFound,
   MANAGEMENT_PROPOSAL_OPTIONS,
   MOISTURE_STAINS_DISCLAIMER,
   NO_EVIDENCE_FOUND,
@@ -30,6 +33,16 @@ export function applyD13ConduciveDefaults(section: D13ConduciveConditionsSection
     };
   }
   return { ...section, recommendationPresets: presets };
+}
+
+/** Keep D12 recommendation text in sync when evidence is found. */
+export function applyD12UntreatedTimberDefaults(section: D12UntreatedTimberSection): D12UntreatedTimberSection {
+  const found = isPestEvidenceFound(section.summaryAnswer);
+  return {
+    ...section,
+    evidenceItems: normalizeCheckboxField(section.evidenceItems),
+    recommendation: found ? D12_UNTREATED_TIMBER_RECOMMENDATION : '',
+  };
 }
 
 function migrateEvidenceValue(value: string): string {
@@ -90,6 +103,22 @@ export function migratePestEvidenceAnswers(pest: PestInspectionSections): PestIn
       ...pest.d11BarrierBridging,
       summaryAnswer: migrateEvidenceValue(pest.d11BarrierBridging.summaryAnswer),
     },
+    d12UntreatedTimber: {
+      ...(pest.d12UntreatedTimber ?? {
+        comments: '',
+        photos: [],
+        noMajorDefectObserved: false,
+        majorDefectObserved: false,
+        summaryAnswer: D12_NO_EVIDENCE_FOUND,
+        evidenceItems: emptyCheckboxField(),
+        recommendation: '',
+      }),
+      summaryAnswer: pest.d12UntreatedTimber?.summaryAnswer?.trim()
+        ? pest.d12UntreatedTimber.summaryAnswer
+        : D12_NO_EVIDENCE_FOUND,
+      evidenceItems: normalizeCheckboxField(pest.d12UntreatedTimber?.evidenceItems),
+      recommendation: pest.d12UntreatedTimber?.recommendation ?? '',
+    },
     d13ConduciveConditions: {
       ...pest.d13ConduciveConditions,
       summaryDuringInspection: migrateEvidenceValue(pest.d13ConduciveConditions.summaryDuringInspection),
@@ -122,6 +151,7 @@ export function applyPestSectionDefaults(pest: PestInspectionSections): PestInsp
         migrated.undetectedTimberPestRisk.riskLevel?.trim() || DEFAULT_TIMBER_PEST_UNDETECTED_RISK,
     },
     d13ConduciveConditions: applyD13ConduciveDefaults(migrated.d13ConduciveConditions),
+    d12UntreatedTimber: applyD12UntreatedTimberDefaults(migrated.d12UntreatedTimber),
   };
 }
 
@@ -200,6 +230,12 @@ export function createEmptyPestSections(prefill?: PrefillJobContext): PestInspec
       ...base,
       summaryAnswer: NO_EVIDENCE_FOUND,
       evidenceItems: emptyCheckboxField(),
+    },
+    d12UntreatedTimber: {
+      ...base,
+      summaryAnswer: D12_NO_EVIDENCE_FOUND,
+      evidenceItems: emptyCheckboxField(),
+      recommendation: '',
     },
     d13ConduciveConditions: {
       ...base,

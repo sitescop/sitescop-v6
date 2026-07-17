@@ -20,7 +20,7 @@
   }
 
   .inspection-subsection-heading {
-    @apply mb-2 border-b border-primary/25 pb-1.5 text-base font-semibold text-primary;
+    @apply mb-3 rounded-md border-l-4 border-[#F39C12] bg-[#0B4F8C] px-3 py-2.5 text-lg font-bold tracking-wide text-white shadow-md;
   }
 
   .inspection-section-heading {
@@ -44,12 +44,12 @@
   }
 
   .inspection-form .inspection-subsection-heading {
-    @apply mb-2 flex items-center gap-1.5 border-b-0 pb-0 text-sm font-bold text-primary;
+    @apply mb-3 flex items-center gap-2 border-b-0 border-l-4 border-[#F39C12] bg-[#0B4F8C] px-3 py-2.5 text-base font-bold tracking-wide text-white shadow-md md:text-lg;
   }
 
   .inspection-form .inspection-subsection-heading::before {
     content: '';
-    @apply h-1.5 w-1.5 shrink-0 rounded-full bg-accent;
+    @apply h-2.5 w-2.5 shrink-0 rounded-full bg-[#F39C12] shadow-[0_0_0_3px_rgba(243,156,18,0.35)];
   }
 
   .inspection-form .inspection-field-label {
@@ -66,7 +66,7 @@
   }
 
   .inspection-form .inspection-subpanel {
-    @apply space-y-3 rounded-lg border border-primary/10 bg-primary/[0.02] p-3 shadow-sm md:p-4;
+    @apply space-y-3 rounded-lg border-2 border-[#0B4F8C]/25 bg-[#E8F4FF]/50 p-3 shadow-sm md:p-4;
   }
 
   .inspection-form .inspection-note-panel {
@@ -95,16 +95,19 @@
   }
 
   .inspection-form .inspection-accordion-panel .inspection-subpanel {
-    @apply border-secondary/15 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.07)];
+    @apply border-[#0B4F8C]/20 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.07)];
   }
 
   .inspection-form .inspection-accordion-panel .inspection-checkbox-option {
     @apply border-secondary/15 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] hover:border-secondary/30;
   }
 
-  .inspection-form .inspection-accordion-panel .inspection-field-label,
-  .inspection-form .inspection-accordion-panel .inspection-subsection-heading {
+  .inspection-form .inspection-accordion-panel .inspection-field-label {
     @apply text-primary;
+  }
+
+  .inspection-form .inspection-accordion-panel .inspection-subsection-heading {
+    @apply border-[#F39C12] bg-[#0B4F8C] text-white;
   }
 
   .inspection-form .inspection-section-comments {
@@ -112,11 +115,23 @@
   }
 
   .inspection-form .inspection-section-comments .inspection-subsection-heading {
-    @apply mb-3 text-base font-bold text-secondary;
+    @apply mb-3 border-l-4 border-[#F39C12] bg-secondary text-base font-bold text-white shadow-md md:text-lg;
   }
 
   .inspection-form .inspection-photo-field {
     @apply rounded-xl border-2 border-primary/20 bg-gradient-to-br from-sky-50/90 via-white to-violet-50/70 p-3 shadow-[0_2px_10px_rgba(59,130,246,0.12)] md:p-4;
+  }
+
+  .inspection-photo-field .inspection-subsection-heading,
+  .inspection-form .inspection-photo-field .inspection-subsection-heading,
+  .inspection-form .inspection-accordion-panel .inspection-photo-field .inspection-subsection-heading {
+    @apply mb-0 border-0 bg-transparent px-0 py-0 text-base font-bold tracking-normal text-[#0B4F8C] shadow-none;
+  }
+
+  .inspection-photo-field .inspection-subsection-heading::before,
+  .inspection-form .inspection-photo-field .inspection-subsection-heading::before {
+    content: none;
+    display: none;
   }
 
   .inspection-photo-field .inspection-photo-actions {

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -10,12 +11,14 @@ import {
   Plus,
   Recycle,
   Calculator,
+  ChevronLeft,
 } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/modules/auth/auth-store';
 import { cn } from '@/lib/cn';
 import { getStaleBridgeFeatures, isBridgeUpToDate } from '@/lib/sitescop-api';
 import { Button } from '@/design-system/components/Button';
+import { AppSidebarProvider } from './AppSidebarContext';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -82,71 +85,107 @@ export function AppShell() {
   const header = resolveHeader(pathname);
   const staleFeatures = getStaleBridgeFeatures();
   const showUpgradeBanner = !isBridgeUpToDate() && staleFeatures.length > 0;
+  const isInspectionWorkspace = pathname.includes('/inspection');
+  const [sidebarOpen, setSidebarOpen] = useState(!isInspectionWorkspace);
+
+  useEffect(() => {
+    setSidebarOpen(!isInspectionWorkspace);
+  }, [isInspectionWorkspace]);
 
   return (
+    <AppSidebarProvider
+      value={{
+        sidebarOpen,
+        showSidebar: () => setSidebarOpen(true),
+        hideSidebar: () => setSidebarOpen(false),
+        isInspectionWorkspace,
+      }}
+    >
     <div className="flex min-h-[calc(100vh-2.5rem)] bg-background">
-      <aside className="fixed bottom-0 left-0 top-10 z-30 flex w-sidebar flex-col bg-sidebar text-white">
-        <div className="border-b border-white/10 px-6 py-5">
-          <p className="text-lg font-bold tracking-tight">SiteScop</p>
-          <p className="text-xs text-white/60">V6 · Local Edition</p>
-        </div>
-
-        <nav className="flex-1 space-y-1 p-4">
-          {navItems.map((item) => (
-              <NavLink
-                key={item.label}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 rounded-sm px-3 py-3 text-sm font-medium transition-colors',
-                    'accent' in item && item.accent
-                      ? isActive
-                        ? 'bg-accent text-white'
-                        : 'text-white/70 hover:bg-sidebar-hover hover:text-white [&_svg]:text-accent'
-                      : isActive
-                        ? 'bg-sidebar-active text-white'
-                        : 'text-white/70 hover:bg-sidebar-hover hover:text-white',
-                  )
-                }
+      {sidebarOpen ? (
+        <aside className="fixed bottom-0 left-0 top-10 z-30 flex w-sidebar flex-col bg-sidebar text-white">
+          <div className="flex items-start justify-between gap-2 border-b border-white/10 px-6 py-5">
+            <div>
+              <p className="text-lg font-bold tracking-tight">SiteScop</p>
+              <p className="text-xs text-white/60">V6 · Local Edition</p>
+            </div>
+            {isInspectionWorkspace ? (
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="rounded-sm p-1.5 text-white/70 hover:bg-sidebar-hover hover:text-white"
+                title="Hide app menu"
+                aria-label="Hide app menu"
               >
-                <item.icon className="h-5 w-5 shrink-0" />
-                {item.label}
-              </NavLink>
-          ))}
-        </nav>
-
-        <div className="border-t border-white/10 p-4">
-          <p className="truncate text-sm font-medium">
-            {user?.firstName} {user?.lastName}
-          </p>
-          <p className="truncate text-xs text-white/60">{user?.companyName}</p>
-          <button
-            type="button"
-            onClick={() => logout()}
-            className="mt-3 flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-white/70 hover:bg-sidebar-hover hover:text-white"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </button>
-        </div>
-      </aside>
-
-      <div className="ml-sidebar flex min-h-[calc(100vh-2.5rem)] flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-topbar items-center justify-between border-b border-border bg-surface px-8 shadow-sm">
-          <div>
-            <h1 className="text-lg font-bold text-text">{header.title}</h1>
-            <p className="text-sm text-text-light">{header.subtitle}</p>
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+            ) : null}
           </div>
-          {!pathname.includes('/jobs/new') && !pathname.includes('/inspection') && (
-            <Button size="lg" onClick={() => navigate('/jobs/new')}>
-              <Plus className="h-5 w-5" />
-              Create New Job
-            </Button>
-          )}
-        </header>
 
-        <main className="flex-1 p-8">
+          <nav className="flex-1 space-y-1 p-4">
+            {navItems.map((item) => (
+                <NavLink
+                  key={item.label}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 rounded-sm px-3 py-3 text-sm font-medium transition-colors',
+                      'accent' in item && item.accent
+                        ? isActive
+                          ? 'bg-accent text-white'
+                          : 'text-white/70 hover:bg-sidebar-hover hover:text-white [&_svg]:text-accent'
+                        : isActive
+                          ? 'bg-sidebar-active text-white'
+                          : 'text-white/70 hover:bg-sidebar-hover hover:text-white',
+                    )
+                  }
+                >
+                  <item.icon className="h-5 w-5 shrink-0" />
+                  {item.label}
+                </NavLink>
+            ))}
+          </nav>
+
+          <div className="border-t border-white/10 p-4">
+            <p className="truncate text-sm font-medium">
+              {user?.firstName} {user?.lastName}
+            </p>
+            <p className="truncate text-xs text-white/60">{user?.companyName}</p>
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="mt-3 flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-white/70 hover:bg-sidebar-hover hover:text-white"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
+        </aside>
+      ) : null}
+
+      <div
+        className={cn(
+          'flex min-h-[calc(100vh-2.5rem)] flex-1 flex-col',
+          sidebarOpen ? 'ml-sidebar' : 'ml-0',
+        )}
+      >
+        {!isInspectionWorkspace ? (
+          <header className="sticky top-0 z-20 flex h-topbar items-center justify-between border-b border-border bg-surface px-8 shadow-sm">
+            <div>
+              <h1 className="text-lg font-bold text-text">{header.title}</h1>
+              <p className="text-sm text-text-light">{header.subtitle}</p>
+            </div>
+            {!pathname.includes('/jobs/new') && (
+              <Button size="lg" onClick={() => navigate('/jobs/new')}>
+                <Plus className="h-5 w-5" />
+                Create New Job
+              </Button>
+            )}
+          </header>
+        ) : null}
+
+        <main className={cn('flex-1', isInspectionWorkspace ? 'p-3 md:p-4' : 'p-8')}>
           {showUpgradeBanner && (
             <div className="mb-6 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-text">
               <strong>App update needed:</strong> {staleFeatures.join(', ')}{' '}
@@ -159,5 +198,6 @@ export function AppShell() {
         </main>
       </div>
     </div>
+    </AppSidebarProvider>
   );
 }

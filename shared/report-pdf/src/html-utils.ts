@@ -1,8 +1,8 @@
 import type { CheckboxFieldState, InspectionPhotoRef } from '../../room-engine-core/src/index.js';
-import { formatPestEvidenceAnswer, isNoMajorDefectObserved, normalizeCheckboxField } from '../../room-engine-core/src/index.js';
+import { formatPestEvidenceAnswer, isDefectQuickCollapsed, normalizeCheckboxField, resolveDefectQuickPdfComments } from '../../room-engine-core/src/index.js';
 import type { SectionFieldDef } from './section-fields.js';
 
-const SKIP_KEYS = new Set(['photos', 'comments', 'noMajorDefectObserved']);
+const SKIP_KEYS = new Set(['photos', 'comments', 'noMajorDefectObserved', 'majorDefectObserved']);
 
 const EXTRA_PHOTO_KEYS = [
   'interiorObstructionPhotos',
@@ -23,7 +23,6 @@ const EXTRA_PHOTO_KEYS = [
   'airConPhotos',
   'gasBottlePhotos',
   'rainwaterTankPhotos',
-  'plumbingDefectPhotos',
   'deformationPhotos',
   'moistureSourcePhotos',
   'safetyHazardPhotos',
@@ -389,8 +388,14 @@ export function renderSectionBlock(
   fieldDefs?: SectionFieldDef[],
   options: ReportSectionRenderOptions = {},
 ): string {
-  const noMajorDefect = isNoMajorDefectObserved(data as { noMajorDefectObserved?: boolean; comments?: string });
-  const comments = typeof data.comments === 'string' ? data.comments : '';
+  const noMajorDefect = isDefectQuickCollapsed(data as { noMajorDefectObserved?: boolean; majorDefectObserved?: boolean; comments?: string });
+  const comments = noMajorDefect
+    ? resolveDefectQuickPdfComments(
+        data as { noMajorDefectObserved?: boolean; majorDefectObserved?: boolean; comments?: string },
+      )
+    : typeof data.comments === 'string'
+      ? data.comments
+      : '';
   const photos = extraSkip.has('photos')
     ? []
     : Array.isArray(data.photos)

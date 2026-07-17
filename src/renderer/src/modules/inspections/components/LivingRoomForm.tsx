@@ -1,3 +1,4 @@
+import { memo, useRef } from 'react';
 import type { LivingRoomData } from '@sitescop/room-engine-core';
 import {
   defaultIfEmptySmokeAlarmStatus,
@@ -15,15 +16,23 @@ import { CheckboxGroupField, InspectionSubsectionHeading, RatingSelect, SectionC
 
 interface LivingRoomFormProps {
   data: LivingRoomData;
-  onChange: (data: LivingRoomData) => void;
+  onPatch: (partial: Partial<LivingRoomData>) => void;
   disabled?: boolean;
+  majorActive?: boolean;
 }
 
 const conditionOptions = FIXTURE_CONDITION;
 
-export function LivingRoomForm({ data, onChange, disabled = false }: LivingRoomFormProps) {
+export const LivingRoomForm = memo(function LivingRoomForm({
+  data,
+  onPatch,
+  disabled = false,
+  majorActive = false,
+}: LivingRoomFormProps) {
+  const onPatchRef = useRef(onPatch);
+  onPatchRef.current = onPatch;
   const set = <K extends keyof LivingRoomData>(key: K, value: LivingRoomData[K]) => {
-    onChange({ ...data, [key]: value });
+    onPatchRef.current({ [key]: value } as Partial<LivingRoomData>);
   };
 
   return (
@@ -83,7 +92,7 @@ export function LivingRoomForm({ data, onChange, disabled = false }: LivingRoomF
       <CheckboxGroupField disabled={disabled} label="Ceiling" options={WALL_DEFECTS} value={data.ceiling} onChange={(v) => set('ceiling', v)} />
       <CheckboxGroupField disabled={disabled} label="Damage Observed" options={['Cracking', 'Moisture Damage', 'Other']} value={data.damageObserved} onChange={(v) => set('damageObserved', v)} />
 
-      <SectionComments sectionId="living-areas" disabled={disabled}
+      <SectionComments sectionId="living-areas" disabled={disabled} majorActive={majorActive}
         comments={data.comments}
         photos={data.photos}
         onCommentsChange={(v) => set('comments', v)}
@@ -91,4 +100,4 @@ export function LivingRoomForm({ data, onChange, disabled = false }: LivingRoomF
       />
     </div>
   );
-}
+});

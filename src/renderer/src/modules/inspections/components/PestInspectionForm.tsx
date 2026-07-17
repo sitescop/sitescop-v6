@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useDeferredValue, useMemo } from 'react';
 import type { InspectionFormRealm, PestInspectionSections } from '@sitescop/room-engine-core';
 import {
   ACTIVE_TERMITES_IMPORTANT_NOTE,
@@ -6,6 +6,9 @@ import {
   CHEMICAL_DELIGNIFICATION_EVIDENCE,
   CONDUCIVE_INSPECTION_ANSWERS,
   CONDUCIVE_RECOMMENDATION_PRESETS,
+  D12_EVIDENCE_ANSWERS,
+  D12_UNTREATED_TIMBER_ITEMS,
+  D12_UNTREATED_TIMBER_RECOMMENDATION,
   EVIDENCE_FOUND_OPTIONS,
   EXCESSIVE_MOISTURE_ANSWERS,
   FUNGAL_DECAY_LOCATIONS,
@@ -39,6 +42,7 @@ import { InspectionAccordion, InspectionAccordionSection } from './InspectionAcc
 import { buildInspectionRouteIds } from './inspection-route';
 import { InspectionFormProvider } from './InspectionFormUi';
 import { buildPestSectionStatuses } from './section-completion';
+import { useDebouncedValue } from '@/modules/inspections/hooks/useDebouncedValue';
 
 interface PestInspectionFormProps {
   pest: PestInspectionSections;
@@ -47,7 +51,11 @@ interface PestInspectionFormProps {
   embedded?: boolean;
   subfloorApplicable?: boolean;
   workflowStorageKey?: string;
+  /** Workspace v2: render only this route section (section filter + no accordion). */
+  onlySectionId?: string;
 }
+
+const DERIVED_UI_DEBOUNCE_MS = 180;
 
 export function PestInspectionForm({
   pest,
@@ -56,8 +64,10 @@ export function PestInspectionForm({
   embedded = false,
   subfloorApplicable = true,
   workflowStorageKey,
+  onlySectionId,
 }: PestInspectionFormProps) {
   const disabled = Boolean(readOnly);
+  const showSection = (sectionId: string) => !onlySectionId || onlySectionId === sectionId;
   const patch = (section: keyof PestInspectionSections, partial: Record<string, unknown>) => {
     if (readOnly) return;
     onSectionChange('pest', section, partial);
@@ -71,7 +81,13 @@ export function PestInspectionForm({
     }
   };
 
-  const statuses = useMemo(() => buildPestSectionStatuses(pest, subfloorApplicable), [pest, subfloorApplicable]);
+  const deferredPest = useDeferredValue(pest);
+  const debouncedPest = useDebouncedValue(deferredPest, DERIVED_UI_DEBOUNCE_MS);
+  const needsPestDerivedUi = !onlySectionId;
+  const statuses = useMemo(
+    () => (needsPestDerivedUi ? buildPestSectionStatuses(debouncedPest, subfloorApplicable) : {}),
+    [debouncedPest, subfloorApplicable, needsPestDerivedUi],
+  );
 
   const routeIds = useMemo(
     () =>
@@ -91,11 +107,14 @@ export function PestInspectionForm({
   const d8HasEvidence = isPestEvidenceFound(pest.d8WoodBorers.answer);
   const d9HasEvidence = isPestEvidenceFound(pest.d9SubfloorVentilation.answer);
   const d13HasEvidence = isPestEvidenceFound(pest.d13ConduciveConditions.summaryDuringInspection);
+  const d12 = pest.d12UntreatedTimber;
+  const d12HasEvidence = isPestEvidenceFound(d12?.summaryAnswer);
 
   const sections = (
     <>
-      <InspectionAccordionSection id="pest-risk" title="Timber Pest Risk Assessment" status={statuses['pest-risk']}>
-        <p className="text-sm text-text-muted">
+      {showSection('pest-risk') && <InspectionAccordionSection id="pest-risk" title="Timber Pest Risk Assessment" status={statuses['pest-risk']}
+        render={() => (
+        <>        <p className="text-sm text-text-muted">
           Risk level defaults to Low and updates from accessibility obstructions recorded above. The assessment text below is generated automatically and can be edited.
         </p>
         <RatingSelect
@@ -110,10 +129,13 @@ export function PestInspectionForm({
           onChange={(e) => patch('undetectedTimberPestRisk', { riskExplanation: e.target.value })}
           rows={10}
         />
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d1ActiveTermites" title={PEST_INSPECTION_SECTION_LABELS.d1ActiveTermites} status={statuses['pest-d1ActiveTermites']}>
-        <Select
+      {showSection('pest-d1ActiveTermites') && <InspectionAccordionSection id="pest-d1ActiveTermites" title={PEST_INSPECTION_SECTION_LABELS.d1ActiveTermites} status={statuses['pest-d1ActiveTermites']}
+        render={() => (
+        <>        <Select
           label="Active (Live) Termites"
           value={pest.d1ActiveTermites.evidenceAnswer}
           onChange={(e) => patchD1({ evidenceAnswer: e.target.value })}
@@ -147,10 +169,13 @@ export function PestInspectionForm({
           photos={pest.d1ActiveTermites.photos}
           onChange={(photos) => patch('d1ActiveTermites', { photos })}
         />
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d2ManagementProposal" title={PEST_INSPECTION_SECTION_LABELS.d2ManagementProposal} status={statuses['pest-d2ManagementProposal']}>
-        <Select
+      {showSection('pest-d2ManagementProposal') && <InspectionAccordionSection id="pest-d2ManagementProposal" title={PEST_INSPECTION_SECTION_LABELS.d2ManagementProposal} status={statuses['pest-d2ManagementProposal']}
+        render={() => (
+        <>        <Select
           label="Is a Subterranean Termite Management Proposal recommended?"
           value={pest.d2ManagementProposal.recommendation}
           onChange={(e) => patch('d2ManagementProposal', { recommendation: e.target.value })}
@@ -159,10 +184,13 @@ export function PestInspectionForm({
         {pest.d2ManagementProposal.reportStatement && (
           <Textarea label="Report statement (auto)" value={pest.d2ManagementProposal.reportStatement} readOnly rows={3} />
         )}
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d3TermiteWorkings" title={PEST_INSPECTION_SECTION_LABELS.d3TermiteWorkings} status={statuses['pest-d3TermiteWorkings']}>
-        <RatingSelect label="Termite Workings and/or Damage" value={pest.d3TermiteWorkings.summaryAnswer} onChange={(v) => patch('d3TermiteWorkings', { summaryAnswer: v })} options={[...PEST_PRESENCE_ANSWERS]} />
+      {showSection('pest-d3TermiteWorkings') && <InspectionAccordionSection id="pest-d3TermiteWorkings" title={PEST_INSPECTION_SECTION_LABELS.d3TermiteWorkings} status={statuses['pest-d3TermiteWorkings']}
+        render={() => (
+        <>        <RatingSelect label="Termite Workings and/or Damage" value={pest.d3TermiteWorkings.summaryAnswer} onChange={(v) => patch('d3TermiteWorkings', { summaryAnswer: v })} options={[...PEST_PRESENCE_ANSWERS]} />
         {d3HasEvidence && (
           <>
             <CheckboxGroupField disabled={disabled} label="Evidence Locations" options={TERMITE_WORKING_LOCATIONS} value={pest.d3TermiteWorkings.evidenceLocations} onChange={(v) => patch('d3TermiteWorkings', { evidenceLocations: v })} />
@@ -179,10 +207,13 @@ export function PestInspectionForm({
           </>
         )}
         <PhotoField disabled={disabled} label="Termite Workings/Damage Photos" photos={pest.d3TermiteWorkings.photos} onChange={(photos) => patch('d3TermiteWorkings', { photos })} />
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d4PreviousTreatment" title={PEST_INSPECTION_SECTION_LABELS.d4PreviousTreatment} status={statuses['pest-d4PreviousTreatment']}>
-        <Select
+      {showSection('pest-d4PreviousTreatment') && <InspectionAccordionSection id="pest-d4PreviousTreatment" title={PEST_INSPECTION_SECTION_LABELS.d4PreviousTreatment} status={statuses['pest-d4PreviousTreatment']}
+        render={() => (
+        <>        <Select
           label="Previous Termite Management Program"
           value={pest.d4PreviousTreatment.evidenceAnswer}
           onChange={(e) => patch('d4PreviousTreatment', { evidenceAnswer: e.target.value })}
@@ -197,21 +228,30 @@ export function PestInspectionForm({
             <PhotoField disabled={disabled} label="Previous Treatment Photo" photos={pest.d4PreviousTreatment.photos} onChange={(photos) => patch('d4PreviousTreatment', { photos })} />
           </>
         )}
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d5FutureInspection" title={PEST_INSPECTION_SECTION_LABELS.d5FutureInspection} status={statuses['pest-d5FutureInspection']}>
-        <Select label="Frequency" value={pest.d5FutureInspection.frequency} onChange={(e) => patch('d5FutureInspection', { frequency: e.target.value })} options={FUTURE_INSPECTION_FREQUENCIES.map((v) => ({ value: v, label: v }))} />
-      </InspectionAccordionSection>
+      {showSection('pest-d5FutureInspection') && <InspectionAccordionSection id="pest-d5FutureInspection" title={PEST_INSPECTION_SECTION_LABELS.d5FutureInspection} status={statuses['pest-d5FutureInspection']}
+        render={() => (
+        <>        <Select label="Frequency" value={pest.d5FutureInspection.frequency} onChange={(e) => patch('d5FutureInspection', { frequency: e.target.value })} options={FUTURE_INSPECTION_FREQUENCIES.map((v) => ({ value: v, label: v }))} />
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d6ChemicalDelignification" title={PEST_INSPECTION_SECTION_LABELS.d6ChemicalDelignification} status={statuses['pest-d6ChemicalDelignification']}>
-        <RatingSelect label="Chemical Delignification" value={pest.d6ChemicalDelignification.summaryAnswer} onChange={(v) => patch('d6ChemicalDelignification', { summaryAnswer: v })} options={[...PEST_PRESENCE_ANSWERS]} />
+      {showSection('pest-d6ChemicalDelignification') && <InspectionAccordionSection id="pest-d6ChemicalDelignification" title={PEST_INSPECTION_SECTION_LABELS.d6ChemicalDelignification} status={statuses['pest-d6ChemicalDelignification']}
+        render={() => (
+        <>        <RatingSelect label="Chemical Delignification" value={pest.d6ChemicalDelignification.summaryAnswer} onChange={(v) => patch('d6ChemicalDelignification', { summaryAnswer: v })} options={[...PEST_PRESENCE_ANSWERS]} />
         <CheckboxGroupField disabled={disabled} label="Evidence items" options={CHEMICAL_DELIGNIFICATION_EVIDENCE} value={pest.d6ChemicalDelignification.evidenceItems} onChange={(v) => patch('d6ChemicalDelignification', { evidenceItems: v })} />
         <PhotoField disabled={disabled} label="Photos" photos={pest.d6ChemicalDelignification.photos} onChange={(photos) => patch('d6ChemicalDelignification', { photos })} />
         <SectionComments sectionId="pest-d6ChemicalDelignification" disabled={disabled} comments={pest.d6ChemicalDelignification.comments} photos={[]} onCommentsChange={(v) => patch('d6ChemicalDelignification', { comments: v })} onPhotosChange={() => undefined} />
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d7FungalDecay" title={PEST_INSPECTION_SECTION_LABELS.d7FungalDecay} status={statuses['pest-d7FungalDecay']}>
-        <RatingSelect label="Fungal Decay" value={pest.d7FungalDecay.summaryAnswer} onChange={(v) => patch('d7FungalDecay', { summaryAnswer: v })} options={[...PEST_PRESENCE_ANSWERS]} />
+      {showSection('pest-d7FungalDecay') && <InspectionAccordionSection id="pest-d7FungalDecay" title={PEST_INSPECTION_SECTION_LABELS.d7FungalDecay} status={statuses['pest-d7FungalDecay']}
+        render={() => (
+        <>        <RatingSelect label="Fungal Decay" value={pest.d7FungalDecay.summaryAnswer} onChange={(v) => patch('d7FungalDecay', { summaryAnswer: v })} options={[...PEST_PRESENCE_ANSWERS]} />
         {d7HasEvidence && (
           <>
             <CheckboxGroupField disabled={disabled} label="Evidence Locations" options={FUNGAL_DECAY_LOCATIONS} value={pest.d7FungalDecay.evidenceLocations} onChange={(v) => patch('d7FungalDecay', { evidenceLocations: v })} />
@@ -219,28 +259,37 @@ export function PestInspectionForm({
             <SectionComments sectionId="pest-d7FungalDecay" disabled={disabled} comments={pest.d7FungalDecay.comments} photos={[]} onCommentsChange={(v) => patch('d7FungalDecay', { comments: v })} onPhotosChange={() => undefined} />
           </>
         )}
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d8WoodBorers" title={PEST_INSPECTION_SECTION_LABELS.d8WoodBorers} status={statuses['pest-d8WoodBorers']}>
-        <Select label="Wood Borers" value={pest.d8WoodBorers.answer} onChange={(e) => patch('d8WoodBorers', { answer: e.target.value })} options={WOOD_BORER_ANSWERS.map((v) => ({ value: v, label: v }))} />
+      {showSection('pest-d8WoodBorers') && <InspectionAccordionSection id="pest-d8WoodBorers" title={PEST_INSPECTION_SECTION_LABELS.d8WoodBorers} status={statuses['pest-d8WoodBorers']}
+        render={() => (
+        <>        <Select label="Wood Borers" value={pest.d8WoodBorers.answer} onChange={(e) => patch('d8WoodBorers', { answer: e.target.value })} options={WOOD_BORER_ANSWERS.map((v) => ({ value: v, label: v }))} />
         {d8HasEvidence && (
           <Textarea label="Details" value={pest.d8WoodBorers.locationNarrative} onChange={(e) => patch('d8WoodBorers', { locationNarrative: e.target.value })} rows={2} />
         )}
         <PhotoField disabled={disabled} label="Wood Borers Photos" photos={pest.d8WoodBorers.photos} onChange={(photos) => patch('d8WoodBorers', { photos })} />
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      {subfloorApplicable ? (
-      <InspectionAccordionSection id="pest-d9SubfloorVentilation" title={PEST_INSPECTION_SECTION_LABELS.d9SubfloorVentilation} status={statuses['pest-d9SubfloorVentilation']}>
-        <Select label="Lack of Adequate Subfloor Ventilation" value={pest.d9SubfloorVentilation.answer} onChange={(e) => patch('d9SubfloorVentilation', { answer: e.target.value })} options={SUBFLOOR_VENTILATION_ANSWERS.map((v) => ({ value: v, label: v }))} />
+      {subfloorApplicable && showSection('pest-d9SubfloorVentilation') ? (
+        <InspectionAccordionSection id="pest-d9SubfloorVentilation" title={PEST_INSPECTION_SECTION_LABELS.d9SubfloorVentilation} status={statuses['pest-d9SubfloorVentilation']}
+        render={() => (
+        <>        <Select label="Lack of Adequate Subfloor Ventilation" value={pest.d9SubfloorVentilation.answer} onChange={(e) => patch('d9SubfloorVentilation', { answer: e.target.value })} options={SUBFLOOR_VENTILATION_ANSWERS.map((v) => ({ value: v, label: v }))} />
         {d9HasEvidence && (
           <Textarea label="Details" value={pest.d9SubfloorVentilation.locationNarrative} onChange={(e) => patch('d9SubfloorVentilation', { locationNarrative: e.target.value })} rows={2} />
         )}
         <PhotoField disabled={disabled} label="Subfloor Ventilation Photos" photos={pest.d9SubfloorVentilation.photos} onChange={(photos) => patch('d9SubfloorVentilation', { photos })} />
-      </InspectionAccordionSection>
+              </>
+        )}
+            />
       ) : null}
 
-      <InspectionAccordionSection id="pest-d10ExcessiveMoisture" title={PEST_INSPECTION_SECTION_LABELS.d10ExcessiveMoisture} status={statuses['pest-d10ExcessiveMoisture']}>
-        <Select label="Presence of Excessive Moisture" value={pest.d10ExcessiveMoisture.answer} onChange={(e) => patch('d10ExcessiveMoisture', { answer: e.target.value })} options={EXCESSIVE_MOISTURE_ANSWERS.map((v) => ({ value: v, label: v }))} />
+      {showSection('pest-d10ExcessiveMoisture') && <InspectionAccordionSection id="pest-d10ExcessiveMoisture" title={PEST_INSPECTION_SECTION_LABELS.d10ExcessiveMoisture} status={statuses['pest-d10ExcessiveMoisture']}
+        render={() => (
+        <>        <Select label="Presence of Excessive Moisture" value={pest.d10ExcessiveMoisture.answer} onChange={(e) => patch('d10ExcessiveMoisture', { answer: e.target.value })} options={EXCESSIVE_MOISTURE_ANSWERS.map((v) => ({ value: v, label: v }))} />
         {d10HasEvidence && (
           <>
             <CheckboxGroupField disabled={disabled} label="Moisture locations" options={MOISTURE_LOCATION_PRESETS} value={pest.d10ExcessiveMoisture.moistureLocations} onChange={(v) => patch('d10ExcessiveMoisture', { moistureLocations: v })} />
@@ -251,17 +300,71 @@ export function PestInspectionForm({
             <Textarea label="Comments" value={pest.d10ExcessiveMoisture.comments} onChange={(e) => patch('d10ExcessiveMoisture', { comments: e.target.value })} rows={3} />
           </>
         )}
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d11BarrierBridging" title={PEST_INSPECTION_SECTION_LABELS.d11BarrierBridging} status={statuses['pest-d11BarrierBridging']}>
-        <RatingSelect label="Bridging of Termite Barriers" value={pest.d11BarrierBridging.summaryAnswer} onChange={(v) => patch('d11BarrierBridging', { summaryAnswer: v })} options={[...EVIDENCE_FOUND_OPTIONS]} />
+      {showSection('pest-d11BarrierBridging') && <InspectionAccordionSection id="pest-d11BarrierBridging" title={PEST_INSPECTION_SECTION_LABELS.d11BarrierBridging} status={statuses['pest-d11BarrierBridging']}
+        render={() => (
+        <>        <RatingSelect label="Bridging of Termite Barriers" value={pest.d11BarrierBridging.summaryAnswer} onChange={(v) => patch('d11BarrierBridging', { summaryAnswer: v })} options={[...EVIDENCE_FOUND_OPTIONS]} />
         <CheckboxGroupField disabled={disabled} label="Evidence items" options={BARRIER_BRIDGING_ITEMS} value={pest.d11BarrierBridging.evidenceItems} onChange={(v) => patch('d11BarrierBridging', { evidenceItems: v })} allowCustom={false} />
         <PhotoField disabled={disabled} label="Photos" photos={pest.d11BarrierBridging.photos} onChange={(photos) => patch('d11BarrierBridging', { photos })} />
         <Textarea label="Comments" value={pest.d11BarrierBridging.comments} onChange={(e) => patch('d11BarrierBridging', { comments: e.target.value })} rows={3} />
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d13ConduciveConditions" title={PEST_INSPECTION_SECTION_LABELS.d13ConduciveConditions} status={statuses['pest-d13ConduciveConditions']}>
+      {showSection('pest-d12UntreatedTimber') && d12 && <InspectionAccordionSection id="pest-d12UntreatedTimber" title={PEST_INSPECTION_SECTION_LABELS.d12UntreatedTimber} status={statuses['pest-d12UntreatedTimber']}
+        render={() => (
+        <>
         <Select
+          label="Untreated or Non-Durable Timber Used in a Hazardous Environment"
+          value={d12.summaryAnswer}
+          onChange={(e) =>
+            patch('d12UntreatedTimber', {
+              summaryAnswer: e.target.value,
+              recommendation: isPestEvidenceFound(e.target.value) ? D12_UNTREATED_TIMBER_RECOMMENDATION : '',
+            })
+          }
+          options={D12_EVIDENCE_ANSWERS.map((v) => ({ value: v, label: v }))}
+          disabled={disabled}
+        />
+        {d12HasEvidence && (
+          <>
+            <CheckboxGroupField
+              disabled={disabled}
+              label="Evidence items"
+              options={D12_UNTREATED_TIMBER_ITEMS}
+              value={d12.evidenceItems}
+              onChange={(v) => patch('d12UntreatedTimber', { evidenceItems: v })}
+            />
+            <p className="rounded-md border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A5F]">
+              <span className="font-semibold">Recommendation: </span>
+              {d12.recommendation.trim() || D12_UNTREATED_TIMBER_RECOMMENDATION}
+            </p>
+            <PhotoField
+              disabled={disabled}
+              label="Photos"
+              photos={d12.photos}
+              onChange={(photos) => patch('d12UntreatedTimber', { photos })}
+            />
+            <SectionComments
+              sectionId="pest-d12UntreatedTimber"
+              disabled={disabled}
+              comments={d12.comments}
+              photos={[]}
+              onCommentsChange={(v) => patch('d12UntreatedTimber', { comments: v })}
+              onPhotosChange={() => undefined}
+            />
+          </>
+        )}
+              </>
+        )}
+            />}
+
+      {showSection('pest-d13ConduciveConditions') && <InspectionAccordionSection id="pest-d13ConduciveConditions" title={PEST_INSPECTION_SECTION_LABELS.d13ConduciveConditions} status={statuses['pest-d13ConduciveConditions']}
+        render={() => (
+        <>        <Select
           label="Other Conditions Conducive"
           value={pest.d13ConduciveConditions.summaryDuringInspection}
           onChange={(e) => patch('d13ConduciveConditions', { summaryDuringInspection: e.target.value })}
@@ -274,17 +377,23 @@ export function PestInspectionForm({
             <Textarea label="Additional comments" value={pest.d13ConduciveConditions.locationNarrative} onChange={(e) => patch('d13ConduciveConditions', { locationNarrative: e.target.value })} rows={3} />
           </>
         )}
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-d14MajorSafetyHazards" title={PEST_INSPECTION_SECTION_LABELS.d14MajorSafetyHazards} status={statuses['pest-d14MajorSafetyHazards']}>
-        <RatingSelect label="Major Safety Hazards" value={pest.d14MajorSafetyHazards.summaryAnswer} onChange={(v) => patch('d14MajorSafetyHazards', { summaryAnswer: v })} options={[...MAJOR_HAZARD_ANSWERS]} />
+      {showSection('pest-d14MajorSafetyHazards') && <InspectionAccordionSection id="pest-d14MajorSafetyHazards" title={PEST_INSPECTION_SECTION_LABELS.d14MajorSafetyHazards} status={statuses['pest-d14MajorSafetyHazards']}
+        render={() => (
+        <>        <RatingSelect label="Major Safety Hazards" value={pest.d14MajorSafetyHazards.summaryAnswer} onChange={(v) => patch('d14MajorSafetyHazards', { summaryAnswer: v })} options={[...MAJOR_HAZARD_ANSWERS]} />
         <CheckboxGroupField disabled={disabled} label="Hazards" options={MAJOR_SAFETY_HAZARD_ITEMS} value={pest.d14MajorSafetyHazards.hazardItems} onChange={(v) => patch('d14MajorSafetyHazards', { hazardItems: v })} />
         <PhotoField disabled={disabled} label="Photos" photos={pest.d14MajorSafetyHazards.photos} onChange={(photos) => patch('d14MajorSafetyHazards', { photos })} />
         <SectionComments sectionId="pest-d14MajorSafetyHazards" disabled={disabled} comments={pest.d14MajorSafetyHazards.comments} photos={[]} onCommentsChange={(v) => patch('d14MajorSafetyHazards', { comments: v })} onPhotosChange={() => undefined} />
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
 
-      <InspectionAccordionSection id="pest-conclusion" title={PEST_INSPECTION_SECTION_LABELS.pestConclusion} status={statuses['pest-conclusion']}>
-        <Textarea
+      {showSection('pest-conclusion') && <InspectionAccordionSection id="pest-conclusion" title={PEST_INSPECTION_SECTION_LABELS.pestConclusion} status={statuses['pest-conclusion']}
+        render={() => (
+        <>        <Textarea
           label="Conclusion"
           value={pest.pestConclusion.autoConclusion}
           onChange={(e) => patch('pestConclusion', { autoConclusion: e.target.value })}
@@ -316,7 +425,9 @@ export function PestInspectionForm({
             onChange={(signatureData) => patch('pestConclusion', { signatureData })}
           />
         </div>
-      </InspectionAccordionSection>
+              </>
+        )}
+            />}
     </>
   );
 

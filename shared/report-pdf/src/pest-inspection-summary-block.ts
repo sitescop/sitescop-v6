@@ -20,6 +20,7 @@ const CONDUCIVE_ITEM_KEYS: { item: string; read: (pest: PestInspectionSections) 
   { item: 'D9', read: (p) => p.d9SubfloorVentilation.answer },
   { item: 'D10', read: (p) => p.d10ExcessiveMoisture.answer },
   { item: 'D11', read: (p) => p.d11BarrierBridging.summaryAnswer },
+  { item: 'D12', read: (p) => p.d12UntreatedTimber?.summaryAnswer },
   { item: 'D13', read: (p) => p.d13ConduciveConditions.summaryDuringInspection },
 ];
 

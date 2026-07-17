@@ -16,12 +16,6 @@ const WATERPROOFING_CONDUCIVE = new Set([
 
 const PLUMBER_CONDUCIVE = new Set(['Downpipe discharge against building']);
 
-const STRUCTURAL_DEFORMATION = new Set(['Wall Bowing', 'Floor Deflection']);
-const ROOF_CEILING_DEFORMATION = new Set([
-  'Roof Deformation / Sagging',
-  'Ceiling Deformation / Sagging',
-]);
-
 const CRACK_WIDTH_ALIASES: Record<string, string> = {
   Hairline: '< 1 mm',
   '1-2mm': '1-2 mm',
@@ -101,6 +95,19 @@ export function getCrackWidthInterpretation(value: string): string {
   return CRACK_WIDTH_INTERPRETATIONS[normalized] ?? '';
 }
 
+/** True when the inspector has recorded meaningful crack details (empty blanks are ignored). */
+export function isCrackingEntryFilled(entry: CrackingEntry): boolean {
+  if (entry.location?.trim()) return true;
+  if (entry.crackWidth?.trim()) return true;
+  if (entry.comments?.trim()) return true;
+  if ((entry.photos ?? []).length > 0) return true;
+  return false;
+}
+
+export function filterFilledCrackingEntries(entries: CrackingEntry[] | undefined): CrackingEntry[] {
+  return (entries ?? []).filter(isCrackingEntryFilled);
+}
+
 export function applyCrackingEntryRules(entry: CrackingEntry): CrackingEntry {
   const crackWidth = normalizeCrackWidth(entry.crackWidth);
   const minMm = crackWidthMinMm(crackWidth);
@@ -148,9 +155,8 @@ export function applyCrackingEntriesRules(entries: CrackingEntry[]): CrackingEnt
   return entries.map(applyCrackingEntryRules);
 }
 
-function preserveNoOverride(current: string, shouldBeYes: boolean): string {
-  if (current.trim() === 'No') return 'No';
-  return shouldBeYes ? 'Yes' : current.trim() || 'No';
+function autoYesNo(shouldBeYes: boolean): string {
+  return shouldBeYes ? 'Yes' : 'No';
 }
 
 export function deriveStructuralEngineeringRequired(majorDefects: MajorDefectsSection): string {
@@ -158,30 +164,12 @@ export function deriveStructuralEngineeringRequired(majorDefects: MajorDefectsSe
   const cracking = applyCrackingEntriesRules(majorDefects.crackingEntries ?? []);
   const shouldBeYes =
     structural.length > 0 || cracking.some((entry) => entry.engineeringRequired === 'Yes');
-  return preserveNoOverride(majorDefects.structuralEngineeringRequired, shouldBeYes);
+  return autoYesNo(shouldBeYes);
 }
 
+/** Any deformation tick auto-selects Deformation Engineering Required = Yes. */
 export function deriveDeformationEngineeringRequired(majorDefects: MajorDefectsSection): string {
-  const deformation = checkboxItems(majorDefects.deformation);
-  const structural = checkboxItems(majorDefects.structuralMovement);
-  const moisture = checkboxItems(majorDefects.moistureSources);
-
-  if (deformation.length === 0) {
-    return majorDefects.deformationEngineeringRequired.trim() || 'No';
-  }
-
-  const hasStructuralDeformation = deformation.some((item) => STRUCTURAL_DEFORMATION.has(item));
-  if (hasStructuralDeformation || structural.length > 0) {
-    return preserveNoOverride(majorDefects.deformationEngineeringRequired, true);
-  }
-
-  const onlyRoofCeiling = deformation.every((item) => ROOF_CEILING_DEFORMATION.has(item));
-
-  if (onlyRoofCeiling && structural.length === 0) {
-    return preserveNoOverride(majorDefects.deformationEngineeringRequired, false);
-  }
-
-  return preserveNoOverride(majorDefects.deformationEngineeringRequired, hasStructuralDeformation);
+  return autoYesNo(checkboxItems(majorDefects.deformation).length > 0);
 }
 
 export function applyDerivedMajorDefectFields(majorDefects: MajorDefectsSection): MajorDefectsSection {
@@ -205,9 +193,7 @@ export function generateMoistureTradeRecommendations(majorDefects: MajorDefectsS
   const recs: string[] = [];
   const conducive = checkboxItems(majorDefects.conditionsConducive);
   const hasRisingDamp = includesItem(majorDefects.moistureSources, 'Rising Damp');
-  const hasPlumbingLeak =
-    includesItem(majorDefects.moistureSources, 'Plumbing Leak') ||
-    majorDefects.plumbingDefectPhotos.length > 0;
+  const hasPlumbingLeak = includesItem(majorDefects.moistureSources, 'Plumbing Leak');
   const hasRoofLeak = includesItem(majorDefects.moistureSources, 'Roof Leak');
 
   if (hasPlumbingLeak) {
@@ -250,16 +236,22 @@ export function generateMoistureTradeRecommendations(majorDefects: MajorDefectsS
 export function generateDeformationTradeRecommendations(majorDefects: MajorDefectsSection): string[] {
   const recs: string[] = [];
   const deformation = checkboxItems(majorDefects.deformation);
+  if (!deformation.length) return recs;
+
+  recs.push('Structural Engineer Recommended');
 
   for (const item of deformation) {
     if (item === 'Roof Deformation / Sagging') {
+      recs.push('Licensed Roof Plumber Recommended');
       recs.push(
         'Engage a licensed roofer or roof plumber to inspect roof structure, drainage and coverings.',
       );
     } else if (item === 'Ceiling Deformation / Sagging') {
       if (includesItem(majorDefects.moistureSources, 'Plumbing Leak')) {
+        recs.push('Licensed Plumber Recommended');
         recs.push('Engage a licensed plumber to investigate plumbing leaks contributing to ceiling deformation.');
       } else if (includesItem(majorDefects.moistureSources, 'Roof Leak')) {
+        recs.push('Licensed Roof Plumber Recommended');
         recs.push('Engage a licensed roofer or roof plumber to investigate roof leaks contributing to ceiling deformation.');
       } else {
         recs.push('Investigate ceiling deformation or sagging and the supporting structure.');

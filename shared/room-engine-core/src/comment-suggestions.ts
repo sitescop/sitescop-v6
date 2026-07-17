@@ -132,9 +132,95 @@ const SECTION_COMMENT_SUGGESTIONS: Record<CommentSuggestionSectionId, readonly s
   ],
 };
 
-export function getCommentSuggestions(sectionId: string): readonly string[] {
-  const resolvedId = sectionId === 'thermal-imaging' ? 'moisture-testing' : sectionId;
-  return SECTION_COMMENT_SUGGESTIONS[resolvedId as CommentSuggestionSectionId] ?? [];
+/** Quick comments shown when "Major defect observed" is active for a section. */
+const MAJOR_SECTION_COMMENT_SUGGESTIONS: Partial<
+  Record<CommentSuggestionSectionId, readonly string[]>
+> = {
+  external: [
+    'A major defect was observed to the external fabric. Further investigation by an appropriate licensed professional is recommended.',
+    'Significant external deterioration or movement was noted; assessment and remedial works by a qualified building practitioner are recommended.',
+    'The defect may affect structural performance or weatherproofing and should be addressed as a priority.',
+  ],
+  subfloor: [
+    'A major defect was observed in the subfloor. Further investigation by an appropriate licensed professional is recommended.',
+    'Significant subfloor deterioration or moisture-related damage was noted; assessment and remedial action are recommended.',
+    'The condition may affect structural support and should be assessed by a qualified building practitioner.',
+  ],
+  fencing: [
+    'A major defect was observed to fencing. Repair or replacement by an appropriate contractor is recommended.',
+    'Significant fencing failure was noted and may present a safety or boundary risk; prompt remediation is recommended.',
+  ],
+  outbuildings: [
+    'A major defect was observed to the outbuilding. Further assessment and remedial works are recommended.',
+    'Significant outbuilding deterioration was noted; a qualified building practitioner should assess structural and weatherproofing condition.',
+  ],
+  'roof-exterior': [
+    'A major defect was observed to the roof exterior. Assessment by a licensed roof plumber or builder is recommended.',
+    'Significant roof covering, flashing or drainage failure was noted and may allow moisture ingress; prompt remediation is recommended.',
+  ],
+  'roof-space': [
+    'A major defect was observed in the roof space. Further investigation by an appropriate licensed professional is recommended.',
+    'Significant framing, moisture or structural concern was noted in the roof space; assessment by a qualified building practitioner is recommended.',
+  ],
+  kitchen: [
+    'A major defect was observed in the kitchen. Further investigation by an appropriate licensed trade is recommended.',
+    'Significant kitchen damage or moisture-related failure was noted; assessment and remedial works are recommended as a priority.',
+  ],
+  laundry: [
+    'A major defect was observed in the laundry. Further investigation by an appropriate licensed trade is recommended.',
+    'Significant moisture or structural concern was noted in the laundry wet area; prompt assessment and remediation are recommended.',
+  ],
+  bathrooms: [
+    'A major defect was observed in the bathroom. Waterproofing assessment and remediation by an appropriate licensed professional are recommended.',
+    'Significant wet-area failure or moisture damage was noted; further investigation and remedial works are recommended as a priority.',
+  ],
+  bedrooms: [
+    'A major defect was observed in the bedroom. Further investigation by an appropriate licensed professional is recommended.',
+    'Significant structural or moisture-related concern was noted; assessment by a qualified building practitioner is recommended.',
+  ],
+  'living-areas': [
+    'A major defect was observed in the living area. Further investigation by an appropriate licensed professional is recommended.',
+    'Significant structural movement, cracking or moisture-related damage was noted; assessment by a qualified building practitioner is recommended.',
+  ],
+  garage: [
+    'A major defect was observed in the garage. Further investigation by an appropriate licensed professional is recommended.',
+    'Significant structural, moisture or safety-related concern was noted; assessment and remedial works are recommended.',
+  ],
+  corrosion: [
+    'Significant corrosion was observed and may compromise structural or safety performance. Assessment and remediation by an appropriate professional are recommended.',
+  ],
+  'moisture-testing': [
+    'Elevated moisture consistent with a major defect concern was recorded. The source should be investigated by an appropriate licensed professional without delay.',
+    'Moisture evidence indicates a significant defect risk; further investigation and remedial action are recommended.',
+  ],
+};
+
+function resolveSuggestionSectionId(sectionId: string): CommentSuggestionSectionId | null {
+  if (sectionId === 'thermal-imaging') return 'moisture-testing';
+  if (sectionId.startsWith('bathroom-')) return 'bathrooms';
+  if (sectionId.startsWith('bedroom-')) return 'bedrooms';
+  if (sectionId.startsWith('living-')) return 'living-areas';
+  if (sectionId.startsWith('garage-')) return 'garage';
+  if (sectionId in SECTION_COMMENT_SUGGESTIONS) {
+    return sectionId as CommentSuggestionSectionId;
+  }
+  return null;
+}
+
+export function getCommentSuggestions(
+  sectionId: string,
+  options?: { major?: boolean },
+): readonly string[] {
+  const resolvedId = resolveSuggestionSectionId(sectionId);
+  if (!resolvedId) return [];
+  if (options?.major) {
+    return (
+      MAJOR_SECTION_COMMENT_SUGGESTIONS[resolvedId] ??
+      SECTION_COMMENT_SUGGESTIONS[resolvedId] ??
+      []
+    );
+  }
+  return SECTION_COMMENT_SUGGESTIONS[resolvedId] ?? [];
 }
 
 export function appendInspectionComment(current: string, snippet: string): string {

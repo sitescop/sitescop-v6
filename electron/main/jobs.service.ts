@@ -119,28 +119,61 @@ function findClientByContact(
   mobile: string | undefined,
 ) {
   if (email?.trim()) {
-    const stmt = db.prepare(`SELECT id FROM clients WHERE lower(email) = lower(?) LIMIT 1`);
-    stmt.bind([email.trim()]);
-    if (stmt.step()) {
-      const row = stmt.getAsObject() as { id: string };
-      stmt.free();
+    // Prefer an active client; never leave jobs attached to a soft-deleted client.
+    const active = db.prepare(
+      `SELECT id FROM clients
+       WHERE lower(email) = lower(?) AND IFNULL(deleted_at, '') = ''
+       LIMIT 1`,
+    );
+    active.bind([email.trim()]);
+    if (active.step()) {
+      const row = active.getAsObject() as { id: string };
+      active.free();
       return row.id;
     }
-    stmt.free();
+    active.free();
+
+    const deleted = db.prepare(
+      `SELECT id FROM clients
+       WHERE lower(email) = lower(?) AND IFNULL(deleted_at, '') != ''
+       LIMIT 1`,
+    );
+    deleted.bind([email.trim()]);
+    if (deleted.step()) {
+      const row = deleted.getAsObject() as { id: string };
+      deleted.free();
+      return row.id;
+    }
+    deleted.free();
   }
 
   if (mobile?.trim()) {
     const normalized = mobile.replace(/\s/g, '');
-    const stmt = db.prepare(
-      `SELECT id FROM clients WHERE replace(mobile, ' ', '') = ? LIMIT 1`,
+    const active = db.prepare(
+      `SELECT id FROM clients
+       WHERE replace(mobile, ' ', '') = ? AND IFNULL(deleted_at, '') = ''
+       LIMIT 1`,
     );
-    stmt.bind([normalized]);
-    if (stmt.step()) {
-      const row = stmt.getAsObject() as { id: string };
-      stmt.free();
+    active.bind([normalized]);
+    if (active.step()) {
+      const row = active.getAsObject() as { id: string };
+      active.free();
       return row.id;
     }
-    stmt.free();
+    active.free();
+
+    const deleted = db.prepare(
+      `SELECT id FROM clients
+       WHERE replace(mobile, ' ', '') = ? AND IFNULL(deleted_at, '') != ''
+       LIMIT 1`,
+    );
+    deleted.bind([normalized]);
+    if (deleted.step()) {
+      const row = deleted.getAsObject() as { id: string };
+      deleted.free();
+      return row.id;
+    }
+    deleted.free();
   }
 
   return null;
@@ -177,8 +210,17 @@ export function createJob(db: SqlDatabase, input: CreateJobInput): CreateJobResu
       );
       resolvedClientId = clientId;
     } else {
+      // Reusing an existing contact must revive soft-deleted clients so they
+      // appear again in Clients (jobs must never stay linked to a hidden client).
       db.run(
-        `UPDATE clients SET first_name = ?, last_name = ?, email = COALESCE(?, email), mobile = COALESCE(?, mobile) WHERE id = ?`,
+        `UPDATE clients SET
+           first_name = ?,
+           last_name = ?,
+           email = COALESCE(?, email),
+           mobile = COALESCE(?, mobile),
+           deleted_at = NULL,
+           deleted_reason = NULL
+         WHERE id = ?`,
         [
           input.clientFirstName.trim(),
           input.clientLastName.trim(),

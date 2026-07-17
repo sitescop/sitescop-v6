@@ -76,6 +76,7 @@ async function launchPdfBrowser() {
         headless: 'shell',
         executablePath: bundled,
         args: HIDDEN_BROWSER_ARGS,
+        protocolTimeout: 180_000,
       });
     } catch {
       // Fall back to standard headless Chrome if headless shell is unavailable.
@@ -86,25 +87,46 @@ async function launchPdfBrowser() {
     headless: true,
     executablePath: resolveChromeExecutable(),
     args: HIDDEN_BROWSER_ARGS,
+    protocolTimeout: 180_000,
   });
 }
 
 async function getBrowser() {
   if (!browserPromise) {
-    browserPromise = launchPdfBrowser();
+    browserPromise = launchPdfBrowser().catch((error) => {
+      browserPromise = null;
+      throw error;
+    });
   }
   return browserPromise;
 }
 
-export async function htmlToPdfBuffer(
-  html: string,
-  options: PdfRenderOptions = {},
-): Promise<Buffer> {
+async function resetPdfBrowser(): Promise<void> {
+  const pending = browserPromise;
+  browserPromise = null;
+  if (!pending) return;
+  try {
+    const browser = await pending;
+    await browser.close();
+  } catch {
+    // Browser may already be dead after a crash.
+  }
+}
+
+function isBrowserCrashError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /connection closed|target closed|session closed|browser.*closed|protocol error/i.test(
+    message,
+  );
+}
+
+async function renderPdfOnce(html: string, options: PdfRenderOptions): Promise<Buffer> {
   const footerText = options.footerText?.trim() ?? '';
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setContent(html, { waitUntil: 'load', timeout: 120_000 });
+    page.setDefaultTimeout(180_000);
+    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 180_000 });
     await page.emulateMediaType('print');
     const pdf = await page.pdf({
       format: 'A4',
@@ -117,16 +139,41 @@ export async function htmlToPdfBuffer(
     });
     return Buffer.from(pdf);
   } finally {
-    await page.close();
+    try {
+      if (!page.isClosed()) await page.close();
+    } catch {
+      // Ignore close failures after Chrome crashes.
+    }
+  }
+}
+
+export async function htmlToPdfBuffer(
+  html: string,
+  options: PdfRenderOptions = {},
+): Promise<Buffer> {
+  try {
+    return await renderPdfOnce(html, options);
+  } catch (error) {
+    if (!isBrowserCrashError(error)) throw error;
+
+    // Dead browser instance — relaunch once and retry.
+    await resetPdfBrowser();
+    try {
+      return await renderPdfOnce(html, options);
+    } catch (retryError) {
+      await resetPdfBrowser();
+      if (isBrowserCrashError(retryError)) {
+        throw new Error(
+          'PDF generation failed because Chrome crashed (often caused by very large inspection photos). Try again after the app restarts, or reduce photo size/count.',
+        );
+      }
+      throw retryError;
+    }
   }
 }
 
 export async function closePdfBrowser(): Promise<void> {
-  if (browserPromise) {
-    const browser = await browserPromise;
-    browserPromise = null;
-    await browser.close();
-  }
+  await resetPdfBrowser();
 }
 
 export type { PdfRenderOptions } from './pdf-layout.js';

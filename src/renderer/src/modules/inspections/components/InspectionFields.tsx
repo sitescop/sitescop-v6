@@ -11,6 +11,7 @@ import { Button, Input, Modal, Textarea } from '@/design-system/components';
 import { cn } from '@/lib/cn';
 import { InspectionFormContext, INSPECTION_INPUT_CLASS } from './InspectionFormUi';
 import { PhotoAnnotationEditor } from './PhotoAnnotationEditor';
+import { useHydratedPhotos, useInspectionPhotoCache } from '@/modules/inspections/hooks/InspectionPhotoCacheContext';
 
 export function InspectionSubsectionHeading({
   children,
@@ -38,6 +39,10 @@ interface CheckboxGroupFieldProps {
   onChange: (value: CheckboxFieldState) => void;
   allowCustom?: boolean;
   disabled?: boolean;
+  /** Horizontal row of checkboxes — uses less vertical space. */
+  layout?: 'grid' | 'horizontal';
+  /** Plain text label without the blue banner background. */
+  plainLabel?: boolean;
 }
 
 export const CheckboxGroupField = memo(function CheckboxGroupField({
@@ -47,13 +52,18 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
   onChange,
   allowCustom = true,
   disabled = false,
+  layout = 'grid',
+  plainLabel = false,
 }: CheckboxGroupFieldProps) {
   const [customInput, setCustomInput] = useState('');
   const valueRef = useRef(value);
   valueRef.current = value;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const presetOptions = [...new Set(options)];
   const field = normalizeCheckboxField(value);
   const visibleCustom = field.custom.filter((item) => !presetOptions.includes(item));
+  const horizontal = layout === 'horizontal';
 
   const toggle = useCallback(
     (option: string) => {
@@ -62,9 +72,9 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
       const selected = current.selected.includes(option)
         ? current.selected.filter((item) => item !== option)
         : [...current.selected, option];
-      onChange({ ...current, selected: [...new Set(selected)] });
+      onChangeRef.current({ ...current, selected: [...new Set(selected)] });
     },
-    [disabled, onChange],
+    [disabled],
   );
 
   const addCustom = () => {
@@ -72,28 +82,48 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
     const trimmed = customInput.trim();
     const current = normalizeCheckboxField(valueRef.current);
     if (!trimmed || current.custom.includes(trimmed) || current.selected.includes(trimmed)) return;
-    onChange({ ...current, custom: [...current.custom, trimmed] });
+    onChangeRef.current({ ...current, custom: [...current.custom, trimmed] });
     setCustomInput('');
   };
 
   const removeCustom = (item: string) => {
     if (disabled) return;
     const current = normalizeCheckboxField(valueRef.current);
-    onChange({ ...current, custom: current.custom.filter((entry) => entry !== item) });
+    onChangeRef.current({ ...current, custom: current.custom.filter((entry) => entry !== item) });
   };
 
   return (
-    <div className="space-y-2">
-      {label && <InspectionSubsectionHeading>{label}</InspectionSubsectionHeading>}
-      <div className="grid gap-2 sm:grid-cols-2">
+    <div className={cn('space-y-2', horizontal && 'space-y-1.5')}>
+      {label ? (
+        plainLabel ? (
+          <p className="text-sm font-semibold text-[#0B4F8C]">{label}</p>
+        ) : (
+          <InspectionSubsectionHeading>{label}</InspectionSubsectionHeading>
+        )
+      ) : null}
+      <div
+        className={cn(
+          horizontal ? 'flex flex-wrap items-center gap-x-4 gap-y-1.5' : 'grid gap-2 sm:grid-cols-2',
+        )}
+      >
         {presetOptions.map((option) => (
           <label
             key={option}
-            className={`inspection-checkbox-option ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+            className={cn(
+              horizontal
+                ? cn(
+                    'inline-flex items-center gap-1.5 text-sm text-text',
+                    disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                  )
+                : cn(
+                    'inspection-checkbox-option',
+                    disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                  ),
+            )}
           >
             <input
               type="checkbox"
-              className="mt-1"
+              className={horizontal ? 'shrink-0' : 'mt-1'}
               checked={field.selected.includes(option)}
               disabled={disabled}
               onChange={() => toggle(option)}
@@ -102,9 +132,16 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
           </label>
         ))}
         {visibleCustom.map((item) => (
-          <label key={item} className="inspection-checkbox-option">
-            <input type="checkbox" checked readOnly disabled={disabled} className="mt-1" />
-            <span className="flex-1">{item}</span>
+          <label
+            key={item}
+            className={
+              horizontal
+                ? 'inline-flex items-center gap-1.5 text-sm text-text'
+                : 'inspection-checkbox-option'
+            }
+          >
+            <input type="checkbox" checked readOnly disabled={disabled} className={horizontal ? 'shrink-0' : 'mt-1'} />
+            <span className={horizontal ? undefined : 'flex-1'}>{item}</span>
             {!disabled && (
               <button type="button" onClick={() => removeCustom(item)} className="text-text-muted hover:text-danger">
                 <X className="h-4 w-4" />
@@ -130,7 +167,16 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
       )}
     </div>
   );
-});
+}, (prev, next) =>
+  prev.label === next.label &&
+  prev.disabled === next.disabled &&
+  prev.allowCustom === next.allowCustom &&
+  prev.layout === next.layout &&
+  prev.plainLabel === next.plainLabel &&
+  prev.options.length === next.options.length &&
+  prev.options.every((option, index) => option === next.options[index]) &&
+  prev.value === next.value,
+);
 
 interface PhotoFieldProps {
   label?: string;
@@ -170,7 +216,9 @@ export function PhotoField({
   disabled = false,
   className,
 }: PhotoFieldProps & { className?: string }) {
-  const safePhotos = normalizePhotos(photos);
+  const photoCache = useInspectionPhotoCache();
+  const hydratedPhotos = useHydratedPhotos(photos);
+  const safePhotos = normalizePhotos(hydratedPhotos);
   const cameraRef = useRef<HTMLInputElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const photosRef = useRef(safePhotos);
@@ -178,6 +226,17 @@ export function PhotoField({
   const [viewerOpen, setViewerOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+
+  const emitPhotos = useCallback(
+    (next: InspectionPhotoRef[]) => {
+      if (disabled) return;
+      photoCache?.setMany(next);
+      photosRef.current = next;
+      // Pass full payloads so the editor cache/save path never misses a newly added photo.
+      onChange(next);
+    },
+    [disabled, onChange, photoCache],
+  );
 
   useEffect(() => {
     setActiveIndex((index) => (safePhotos.length === 0 ? 0 : Math.min(index, safePhotos.length - 1)));
@@ -189,12 +248,9 @@ export function PhotoField({
 
   const appendPhotos = useCallback(
     (batch: InspectionPhotoRef[]) => {
-      if (disabled) return;
-      const next = [...photosRef.current, ...batch];
-      photosRef.current = next;
-      onChange(next);
+      emitPhotos([...photosRef.current, ...batch]);
     },
-    [disabled, onChange],
+    [emitPhotos],
   );
 
   const handleFiles = (files: FileList | null) => {
@@ -205,8 +261,7 @@ export function PhotoField({
   const removePhoto = (id: string) => {
     if (disabled) return;
     const next = safePhotos.filter((photo) => photo.id !== id);
-    photosRef.current = next;
-    onChange(next);
+    emitPhotos(next);
     if (activeIndex >= next.length) {
       setActiveIndex(Math.max(0, next.length - 1));
     }
@@ -219,31 +274,30 @@ export function PhotoField({
 
   const saveEditedPhoto = (nextDataUrl: string) => {
     if (!activePhoto || disabled) return;
-    const next = safePhotos.map((photo) =>
-      photo.id === activePhoto.id
-        ? {
-            ...photo,
-            // Keep the first clean photo; later edits keep annotating the current image.
-            originalDataUrl: photo.originalDataUrl ?? photo.dataUrl,
-            dataUrl: nextDataUrl,
-          }
-        : photo,
+    emitPhotos(
+      safePhotos.map((photo) =>
+        photo.id === activePhoto.id
+          ? {
+              ...photo,
+              originalDataUrl: photo.originalDataUrl ?? photo.dataUrl,
+              dataUrl: nextDataUrl,
+            }
+          : photo,
+      ),
     );
-    photosRef.current = next;
-    onChange(next);
     setEditorOpen(false);
     setViewerOpen(true);
   };
 
   const resetPhotoToOriginal = () => {
     if (!activePhoto?.originalDataUrl || disabled) return;
-    const next = safePhotos.map((photo) =>
-      photo.id === activePhoto.id
-        ? { ...photo, dataUrl: photo.originalDataUrl as string }
-        : photo,
+    emitPhotos(
+      safePhotos.map((photo) =>
+        photo.id === activePhoto.id
+          ? { ...photo, dataUrl: photo.originalDataUrl as string }
+          : photo,
+      ),
     );
-    photosRef.current = next;
-    onChange(next);
   };
 
   return (
@@ -412,6 +466,8 @@ interface SectionCommentsProps {
   disabled?: boolean;
   /** Loads one-click comment suggestions for this section. */
   sectionId?: string;
+  /** When true, show major-defect style quick comments instead of minor/default ones. */
+  majorActive?: boolean;
   suggestions?: readonly string[];
 }
 
@@ -427,9 +483,11 @@ export function SectionComments({
   onPhotosChange,
   disabled = false,
   sectionId,
+  majorActive = false,
   suggestions,
 }: SectionCommentsProps) {
-  const quickComments = suggestions ?? (sectionId ? getCommentSuggestions(sectionId) : []);
+  const quickComments =
+    suggestions ?? (sectionId ? getCommentSuggestions(sectionId, { major: majorActive }) : []);
   const commentsRef = useRef(comments);
   commentsRef.current = comments;
 
@@ -468,7 +526,6 @@ export function SectionComments({
         rows={3}
       />
       <PhotoField
-        key={photos.map((photo) => photo.id).join(',') || 'empty'}
         photos={photos}
         onChange={onPhotosChange}
         disabled={disabled}
@@ -486,27 +543,42 @@ interface YesNoSelectProps {
   disabled?: boolean;
 }
 
-export function YesNoSelect({ label, value, onChange, includeNa, disabled = false }: YesNoSelectProps) {
-  const inInspectionForm = useContext(InspectionFormContext);
-  const options = includeNa ? ['', 'Yes', 'No', 'N/A'] : ['', 'Yes', 'No'];
-  return (
-    <div>
-      <label className="inspection-field-label">{label}</label>
-      <select
-        className={cn(inInspectionForm ? INSPECTION_INPUT_CLASS : 'input-field', 'w-full')}
-        value={value ?? ''}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((option) => (
-          <option key={option || 'blank'} value={option}>
-            {option || 'Select...'}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
+export const YesNoSelect = memo(
+  function YesNoSelect({
+    label,
+    value,
+    onChange,
+    includeNa,
+    disabled = false,
+  }: YesNoSelectProps) {
+    const inInspectionForm = useContext(InspectionFormContext);
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
+    const options = includeNa ? ['', 'Yes', 'No', 'N/A'] : ['', 'Yes', 'No'];
+    return (
+      <div>
+        <label className="inspection-field-label">{label}</label>
+        <select
+          className={cn(inInspectionForm ? INSPECTION_INPUT_CLASS : 'input-field', 'w-full')}
+          value={value ?? ''}
+          disabled={disabled}
+          onChange={(e) => onChangeRef.current(e.target.value)}
+        >
+          {options.map((option) => (
+            <option key={option || 'blank'} value={option}>
+              {option || 'Select...'}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  },
+  (prev, next) =>
+    prev.label === next.label &&
+    prev.value === next.value &&
+    prev.includeNa === next.includeNa &&
+    prev.disabled === next.disabled,
+);
 
 interface RatingSelectProps {
   label: string;
@@ -516,24 +588,41 @@ interface RatingSelectProps {
   disabled?: boolean;
 }
 
-export function RatingSelect({ label, value, onChange, options, disabled = false }: RatingSelectProps) {
-  const inInspectionForm = useContext(InspectionFormContext);
-  return (
-    <div>
-      <label className="inspection-field-label">{label}</label>
-      <select
-        className={cn(inInspectionForm ? INSPECTION_INPUT_CLASS : 'input-field', 'w-full')}
-        value={value ?? ''}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">Select...</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
+export const RatingSelect = memo(
+  function RatingSelect({
+    label,
+    value,
+    onChange,
+    options,
+    disabled = false,
+  }: RatingSelectProps) {
+    const inInspectionForm = useContext(InspectionFormContext);
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
+    return (
+      <div>
+        <label className="inspection-field-label">{label}</label>
+        <select
+          className={cn(inInspectionForm ? INSPECTION_INPUT_CLASS : 'input-field', 'w-full')}
+          value={value ?? ''}
+          disabled={disabled}
+          onChange={(e) => onChangeRef.current(e.target.value)}
+        >
+          <option value="">Select...</option>
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  },
+  (prev, next) =>
+    prev.label === next.label &&
+    prev.value === next.value &&
+    prev.disabled === next.disabled &&
+    prev.options.length === next.options.length &&
+    prev.options.every((option, index) => option === next.options[index]),
+);
+

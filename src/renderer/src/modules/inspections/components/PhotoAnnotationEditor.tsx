@@ -651,6 +651,7 @@ export function PhotoAnnotationEditor({
       open={open}
       onClose={onClose}
       title={title}
+      hideHeader
       size="full"
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
@@ -678,8 +679,8 @@ export function PhotoAnnotationEditor({
         </div>
       }
     >
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <div className="flex flex-wrap gap-1 rounded-lg border border-border p-1">
             {(
               [
@@ -768,14 +769,13 @@ export function PhotoAnnotationEditor({
           ) : null}
         </div>
 
-        <p className="text-xs text-text-muted">
+        <p className="shrink-0 text-xs text-text-muted">
           Text: click the photo to add a label, click a label to edit, or drag a label to move it.
         </p>
 
         <div
           ref={viewportRef}
-          className="relative flex min-h-[320px] items-start justify-center overflow-auto rounded-lg border border-border bg-[#1a1a1a] p-2"
-          style={{ maxHeight: '58vh' }}
+          className="relative flex min-h-0 flex-1 items-start justify-center overflow-auto rounded-lg border border-border bg-[#1a1a1a] p-2"
           onWheel={handleWheel}
         >
           {loading ? (

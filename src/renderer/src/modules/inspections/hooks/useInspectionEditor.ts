@@ -1,20 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import type { InspectionFormDataV2, InspectionFormRealm, MajorDefectRollupRoom } from '@sitescop/room-engine-core';
 import {
   enrichInspectionFormData,
+  enrichInspectionFormDataForSection,
   getSectionData,
   jobTypeToFormKind,
   mergeRoomDataForReport,
   normalizeInspectionFormData,
   patchSectionData,
+  InspectionPhotoCache,
+  collectPhotosIntoCache,
+  stripPhotosFromValue,
+  hydratePhotosInValue,
 } from '@sitescop/room-engine-core';
 import type { InspectionDetail, InspectionRoomDetail } from '@shared/inspection-types';
 import { getSitescopApi } from '@/lib/sitescop-api';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
-const SAVE_DEBOUNCE_MS = 700;
-const PHOTO_SAVE_DEBOUNCE_MS = 0;
+const SAVE_DEBOUNCE_MS = 30_000;
+const PHOTO_SAVE_DEBOUNCE_MS = 30_000;
+const ROOM_ENRICH_DEBOUNCE_MS = 400;
 
 const AUTO_SYNC_KEYS = new Set([
   'shared:accessibilityObstructions',
@@ -22,6 +28,79 @@ const AUTO_SYNC_KEYS = new Set([
   'building:conclusion',
   'building:recommendations',
 ]);
+
+/** Sections that need live cross-field sync in the UI (others enrich on save). */
+const LIVE_ENRICH_SECTION_KEYS = new Set([
+  'shared:services',
+  'shared:accessibilityObstructions',
+  'shared:propertyDescription',
+  'shared:inspectorHazardAssessment',
+  'building:majorDefects',
+  'building:conclusion',
+  'building:recommendations',
+  'building:subfloor',
+]);
+
+const LIVE_PEST_ENRICH_SECTION_KEYS = new Set([
+  'undetectedTimberPestRisk',
+  'd1ActiveTermites',
+  'd2ManagementProposal',
+  'd3TermiteWorkings',
+  'd4PreviousTreatment',
+  'd10ExcessiveMoisture',
+  'd11BarrierBridging',
+  'd12UntreatedTimber',
+  'd13ConduciveConditions',
+  'd14MajorSafetyHazards',
+  'pestConclusion',
+]);
+
+const ROOM_ENRICH_FIELD_KEYS = new Set([
+  'comments',
+  'photos',
+  'defects',
+  'damageObserved',
+  'cracking',
+  'crackingEntries',
+  'moistureDamage',
+  'moistureLevel',
+  'waterPooling',
+  'waterPoolingPhotos',
+  'leakInsideCabinet',
+  'activeLeak',
+  'leakage',
+  'floorWaste',
+  'drainage',
+  'evidenceLocations',
+  'finishElementDamageEntries',
+  'noMajorDefectObserved',
+  'majorDefectObserved',
+]);
+
+function sectionTimerKey(realm: InspectionFormRealm, section: string): string {
+  return `${realm}:${section}`;
+}
+
+function sectionNeedsLiveEnrich(realm: InspectionFormRealm, section: string): boolean {
+  if (realm === 'pest') return LIVE_PEST_ENRICH_SECTION_KEYS.has(section);
+  return LIVE_ENRICH_SECTION_KEYS.has(sectionTimerKey(realm, section));
+}
+
+function roomUpdateNeedsEnrich(partial: Record<string, unknown>): boolean {
+  return Object.keys(partial).some(
+    (key) =>
+      ROOM_ENRICH_FIELD_KEYS.has(key) ||
+      key.toLowerCase().includes('damage') ||
+      key.toLowerCase().includes('moisture') ||
+      key.toLowerCase().includes('crack') ||
+      key.toLowerCase().includes('defect') ||
+      key.toLowerCase().includes('leak'),
+  );
+}
+
+function roomDataNeedsEnrich(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
+  return Object.keys(next).some((key) => previous[key] !== next[key] && roomUpdateNeedsEnrich({ [key]: next[key] }));
+}
 
 function enrichRooms(rooms: InspectionRoomDetail[]): InspectionRoomDetail[] {
   return rooms.map((room) => ({
@@ -50,10 +129,6 @@ function roomsForEnrichment(rooms: InspectionRoomDetail[]): MajorDefectRollupRoo
   }));
 }
 
-function sectionTimerKey(realm: InspectionFormRealm, section: string): string {
-  return `${realm}:${section}`;
-}
-
 function parseSectionTimerKey(timerKey: string): { realm: InspectionFormRealm; section: string } | null {
   const colon = timerKey.indexOf(':');
   if (colon <= 0) return null;
@@ -64,7 +139,23 @@ function parseSectionTimerKey(timerKey: string): { realm: InspectionFormRealm; s
 }
 
 function saveDebounceMs(partial: Record<string, unknown>): number {
-  return Object.prototype.hasOwnProperty.call(partial, 'photos') ? PHOTO_SAVE_DEBOUNCE_MS : SAVE_DEBOUNCE_MS;
+  if (Object.prototype.hasOwnProperty.call(partial, 'photos')) return 0;
+  if (Object.keys(partial).some((key) => key.endsWith('Photos'))) return 0;
+  // Quick-action Major / No Major must persist immediately so PDF matches the click.
+  if (
+    Object.prototype.hasOwnProperty.call(partial, 'noMajorDefectObserved') ||
+    Object.prototype.hasOwnProperty.call(partial, 'majorDefectObserved')
+  ) {
+    return 0;
+  }
+  return SAVE_DEBOUNCE_MS;
+}
+
+function hasDefectQuickFlag(partial: Record<string, unknown>): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(partial, 'noMajorDefectObserved') ||
+    Object.prototype.hasOwnProperty.call(partial, 'majorDefectObserved')
+  );
 }
 
 function bumpSectionGeneration(generations: Map<string, number>, timerKey: string): number {
@@ -83,14 +174,46 @@ export function useInspectionEditor(
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const sectionTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const roomTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const roomEnrichTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sectionSaveGeneration = useRef<Map<string, number>>(new Map());
   const sectionSaveChains = useRef<Map<string, Promise<void>>>(new Map());
+  const roomSaveGeneration = useRef<Map<string, number>>(new Map());
+  const roomSaveChains = useRef<Map<string, Promise<void>>>(new Map());
   const formDataRef = useRef<InspectionFormDataV2 | null>(null);
   const roomsRef = useRef<InspectionRoomDetail[]>([]);
+  const loadedInspectionIdRef = useRef<string | undefined>(undefined);
   const inspectionIdRef = useRef(inspectionId);
   const readOnlyRef = useRef(readOnly);
   const activeSaveCountRef = useRef(0);
+  const photoCacheRef = useRef(new InspectionPhotoCache());
 
+  const toLiteForm = useCallback((form: InspectionFormDataV2): InspectionFormDataV2 => {
+    collectPhotosIntoCache(form, photoCacheRef.current);
+    return stripPhotosFromValue(form, photoCacheRef.current);
+  }, []);
+
+  const toLiteRooms = useCallback((nextRooms: InspectionRoomDetail[]): InspectionRoomDetail[] => {
+    return nextRooms.map((room) => {
+      collectPhotosIntoCache(room.data, photoCacheRef.current);
+      return { ...room, data: stripPhotosFromValue(room.data, photoCacheRef.current) };
+    });
+  }, []);
+
+  const scheduleRoomFormEnrich = useCallback(() => {
+    if (roomEnrichTimer.current) clearTimeout(roomEnrichTimer.current);
+    roomEnrichTimer.current = setTimeout(() => {
+      roomEnrichTimer.current = null;
+      setFormData((current) => {
+        if (!current?.building) return current;
+        const enriched = enrichInspectionFormDataForSection(current, 'building', 'majorDefects', {
+          rooms: roomsForEnrichment(roomsRef.current),
+        });
+        const lite = toLiteForm(enriched);
+        formDataRef.current = lite;
+        return lite;
+      });
+    }, ROOM_ENRICH_DEBOUNCE_MS);
+  }, [toLiteForm]);
   inspectionIdRef.current = inspectionId;
   readOnlyRef.current = readOnly;
 
@@ -146,6 +269,17 @@ export function useInspectionEditor(
       const sectionData = getSectionData(current, realm, section);
       if (!sectionData) return;
 
+      const payload = hydratePhotosInValue(sectionData, photoCacheRef.current) as Record<string, unknown>;
+      if (Array.isArray(payload.photos)) {
+        payload.photos = payload.photos.filter(
+          (photo) =>
+            photo &&
+            typeof photo === 'object' &&
+            typeof (photo as { dataUrl?: string }).dataUrl === 'string' &&
+            (photo as { dataUrl: string }).dataUrl.length > 20,
+        );
+      }
+
       activeSaveCountRef.current += 1;
       setSaveState('saving');
       try {
@@ -154,13 +288,13 @@ export function useInspectionEditor(
         const result = await getSitescopApi().inspections.updateSection(currentInspectionId, {
           realm,
           section,
-          data: sectionData,
+          data: payload,
         });
 
         if (sectionSaveGeneration.current.get(timerKey) !== expectedGeneration) return;
 
         if (realm === 'shared' && section === 'propertyDescription') {
-          const normalizedRooms = enrichRooms(result.inspection.rooms);
+          const normalizedRooms = toLiteRooms(enrichRooms(result.inspection.rooms));
           setRooms(normalizedRooms);
           roomsRef.current = normalizedRooms;
         }
@@ -170,7 +304,8 @@ export function useInspectionEditor(
           setFormData((prev) => {
             if (!prev) return prev;
             if (sectionSaveGeneration.current.get(timerKey) !== expectedGeneration) return prev;
-            const next = applyServerSectionSync(prev, realm, section, result.inspection.formData);
+            const synced = applyServerSectionSync(prev, realm, section, result.inspection.formData);
+            const next = toLiteForm(synced);
             formDataRef.current = next;
             return next;
           });
@@ -186,7 +321,7 @@ export function useInspectionEditor(
         activeSaveCountRef.current = Math.max(0, activeSaveCountRef.current - 1);
       }
     },
-    [applyServerSectionSync, flashSaved],
+    [applyServerSectionSync, flashSaved, toLiteForm, toLiteRooms],
   );
 
   const enqueueSectionSave = useCallback(
@@ -206,21 +341,39 @@ export function useInspectionEditor(
   );
 
   const persistRoom = useCallback(
-    async (roomId: string) => {
+    async (roomId: string, expectedGeneration: number) => {
+      if (roomSaveGeneration.current.get(roomId) !== expectedGeneration) return;
+
       const currentInspectionId = inspectionIdRef.current;
       if (readOnlyRef.current || !currentInspectionId) return;
 
       const room = roomsRef.current.find((entry) => entry.id === roomId);
       if (!room) return;
 
+      const payload = hydratePhotosInValue(room.data, photoCacheRef.current) as Record<string, unknown>;
+      // Drop photo stubs that failed to hydrate so PDF never gets empty image slots.
+      if (Array.isArray(payload.photos)) {
+        payload.photos = payload.photos.filter(
+          (photo) =>
+            photo &&
+            typeof photo === 'object' &&
+            typeof (photo as { dataUrl?: string }).dataUrl === 'string' &&
+            (photo as { dataUrl: string }).dataUrl.length > 20,
+        );
+      }
+
       activeSaveCountRef.current += 1;
       setSaveState('saving');
       try {
-        await getSitescopApi().inspections.updateRoom(currentInspectionId, roomId, { data: room.data });
+        if (roomSaveGeneration.current.get(roomId) !== expectedGeneration) return;
+        await getSitescopApi().inspections.updateRoom(currentInspectionId, roomId, { data: payload });
+        if (roomSaveGeneration.current.get(roomId) !== expectedGeneration) return;
         flashSaved();
       } catch {
-        setSaveState('error');
-        setTimeout(() => setSaveState('idle'), 3000);
+        if (roomSaveGeneration.current.get(roomId) === expectedGeneration) {
+          setSaveState('error');
+          setTimeout(() => setSaveState('idle'), 3000);
+        }
       } finally {
         activeSaveCountRef.current = Math.max(0, activeSaveCountRef.current - 1);
       }
@@ -228,7 +381,37 @@ export function useInspectionEditor(
     [flashSaved],
   );
 
-  const flushPendingSaves = useCallback(() => {
+  const enqueueRoomSave = useCallback(
+    (roomId: string, expectedGeneration: number) => {
+      const run = () => {
+        roomTimers.current.delete(roomId);
+        const chained = (roomSaveChains.current.get(roomId) ?? Promise.resolve()).then(() =>
+          persistRoom(roomId, expectedGeneration),
+        );
+        roomSaveChains.current.set(roomId, chained);
+        void chained;
+      };
+      run();
+    },
+    [persistRoom],
+  );
+
+  const flushPendingSaves = useCallback(async () => {
+    if (roomEnrichTimer.current) {
+      clearTimeout(roomEnrichTimer.current);
+      roomEnrichTimer.current = null;
+      const current = formDataRef.current;
+      if (current?.building) {
+        const enriched = enrichInspectionFormDataForSection(current, 'building', 'majorDefects', {
+          rooms: roomsForEnrichment(roomsRef.current),
+        });
+        const lite = toLiteForm(enriched);
+        formDataRef.current = lite;
+        setFormData(lite);
+      }
+    }
+
+    const sectionFlushes: Promise<void>[] = [];
     for (const [timerKey, timer] of [...sectionTimers.current.entries()]) {
       clearTimeout(timer);
       sectionTimers.current.delete(timerKey);
@@ -236,33 +419,65 @@ export function useInspectionEditor(
       if (parsed) {
         const generation = bumpSectionGeneration(sectionSaveGeneration.current, timerKey);
         enqueueSectionSave(parsed.realm, parsed.section, generation);
+        const chained = sectionSaveChains.current.get(timerKey);
+        if (chained) sectionFlushes.push(chained);
       }
     }
+
+    const roomFlushes: Promise<void>[] = [];
     for (const [roomId, timer] of [...roomTimers.current.entries()]) {
       clearTimeout(timer);
       roomTimers.current.delete(roomId);
-      void persistRoom(roomId);
+      const generation = bumpSectionGeneration(roomSaveGeneration.current, roomId);
+      enqueueRoomSave(roomId, generation);
     }
-  }, [enqueueSectionSave, persistRoom]);
+    for (const chained of roomSaveChains.current.values()) {
+      roomFlushes.push(chained);
+    }
+    for (const chained of sectionSaveChains.current.values()) {
+      if (!sectionFlushes.includes(chained)) sectionFlushes.push(chained);
+    }
+
+    await Promise.all([...sectionFlushes, ...roomFlushes]);
+  }, [enqueueRoomSave, enqueueSectionSave, toLiteForm]);
 
   useEffect(() => {
-    if (!inspection) return;
+    if (!inspection) {
+      loadedInspectionIdRef.current = undefined;
+      return;
+    }
+    // Only hydrate when opening a different inspection. Refetch/focus updates of the
+    // same job must not clobber in-progress Major / No Major clicks with stale server data.
+    if (loadedInspectionIdRef.current === inspection.id && formDataRef.current) {
+      return;
+    }
+    loadedInspectionIdRef.current = inspection.id;
     try {
       const formKind = jobTypeToFormKind(inspection.jobType);
       const normalizedRooms = enrichRooms(inspection.rooms);
       const normalized = normalizeInspectionFormData(inspection.formData, formKind);
-      const enriched = enrichForm(normalized, normalizedRooms, false);
-      setFormData(enriched);
-      formDataRef.current = enriched;
-      setRooms(normalizedRooms);
-      roomsRef.current = normalizedRooms;
+      const storedFormVersion =
+        inspection.formData && typeof inspection.formData === 'object' && 'version' in inspection.formData
+          ? (inspection.formData as { version?: unknown }).version
+          : undefined;
+      const initialForm =
+        storedFormVersion === 2
+          ? normalized
+          : enrichForm(normalized, normalizedRooms, false);
+      photoCacheRef.current.clear();
+      const liteForm = toLiteForm(initialForm);
+      const liteRooms = toLiteRooms(normalizedRooms);
+      setFormData(liteForm);
+      formDataRef.current = liteForm;
+      setRooms(liteRooms);
+      roomsRef.current = liteRooms;
       setSaveState('idle');
 
       const rawAccessibilityPhotos =
         normalized.shared?.accessibilityObstructions?.photos?.filter(
           (photo) => typeof photo?.dataUrl === 'string' && photo.dataUrl.length > 20,
         ) ?? [];
-      const cleanedAccessibilityPhotos = enriched.shared.accessibilityObstructions.photos ?? [];
+      const cleanedAccessibilityPhotos = liteForm.shared.accessibilityObstructions.photos ?? [];
       if (
         !readOnlyRef.current &&
         inspectionIdRef.current &&
@@ -275,17 +490,18 @@ export function useInspectionEditor(
       console.error('Failed to load inspection form data:', err);
       setFormData(null);
       formDataRef.current = null;
+      loadedInspectionIdRef.current = undefined;
     }
-  }, [enqueueSectionSave, inspection?.id, inspection?.updatedAt, inspection?.jobType, inspection?.formData, inspection?.rooms]);
+  }, [enqueueSectionSave, inspection, toLiteForm, toLiteRooms]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
-      flushPendingSaves();
+      void flushPendingSaves();
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      flushPendingSaves();
+      void flushPendingSaves();
     };
   }, [flushPendingSaves]);
 
@@ -296,7 +512,6 @@ export function useInspectionEditor(
       if (existing) clearTimeout(existing);
 
       const generation = bumpSectionGeneration(sectionSaveGeneration.current, timerKey);
-      setSaveState('saving');
 
       if (debounceMs <= 0) {
         enqueueSectionSave(realm, section, generation);
@@ -317,17 +532,29 @@ export function useInspectionEditor(
     (realm: InspectionFormRealm, section: string, partial: Record<string, unknown>) => {
       if (readOnly || !inspectionId) return;
 
-      setFormData((prev) => {
-        if (!prev) return prev;
-        const patched = patchSectionData(prev, realm, section, partial);
-        const next = enrichForm(patched, roomsRef.current, true);
-        formDataRef.current = next;
-        return next;
-      });
+      const prev = formDataRef.current;
+      if (!prev) return;
+      collectPhotosIntoCache(partial, photoCacheRef.current);
+      const patched = patchSectionData(prev, realm, section, partial);
+      const next = sectionNeedsLiveEnrich(realm, section)
+        ? enrichInspectionFormDataForSection(patched, realm, section, {
+            rooms: roomsForEnrichment(roomsRef.current),
+            preserveAccessibilityPhotos: true,
+          })
+        : patched;
+      const lite = toLiteForm(next);
+      formDataRef.current = lite;
+      if (hasDefectQuickFlag(partial)) {
+        setFormData(lite);
+      } else {
+        startTransition(() => {
+          setFormData(lite);
+        });
+      }
 
       scheduleSectionSave(realm, section, saveDebounceMs(partial));
     },
-    [inspectionId, readOnly, scheduleSectionSave],
+    [inspectionId, readOnly, scheduleSectionSave, toLiteForm],
   );
 
   const scheduleRoomSave = useCallback(
@@ -335,60 +562,83 @@ export function useInspectionEditor(
       const existing = roomTimers.current.get(roomId);
       if (existing) clearTimeout(existing);
 
-      setSaveState('saving');
+      const generation = bumpSectionGeneration(roomSaveGeneration.current, roomId);
+
+      if (debounceMs <= 0) {
+        enqueueRoomSave(roomId, generation);
+        return;
+      }
+
       roomTimers.current.set(
         roomId,
         setTimeout(() => {
-          roomTimers.current.delete(roomId);
-          void persistRoom(roomId);
+          enqueueRoomSave(roomId, generation);
         }, debounceMs),
       );
     },
-    [persistRoom],
+    [enqueueRoomSave],
   );
 
   const patchRoom = useCallback(
     (roomId: string, partial: Record<string, unknown>) => {
       if (readOnly || !inspectionId) return;
 
-      setRooms((prev) => {
-        const nextRooms = prev.map((room) =>
-          room.id === roomId ? { ...room, data: { ...room.data, ...partial } } : room,
-        );
-        roomsRef.current = nextRooms;
-        setFormData((current) => {
-          if (!current?.building) return current;
-          const enriched = enrichInspectionFormData(current, { rooms: roomsForEnrichment(nextRooms) });
-          formDataRef.current = enriched;
-          return enriched;
+      collectPhotosIntoCache(partial, photoCacheRef.current);
+      const nextRooms = roomsRef.current.map((room) =>
+        room.id === roomId
+          ? {
+              ...room,
+              data: stripPhotosFromValue({ ...room.data, ...partial }, photoCacheRef.current),
+            }
+          : room,
+      );
+      roomsRef.current = nextRooms;
+      // Defect quick-actions must paint immediately; deferred transitions can lose to a
+      // concurrent refetch and look like Major snapped back to No Major.
+      if (hasDefectQuickFlag(partial) || Object.prototype.hasOwnProperty.call(partial, 'photos')) {
+        setRooms(nextRooms);
+      } else {
+        startTransition(() => {
+          setRooms(nextRooms);
         });
-        return nextRooms;
-      });
-
+      }
+      if (roomUpdateNeedsEnrich(partial)) {
+        scheduleRoomFormEnrich();
+      }
+      if (hasDefectQuickFlag(partial) || Object.prototype.hasOwnProperty.call(partial, 'photos')) {
+        const existing = roomTimers.current.get(roomId);
+        if (existing) clearTimeout(existing);
+        roomTimers.current.delete(roomId);
+        const generation = bumpSectionGeneration(roomSaveGeneration.current, roomId);
+        enqueueRoomSave(roomId, generation);
+        return;
+      }
       scheduleRoomSave(roomId, saveDebounceMs(partial));
     },
-    [inspectionId, readOnly, scheduleRoomSave],
+    [enqueueRoomSave, inspectionId, readOnly, scheduleRoomFormEnrich, scheduleRoomSave],
   );
 
   const updateRoomData = useCallback(
     (roomId: string, data: Record<string, unknown>) => {
       if (readOnly || !inspectionId) return;
 
-      setRooms((prev) => {
-        const nextRooms = prev.map((room) => (room.id === roomId ? { ...room, data } : room));
-        roomsRef.current = nextRooms;
-        setFormData((current) => {
-          if (!current?.building) return current;
-          const enriched = enrichInspectionFormData(current, { rooms: roomsForEnrichment(nextRooms) });
-          formDataRef.current = enriched;
-          return enriched;
-        });
-        return nextRooms;
+      const previousRoom = roomsRef.current.find((room) => room.id === roomId);
+      collectPhotosIntoCache(data, photoCacheRef.current);
+      const nextRooms = roomsRef.current.map((room) =>
+        room.id === roomId
+          ? { ...room, data: stripPhotosFromValue(data, photoCacheRef.current) }
+          : room,
+      );
+      roomsRef.current = nextRooms;
+      startTransition(() => {
+        setRooms(nextRooms);
       });
-
+      if (previousRoom && roomDataNeedsEnrich(previousRoom.data, data)) {
+        scheduleRoomFormEnrich();
+      }
       scheduleRoomSave(roomId, saveDebounceMs(data));
     },
-    [inspectionId, readOnly, scheduleRoomSave],
+    [inspectionId, readOnly, scheduleRoomFormEnrich, scheduleRoomSave],
   );
 
   return {
@@ -398,5 +648,7 @@ export function useInspectionEditor(
     patchSection,
     patchRoom,
     updateRoomData,
+    flushPendingSaves,
+    photoCache: photoCacheRef.current,
   };
 }

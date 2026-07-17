@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode, memo, useRef } from 'react';
 import type { BathroomRoomData, CheckboxFieldState } from '@sitescop/room-engine-core';
 import {
   BATHROOM_DOOR_STATUS,
@@ -27,6 +27,7 @@ interface BathroomRoomFormProps {
   data: BathroomRoomData;
   onPatch: (partial: Partial<BathroomRoomData>) => void;
   disabled?: boolean;
+  majorActive?: boolean;
 }
 
 function fixtureIsSelected(fixtures: CheckboxFieldState, name: string): boolean {
@@ -84,7 +85,9 @@ function jambStatusValue(data: BathroomRoomData): string {
   return data.doorJambCondition || 'Good';
 }
 
-export function BathroomRoomForm({ data, onPatch, disabled = false }: BathroomRoomFormProps) {
+export const BathroomRoomForm = memo(function BathroomRoomForm({ data, onPatch, disabled = false, majorActive = false }: BathroomRoomFormProps) {
+  const onPatchRef = useRef(onPatch);
+  onPatchRef.current = onPatch;
   const fixturesKey = useMemo(
     () => JSON.stringify(normalizeCheckboxField(data.fixtures)),
     [data.fixtures],
@@ -96,15 +99,15 @@ export function BathroomRoomForm({ data, onPatch, disabled = false }: BathroomRo
   }, [fixturesKey, data.fixtures]);
 
   const set = <K extends keyof BathroomRoomData>(key: K, value: BathroomRoomData[K]) => {
-    onPatch({ [key]: value } as Partial<BathroomRoomData>);
+    onPatchRef.current({ [key]: value } as Partial<BathroomRoomData>);
   };
 
   const handleFixturesChange = useCallback(
     (value: CheckboxFieldState) => {
       setFixtures(value);
-      onPatch({ fixtures: value });
+      onPatchRef.current({ fixtures: value });
     },
-    [onPatch],
+    [],
   );
 
   const showBasin = fixtureIsSelected(fixtures, 'Basin') || fixtureIsSelected(fixtures, 'Vanity Cabinet');
@@ -362,6 +365,7 @@ export function BathroomRoomForm({ data, onPatch, disabled = false }: BathroomRo
       <SectionComments
         sectionId="bathrooms"
         disabled={disabled}
+        majorActive={majorActive}
         comments={data.comments}
         photos={data.photos}
         onCommentsChange={(v) => set('comments', v)}
@@ -369,4 +373,4 @@ export function BathroomRoomForm({ data, onPatch, disabled = false }: BathroomRo
       />
     </div>
   );
-}
+});

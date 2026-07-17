@@ -26,6 +26,16 @@ const SHARED_ROUTE = [
   'roof-space',
 ] as const;
 
+/** Pest-only jobs: shared sections through Site Conditions, then straight into pest D1–D14. */
+const PEST_SHARED_ROUTE = [
+  'inspector-hazard',
+  'job-information',
+  'property-description',
+  'services',
+  'accessibility',
+  'site-conditions',
+] as const;
+
 /** Outside perimeter after roof — garage only (subfloor/fencing/outbuildings sit before roof). */
 const OUTSIDE_PERIMETER_ROUTE = ['garage'] as const;
 
@@ -55,6 +65,7 @@ const PEST_ROUTE = [
   'pest-d9SubfloorVentilation',
   'pest-d10ExcessiveMoisture',
   'pest-d11BarrierBridging',
+  'pest-d12UntreatedTimber',
   'pest-d13ConduciveConditions',
   'pest-d14MajorSafetyHazards',
   'pest-conclusion',
@@ -104,7 +115,7 @@ export function buildInspectionRouteIds(ctx: InspectionRouteContext): string[] {
   }
 
   if (ctx.formKind === 'PEST' && !includePest) {
-    return filterRouteIds(SHARED_ROUTE, ctx);
+    return filterRouteIds(PEST_SHARED_ROUTE, ctx);
   }
 
   const buildingRoute = [
@@ -119,7 +130,7 @@ export function buildInspectionRouteIds(ctx: InspectionRouteContext): string[] {
   }
 
   if (ctx.formKind === 'PEST') {
-    return [...filterRouteIds(SHARED_ROUTE, ctx), ...filterRouteIds(PEST_ROUTE, ctx)];
+    return [...filterRouteIds(PEST_SHARED_ROUTE, ctx), ...filterRouteIds(PEST_ROUTE, ctx)];
   }
 
   // COMBINED — full building path then pest sections

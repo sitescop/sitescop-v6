@@ -177,6 +177,7 @@ function migrate(db: SqlDatabase) {
   ensureJobColumns(db);
   ensureAgreementColumns(db);
   ensureClientColumns(db);
+  repairSoftDeletedClientsWithActiveJobs(db);
   ensureUserColumns(db);
   backfillInspections(db);
   backfillCompletedJobInspections(db);
@@ -260,6 +261,25 @@ function ensureClientColumns(db: SqlDatabase) {
     }
   }
   db.run(`CREATE INDEX IF NOT EXISTS idx_clients_deleted ON clients(deleted_at)`);
+}
+
+/**
+ * Jobs must never stay linked to a soft-deleted client (Clients list hides them).
+ * Revive any client that still has active jobs.
+ */
+function repairSoftDeletedClientsWithActiveJobs(db: SqlDatabase) {
+  db.run(`
+    UPDATE clients
+    SET deleted_at = NULL,
+        deleted_reason = NULL
+    WHERE IFNULL(deleted_at, '') != ''
+      AND EXISTS (
+        SELECT 1
+        FROM jobs j
+        WHERE j.client_id = clients.id
+          AND IFNULL(j.deleted_at, '') = ''
+      )
+  `);
 }
 
 function ensureAgreementColumns(db: SqlDatabase) {

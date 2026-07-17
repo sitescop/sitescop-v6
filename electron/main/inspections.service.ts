@@ -13,6 +13,7 @@ import {
   calculateInspectionProgress,
   createEmptyInspectionFormData,
   enrichInspectionFormData,
+  enrichInspectionFormDataForSection,
   jobTypeToFormKind,
   mergeJobContextIntoJobInformation,
   normalizeInspectionFormData,
@@ -329,8 +330,10 @@ export function updateInspectionSection(
     JSON.parse(String(row.form_data || '{}')) as Record<string, unknown>,
     formKind,
   );
-  const patched = enrichInspectionFormData(
+  const patched = enrichInspectionFormDataForSection(
     patchSectionData(rawForm, input.realm, input.section, input.data),
+    input.realm,
+    input.section,
     enrichment,
   );
   const progressPercent = calculateInspectionProgress(patched);
@@ -393,8 +396,10 @@ export function updateInspectionRoom(
   const jobType = refreshed.inspection_type as InspectionType;
   const formKind = jobTypeToFormKind(jobType);
   const rooms = loadRooms(db, inspectionId);
-  const enriched = enrichInspectionFormData(
+  const enriched = enrichInspectionFormDataForSection(
     normalizeInspectionFormData(JSON.parse(String(refreshed.form_data || '{}')), formKind),
+    'building',
+    'majorDefects',
     { rooms: roomsForMajorDefectRollup(rooms) },
   );
   db.run(

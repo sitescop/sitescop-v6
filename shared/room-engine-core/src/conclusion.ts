@@ -39,13 +39,28 @@ export function generateAutoRecommendations(form: BuildingInspectionFormData): s
   if (form.moistureTesting.excessiveMoistureEvidence === 'Yes') {
     recommendations.push('Waterproofing Contractor Recommended');
   }
+  if (form.moistureTesting.visualMoistureEvidence === 'Yes') {
+    recommendations.push('Waterproofing Contractor Recommended');
+  }
   if (form.siteConditions.evidenceOfWaterPooling === 'Yes') {
     recommendations.push('Drainage Improvements Recommended');
   }
   if (form.services.hotWaterOperating === 'No') {
     recommendations.push('Licensed Plumber Recommended');
   }
-  if (form.kitchen.powerPoints.includes('Damaged') || form.laundry.powerPoints.includes('Damaged')) {
+  if (
+    form.kitchen.leakInsideCabinet === 'Yes' ||
+    form.laundry.activeLeak === 'Yes' ||
+    form.laundry.leakage === 'Yes'
+  ) {
+    recommendations.push('Licensed Plumber Recommended');
+  }
+  if (
+    form.kitchen.powerPoints.includes('Damaged') ||
+    form.laundry.powerPoints.includes('Damaged') ||
+    form.kitchen.lights.includes('Not Working') ||
+    form.laundry.lights.includes('Not Working')
+  ) {
     recommendations.push('Licensed Electrician Recommended');
   }
 

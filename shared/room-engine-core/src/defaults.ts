@@ -285,7 +285,7 @@ export function normalizeAccessibilityAreas(
 }
 
 export function emptySectionBase() {
-  return { comments: '', photos: [], noMajorDefectObserved: false };
+  return { comments: '', photos: [], noMajorDefectObserved: false, majorDefectObserved: false };
 }
 
 export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspectionFormData {
@@ -404,6 +404,7 @@ export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspec
     roofSpace: {
       ...base,
       defects: emptyCheckboxField(),
+      framingElements: emptyCheckboxField(),
     },
     kitchen: {
       ...base,
@@ -506,6 +507,7 @@ export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspec
         conditionsConducive: [],
         areasNotInspected: [],
         safetyHazards: [],
+        crackingEntries: [],
       },
     },
     thermalImaging: { ...base },

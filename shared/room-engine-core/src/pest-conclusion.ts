@@ -5,6 +5,7 @@ import {
   BATHROOM_MOISTURE_LOCATION_PRESETS,
   D10_EVIDENCE_REPORT_PREFIX,
   D10_STAINS_REPORT_PREFIX,
+  D12_UNTREATED_TIMBER_RECOMMENDATION,
   D3_EVIDENCE_REPORT_PREFIX,
   EVIDENCE_FOUND,
   isPestEvidenceFound,
@@ -17,6 +18,7 @@ import {
   SUBFLOOR_VENTILATION_NOT_APPLICABLE,
 } from './pest-options.js';
 import { normalizeCheckboxField } from './defaults.js';
+import { applyD12UntreatedTimberDefaults } from './pest-defaults.js';
 import {
   collectAccessibilityRiskReasons,
   DEFAULT_TIMBER_PEST_UNDETECTED_RISK,
@@ -376,6 +378,12 @@ export function generatePestAutoRecommendations(
     }
   }
 
+  if (isPestEvidenceFound(pest.d12UntreatedTimber?.summaryAnswer)) {
+    const recommendation =
+      pest.d12UntreatedTimber.recommendation?.trim() || D12_UNTREATED_TIMBER_RECOMMENDATION;
+    recs.push(recommendation);
+  }
+
   if (isPestEvidenceFound(pest.d13ConduciveConditions.summaryDuringInspection)) {
     recs.push(...checkboxItems(pest.d13ConduciveConditions.recommendationPresets));
     if (pest.d13ConduciveConditions.locationNarrative.trim()) {
@@ -497,6 +505,12 @@ export function applyPestSectionUpdates(
   }
 
   updated = syncD9SubfloorVentilationAnswer(updated, options?.subfloorApplicable);
+  if (updated.d12UntreatedTimber) {
+    updated = {
+      ...updated,
+      d12UntreatedTimber: applyD12UntreatedTimberDefaults(updated.d12UntreatedTimber),
+    };
+  }
 
   return enrichPestConclusion(applyPestConclusionUpdates(updated));
 }
@@ -535,9 +549,11 @@ function syncD9SubfloorVentilationAnswer(
 
 function mergePhotoRefs(existing: InspectionPhotoRef[], incoming: InspectionPhotoRef[]): InspectionPhotoRef[] {
   const merged = [...existing];
-  const seen = new Set(existing.map((photo) => `${photo.id}|${photo.dataUrl}`));
+  const seen = new Set(
+    existing.map((photo) => (photo.id ? photo.id : `anon:${(photo.dataUrl ?? '').length}`)),
+  );
   for (const photo of incoming) {
-    const key = `${photo.id}|${photo.dataUrl}`;
+    const key = photo.id ? photo.id : `anon:${(photo.dataUrl ?? '').length}`;
     if (seen.has(key)) continue;
     merged.push(photo);
     seen.add(key);

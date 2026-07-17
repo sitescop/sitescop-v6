@@ -10,7 +10,7 @@ import {
   createEmptyLivingRoom,
 } from '../../room-engine-core/src/index.js';
 
-const SKIP_FIELD_KEYS = new Set(['photos', 'comments', 'sectionReviewed', 'licenceNumber', 'clientSignatureData', 'reportComplete', 'noMajorDefectObserved']);
+const SKIP_FIELD_KEYS = new Set(['photos', 'comments', 'sectionReviewed', 'licenceNumber', 'clientSignatureData', 'reportComplete', 'noMajorDefectObserved', 'majorDefectObserved', 'plumbingDefectPhotos', 'areasNotInspected']);
 
 /** Human-readable labels matching the inspection form UI. */
 const FIELD_LABEL_OVERRIDES: Record<string, string> = {
@@ -57,11 +57,11 @@ const FIELD_LABEL_OVERRIDES: Record<string, string> = {
   gas: 'Gas',
   gasOther: 'Gas (Other)',
   gasPhotos: 'Gas Photos',
-  hotWaterPresent: 'Hot Water Present',
-  hotWaterLocation: 'Hot Water Location',
-  hotWaterType: 'Hot Water Type',
-  hotWaterTypeOther: 'Hot Water Type (Other)',
-  hotWaterOperating: 'Hot Water Operating',
+  hotWaterPresent: 'Hot Water System Present',
+  hotWaterLocation: 'Hot Water System Location',
+  hotWaterType: 'Hot Water System Type',
+  hotWaterTypeOther: 'Hot Water System Type (Other)',
+  hotWaterOperating: 'Hot Water System Operating',
   hotWaterPhotos: 'Hot Water System Photos',
   hotWaterComments: 'Hot Water System Comments',
   airConPresent: 'Air Conditioning Present',
@@ -93,6 +93,7 @@ const FIELD_LABEL_OVERRIDES: Record<string, string> = {
   siteDrainageConcerns: 'Site Drainage Concerns',
   externalDefects: 'External Defects',
   damageObserved: 'Damage Observed',
+  framingElements: 'Roof Framing Elements',
   autoConclusion: 'Conclusion',
   autoRecommendations: 'Auto Recommendations',
   manualRecommendations: 'Manual Recommendations',
@@ -136,10 +137,8 @@ const FIELD_LABEL_OVERRIDES: Record<string, string> = {
   moistureSourcePhotos: 'Source of Moisture Photos',
   conditionsConducive: 'Conducive To Finish Element Damage',
   finishElementDamageEntries: 'Finish Element Damage',
-  areasNotInspected: 'Areas Not Inspected',
   safetyHazards: 'Major Safety Hazards',
   safetyHazardPhotos: 'Major Safety Hazard Photos',
-  plumbingDefectPhotos: 'Plumbing Defect Photos',
   crackingEntries: 'Cracking',
   crackWidth: 'Crack Width',
   monitoringRecommended: 'Monitoring Recommended',
