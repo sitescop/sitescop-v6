@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Mail, Phone, Search, Users } from 'lucide-react';
 import { getClientsApi, hasClientsApi } from '@/lib/sitescop-api';
+import { getClientNameStyle } from '@/lib/client-name-style';
 import { FeatureRestartNotice } from '@/components/FeatureRestartNotice';
 import { Button, Card, Input } from '@/design-system/components';
+import { cn } from '@/lib/cn';
 
 function formatDate(value: string | null): string {
   if (!value) return '—';
@@ -84,7 +86,9 @@ export function ClientsPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {clients.map((client) => (
+          {clients.map((client) => {
+            const nameStyle = getClientNameStyle(client.firstName, client.lastName);
+            return (
             <Card
               key={client.id}
               className="cursor-pointer p-4 transition-colors hover:border-primary/30 hover:bg-primary/[0.02]"
@@ -99,8 +103,20 @@ export function ClientsPage() {
               }}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-text">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div
+                    className={cn(
+                      'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold ring-2',
+                      nameStyle.bg,
+                      nameStyle.text,
+                      nameStyle.ring,
+                    )}
+                    aria-hidden
+                  >
+                    {nameStyle.initials}
+                  </div>
+                  <div className="min-w-0">
+                  <p className={cn('text-base font-bold', nameStyle.text)}>
                     {client.firstName} {client.lastName}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-text-light">
@@ -117,6 +133,7 @@ export function ClientsPage() {
                       </span>
                     )}
                   </div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 text-right text-sm">
                   <div>
@@ -129,7 +146,8 @@ export function ClientsPage() {
                 </div>
               </div>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

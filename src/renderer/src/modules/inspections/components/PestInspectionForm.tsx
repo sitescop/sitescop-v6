@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo } from 'react';
-import type { InspectionFormRealm, PestInspectionSections } from '@sitescop/room-engine-core';
+import type { CheckboxFieldState, InspectionFormRealm, PestInspectionSections } from '@sitescop/room-engine-core';
 import {
   ACTIVE_TERMITES_IMPORTANT_NOTE,
   BARRIER_BRIDGING_ITEMS,
@@ -28,6 +28,8 @@ import {
   TERMITE_WORKING_LOCATIONS,
   TIMBER_PEST_RISK_LEVELS,
   WOOD_BORER_ANSWERS,
+  isRouteInaccessibleFromAccessibility,
+  resolveAccessibilityAreaForRoute,
 } from '@sitescop/room-engine-core';
 import { Input, Select, Textarea } from '@/design-system/components';
 import {
@@ -36,6 +38,7 @@ import {
   RatingSelect,
   SectionComments,
 } from './InspectionFields';
+import { AreaInaccessibleBanner } from './AreaInaccessibleBanner';
 import { CertificationStatement } from './CertificationStatement';
 import { InspectorSignatureField } from './InspectorSignatureField';
 import { InspectionAccordion, InspectionAccordionSection } from './InspectionAccordion';
@@ -53,6 +56,8 @@ interface PestInspectionFormProps {
   workflowStorageKey?: string;
   /** Workspace v2: render only this route section (section filter + no accordion). */
   onlySectionId?: string;
+  accessibilityAreas?: CheckboxFieldState;
+  inaccessibleAreaReasons?: Record<string, string>;
 }
 
 const DERIVED_UI_DEBOUNCE_MS = 180;
@@ -65,9 +70,23 @@ export function PestInspectionForm({
   subfloorApplicable = true,
   workflowStorageKey,
   onlySectionId,
+  accessibilityAreas,
+  inaccessibleAreaReasons,
 }: PestInspectionFormProps) {
   const disabled = Boolean(readOnly);
   const showSection = (sectionId: string) => !onlySectionId || onlySectionId === sectionId;
+  const subfloorLockArea =
+    accessibilityAreas &&
+    isRouteInaccessibleFromAccessibility(
+      'pest-d9SubfloorVentilation',
+      accessibilityAreas,
+      subfloorApplicable,
+    )
+      ? resolveAccessibilityAreaForRoute('pest-d9SubfloorVentilation')
+      : null;
+  const subfloorLockReason = subfloorLockArea
+    ? inaccessibleAreaReasons?.[subfloorLockArea]
+    : undefined;
   const patch = (section: keyof PestInspectionSections, partial: Record<string, unknown>) => {
     if (readOnly) return;
     onSectionChange('pest', section, partial);
@@ -277,9 +296,16 @@ export function PestInspectionForm({
       {subfloorApplicable && showSection('pest-d9SubfloorVentilation') ? (
         <InspectionAccordionSection id="pest-d9SubfloorVentilation" title={PEST_INSPECTION_SECTION_LABELS.d9SubfloorVentilation} status={statuses['pest-d9SubfloorVentilation']}
         render={() => (
-        <>        <Select label="Lack of Adequate Subfloor Ventilation" value={pest.d9SubfloorVentilation.answer} onChange={(e) => patch('d9SubfloorVentilation', { answer: e.target.value })} options={SUBFLOOR_VENTILATION_ANSWERS.map((v) => ({ value: v, label: v }))} />
-        {d9HasEvidence && (
-          <Textarea label="Details" value={pest.d9SubfloorVentilation.locationNarrative} onChange={(e) => patch('d9SubfloorVentilation', { locationNarrative: e.target.value })} rows={2} />
+        <>
+        {subfloorLockArea ? (
+          <AreaInaccessibleBanner area={subfloorLockArea} reason={subfloorLockReason} />
+        ) : (
+          <>
+            <Select label="Lack of Adequate Subfloor Ventilation" value={pest.d9SubfloorVentilation.answer} onChange={(e) => patch('d9SubfloorVentilation', { answer: e.target.value })} options={SUBFLOOR_VENTILATION_ANSWERS.map((v) => ({ value: v, label: v }))} />
+            {d9HasEvidence && (
+              <Textarea label="Details" value={pest.d9SubfloorVentilation.locationNarrative} onChange={(e) => patch('d9SubfloorVentilation', { locationNarrative: e.target.value })} rows={2} />
+            )}
+          </>
         )}
         <PhotoField disabled={disabled} label="Subfloor Ventilation Photos" photos={pest.d9SubfloorVentilation.photos} onChange={(photos) => patch('d9SubfloorVentilation', { photos })} />
               </>

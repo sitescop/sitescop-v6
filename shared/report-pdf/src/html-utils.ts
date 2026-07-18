@@ -166,6 +166,16 @@ function renderValue(key: string, value: unknown): string {
     const lines = value.filter((line) => typeof line === 'string' && line.trim());
     return lines.length ? escapeHtml(lines.join('; ')) : '—';
   }
+  if (key === 'inaccessibleAreaReasons') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return '—';
+    const lines = Object.entries(value as Record<string, unknown>)
+      .map(([area, reason]) => {
+        const r = String(reason ?? '').trim();
+        return r ? `${area}: ${r}` : area;
+      })
+      .filter(Boolean);
+    return lines.length ? escapeHtml(lines.join('; ')) : '—';
+  }
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (typeof value === 'number') return escapeHtml(String(value));
@@ -378,6 +388,8 @@ export function renderHeadingGroup(
 
 export interface ReportSectionRenderOptions {
   startNewPage?: boolean;
+  /** Hide detailed fields (e.g. area inaccessible / not inspected). */
+  collapseFields?: boolean;
 }
 
 export function renderSectionBlock(
@@ -389,6 +401,7 @@ export function renderSectionBlock(
   options: ReportSectionRenderOptions = {},
 ): string {
   const noMajorDefect = isDefectQuickCollapsed(data as { noMajorDefectObserved?: boolean; majorDefectObserved?: boolean; comments?: string });
+  const collapseFields = Boolean(options.collapseFields) || noMajorDefect;
   const comments = noMajorDefect
     ? resolveDefectQuickPdfComments(
         data as { noMajorDefectObserved?: boolean; majorDefectObserved?: boolean; comments?: string },
@@ -402,10 +415,10 @@ export function renderSectionBlock(
       ? (data.photos as InspectionPhotoRef[])
       : [];
   const inlinedPhotoKeys = new Set<string>();
-  const rowGroups = noMajorDefect
+  const rowGroups = collapseFields
     ? ''
     : renderFieldRows(data, extraSkip, fieldLabels, fieldDefs, inlinedPhotoKeys);
-  const extraPhotos = noMajorDefect
+  const extraPhotos = collapseFields
     ? ''
     : renderExtraPhotoFields(data, fieldDefs, inlinedPhotoKeys);
 

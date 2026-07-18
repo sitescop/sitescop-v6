@@ -6,6 +6,7 @@ import {
   Building2,
   Cloud,
   DollarSign,
+  HardDrive,
   ImageIcon,
   Link2,
   Lock,
@@ -19,6 +20,9 @@ import {
 import type {
   BillingSettingsInput,
   ChangePasswordInput,
+  CloudStorageProvider,
+  CloudStorageSettingsInput,
+  CloudStorageTestResult,
   CompanySettingsInput,
   EmailMailClient,
   EmailSettingsInput,
@@ -50,6 +54,7 @@ type SettingsTab =
   | 'reports'
   | 'security'
   | 'github'
+  | 'cloud'
   | 'xero';
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
@@ -63,8 +68,40 @@ const TABS: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
   { id: 'reports', label: 'Reports & PDF', icon: ImageIcon },
   { id: 'security', label: 'Login & Password', icon: Lock },
   { id: 'github', label: 'GitHub Signing', icon: Cloud },
+  { id: 'cloud', label: 'Cloud storage', icon: HardDrive },
   { id: 'xero', label: 'Xero & MYOB', icon: Link2 },
 ];
+
+const CLOUD_PROVIDER_OPTIONS: Array<{ value: CloudStorageProvider; label: string }> = [
+  { value: 'none', label: 'Off — keep reports on this PC only' },
+  { value: 's3', label: 'S3-compatible / Cloudflare R2 (private signed links)' },
+  { value: 'google_drive', label: 'Google Drive (settings saved — connect later)' },
+  { value: 'onedrive', label: 'OneDrive (settings saved — connect later)' },
+  { value: 'mega', label: 'MEGA (settings saved — connect later)' },
+  { value: 'proton', label: 'Proton Drive (settings saved — connect later)' },
+  { value: 'sync', label: 'Sync.com (settings saved — connect later)' },
+];
+
+const LINK_EXPIRY_OPTIONS = [
+  { value: '3', label: '3 days' },
+  { value: '7', label: '7 days (recommended)' },
+];
+
+const DEFAULT_CLOUD_FORM: CloudStorageSettingsInput = {
+  enabled: false,
+  provider: 'none',
+  preferLinksOverAttachments: true,
+  useSignedDownloadLinks: true,
+  linkExpiryDays: 7,
+  s3Endpoint: '',
+  s3Region: 'auto',
+  s3Bucket: '',
+  s3AccessKeyId: '',
+  s3PublicBaseUrl: '',
+  s3Prefix: 'sitescop-reports/',
+  accountEmail: '',
+  notes: '',
+};
 
 const MAIL_CLIENT_OPTIONS: Array<{ value: EmailMailClient; label: string }> = [
   { value: 'zoho', label: 'Zoho Mail (browser)' },
@@ -150,6 +187,11 @@ export function SettingsPage() {
   const githubQuery = useQuery({
     queryKey: ['settings-github'],
     queryFn: () => getSettingsApi().getGitHub(),
+  });
+
+  const cloudQuery = useQuery({
+    queryKey: ['settings-cloud'],
+    queryFn: () => getSettingsApi().getCloudStorage(),
   });
 
   const xeroQuery = useQuery({
@@ -250,6 +292,12 @@ export function SettingsPage() {
   const [ensureRelayMessage, setEnsureRelayMessage] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
+  const [cloudForm, setCloudForm] = useState<CloudStorageSettingsInput>(DEFAULT_CLOUD_FORM);
+  const [s3SecretAccessKey, setS3SecretAccessKey] = useState('');
+  const [cloudAccountPassword, setCloudAccountPassword] = useState('');
+  const [cloudApiKey, setCloudApiKey] = useState('');
+  const [cloudApiSecret, setCloudApiSecret] = useState('');
+  const [cloudTestResult, setCloudTestResult] = useState<CloudStorageTestResult | null>(null);
   const [xeroForm, setXeroForm] = useState<XeroSettingsInput>({
     enabled: false,
     clientId: '',
@@ -308,6 +356,25 @@ export function SettingsPage() {
       publicRelayUrl: githubQuery.data.publicRelayUrl,
     });
   }, [githubQuery.data]);
+
+  useEffect(() => {
+    if (!cloudQuery.data) return;
+    setCloudForm({
+      enabled: cloudQuery.data.enabled,
+      provider: cloudQuery.data.provider,
+      preferLinksOverAttachments: cloudQuery.data.preferLinksOverAttachments,
+      useSignedDownloadLinks: cloudQuery.data.useSignedDownloadLinks,
+      linkExpiryDays: cloudQuery.data.linkExpiryDays,
+      s3Endpoint: cloudQuery.data.s3Endpoint,
+      s3Region: cloudQuery.data.s3Region,
+      s3Bucket: cloudQuery.data.s3Bucket,
+      s3AccessKeyId: cloudQuery.data.s3AccessKeyId,
+      s3PublicBaseUrl: cloudQuery.data.s3PublicBaseUrl,
+      s3Prefix: cloudQuery.data.s3Prefix,
+      accountEmail: cloudQuery.data.accountEmail,
+      notes: cloudQuery.data.notes,
+    });
+  }, [cloudQuery.data]);
 
   useEffect(() => {
     if (!xeroQuery.data) return;
@@ -649,6 +716,59 @@ export function SettingsPage() {
       setEnsureRelayMessage({
         ok: false,
         text: e instanceof Error ? e.message : 'Could not start internet relay',
+      });
+    },
+  });
+
+  const saveCloudMutation = useMutation({
+    mutationFn: () =>
+      getSettingsApi().saveCloudStorage({
+        ...cloudForm,
+        s3SecretAccessKey: s3SecretAccessKey.trim() || undefined,
+        accountPassword: cloudAccountPassword.trim() || undefined,
+        apiKey: cloudApiKey.trim() || undefined,
+        apiSecret: cloudApiSecret.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setS3SecretAccessKey('');
+      setCloudAccountPassword('');
+      setCloudApiKey('');
+      setCloudApiSecret('');
+      clearStatus();
+      setCloudTestResult(null);
+      setMessage('Cloud storage settings saved.');
+      void queryClient.invalidateQueries({ queryKey: ['settings-cloud'] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not save cloud storage settings'),
+  });
+
+  const testCloudMutation = useMutation({
+    mutationFn: async () => {
+      const settingsApi = getSettingsApi();
+      await settingsApi.saveCloudStorage({
+        ...cloudForm,
+        s3SecretAccessKey: s3SecretAccessKey.trim() || undefined,
+        accountPassword: cloudAccountPassword.trim() || undefined,
+        apiKey: cloudApiKey.trim() || undefined,
+        apiSecret: cloudApiSecret.trim() || undefined,
+      });
+      return settingsApi.testCloudStorage();
+    },
+    onSuccess: (result) => {
+      setS3SecretAccessKey('');
+      setCloudAccountPassword('');
+      setCloudApiKey('');
+      setCloudApiSecret('');
+      clearStatus();
+      void queryClient.invalidateQueries({ queryKey: ['settings-cloud'] });
+      setCloudTestResult(result);
+      // Keep top banner quiet — the colored test card below is the main feedback.
+    },
+    onError: (e) => {
+      clearStatus();
+      setCloudTestResult({
+        ok: false,
+        message: e instanceof Error ? e.message : 'Cloud storage test failed',
       });
     },
   });
@@ -1588,6 +1708,265 @@ export function SettingsPage() {
               {testGithubMutation.isPending ? 'Testing…' : 'Test Connection'}
             </Button>
           </div>
+        </Card>
+      )}
+
+      {tab === 'cloud' && (
+        <Card className="space-y-5 p-6">
+          <div>
+            <h3 className="font-bold text-text">Cloud storage for report links</h3>
+            <p className="mt-1 text-sm text-text-light">
+              Optional. Leave off to keep today&apos;s behaviour: PDFs stay on this PC, email attaches or
+              opens with local paths. GitHub Signing (agreements) is separate and unchanged.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm font-medium text-text">
+            <input
+              type="checkbox"
+              checked={cloudForm.enabled}
+              onChange={(e) =>
+                setCloudForm((current) => ({
+                  ...current,
+                  enabled: e.target.checked,
+                  provider:
+                    e.target.checked && current.provider === 'none' ? 's3' : current.provider,
+                }))
+              }
+            />
+            Enable cloud storage for report share links
+          </label>
+
+          <Select
+            label="Provider"
+            options={CLOUD_PROVIDER_OPTIONS}
+            value={cloudForm.provider}
+            onChange={(e) => {
+              const provider = e.target.value as CloudStorageProvider;
+              setCloudForm((current) => ({
+                ...current,
+                provider,
+                enabled: provider === 'none' ? false : true,
+              }));
+            }}
+          />
+
+          <label className="flex items-center gap-2 text-sm font-medium text-text">
+            <input
+              type="checkbox"
+              checked={cloudForm.preferLinksOverAttachments}
+              onChange={(e) =>
+                setCloudForm((current) => ({
+                  ...current,
+                  preferLinksOverAttachments: e.target.checked,
+                }))
+              }
+            />
+            Prefer share links over attaching large PDFs (recommended)
+          </label>
+
+          {cloudQuery.data ? (
+            <p
+              className={`text-sm ${cloudQuery.data.uploadReady ? 'text-success' : 'text-text-light'}`}
+            >
+              {cloudQuery.data.statusMessage}
+            </p>
+          ) : null}
+
+          {cloudForm.provider === 's3' && (
+            <div className="space-y-4 rounded-xl border border-border p-4">
+              <p className="text-sm text-text-light">
+                Recommended for Cloudflare R2: keep the bucket <strong>private</strong>. SiteScop uploads
+                the PDF and emails a temporary signed download link. Max link life is 7 days (R2/S3
+                limit). If a client needs the report again, resend the email to generate a new link.
+                Endpoint: <span className="font-mono text-xs">https://&lt;ACCOUNT_ID&gt;.r2.cloudflarestorage.com</span>
+                (R2 Overview / token page). Bucket for reports:{' '}
+                <span className="font-mono text-xs">sitescop-reports</span>. Agreements stay on GitHub
+                Signing; <span className="font-mono text-xs">sitescop-agreements</span> is optional archive
+                only.
+              </p>
+              <label className="flex items-center gap-2 text-sm font-medium text-text">
+                <input
+                  type="checkbox"
+                  checked={cloudForm.useSignedDownloadLinks !== false}
+                  onChange={(e) =>
+                    setCloudForm((current) => ({
+                      ...current,
+                      useSignedDownloadLinks: e.target.checked,
+                    }))
+                  }
+                />
+                Use private bucket + temporary signed links (recommended)
+              </label>
+              {cloudForm.useSignedDownloadLinks !== false ? (
+                <Select
+                  label="Link expires after"
+                  options={LINK_EXPIRY_OPTIONS}
+                  value={String(cloudForm.linkExpiryDays ?? 7)}
+                  onChange={(e) =>
+                    setCloudForm((c) => ({
+                      ...c,
+                      linkExpiryDays: Number(e.target.value) || 7,
+                    }))
+                  }
+                />
+              ) : null}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="S3 endpoint"
+                  value={cloudForm.s3Endpoint ?? ''}
+                  onChange={(e) => setCloudForm((c) => ({ ...c, s3Endpoint: e.target.value }))}
+                  placeholder="https://xxxx.r2.cloudflarestorage.com"
+                />
+                <Input
+                  label="Region"
+                  value={cloudForm.s3Region ?? 'auto'}
+                  onChange={(e) => setCloudForm((c) => ({ ...c, s3Region: e.target.value }))}
+                  placeholder="auto"
+                />
+                <Input
+                  label="Bucket"
+                  value={cloudForm.s3Bucket ?? ''}
+                  onChange={(e) => setCloudForm((c) => ({ ...c, s3Bucket: e.target.value }))}
+                  placeholder="sitescop-reports"
+                />
+                <Input
+                  label="Folder prefix"
+                  value={cloudForm.s3Prefix ?? ''}
+                  onChange={(e) => setCloudForm((c) => ({ ...c, s3Prefix: e.target.value }))}
+                  placeholder="sitescop-reports/"
+                />
+                <Input
+                  label="Access key ID"
+                  value={cloudForm.s3AccessKeyId ?? ''}
+                  onChange={(e) => setCloudForm((c) => ({ ...c, s3AccessKeyId: e.target.value }))}
+                />
+                <Input
+                  label="Secret access key"
+                  type="password"
+                  value={s3SecretAccessKey}
+                  onChange={(e) => setS3SecretAccessKey(e.target.value)}
+                  placeholder={
+                    cloudQuery.data?.hasS3SecretAccessKey
+                      ? 'Saved securely — enter only to replace'
+                      : 'Secret key'
+                  }
+                />
+                {cloudForm.useSignedDownloadLinks === false ? (
+                  <div className="sm:col-span-2">
+                    <Input
+                      label="Public base URL (legacy permanent links)"
+                      value={cloudForm.s3PublicBaseUrl ?? ''}
+                      onChange={(e) =>
+                        setCloudForm((c) => ({ ...c, s3PublicBaseUrl: e.target.value }))
+                      }
+                      placeholder="https://pub-xxxx.r2.dev"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {cloudForm.provider !== 'none' && cloudForm.provider !== 's3' && (
+            <div className="space-y-4 rounded-xl border border-border p-4">
+              <p className="text-sm text-text-light">
+                Save your account details now. Direct upload for this provider will be wired next. Until
+                then, use <strong>S3-compatible</strong> for working share links, or leave cloud off.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="Account email"
+                  value={cloudForm.accountEmail ?? ''}
+                  onChange={(e) => setCloudForm((c) => ({ ...c, accountEmail: e.target.value }))}
+                />
+                <Input
+                  label="Password / app password"
+                  type="password"
+                  value={cloudAccountPassword}
+                  onChange={(e) => setCloudAccountPassword(e.target.value)}
+                  placeholder={
+                    cloudQuery.data?.hasAccountPassword
+                      ? 'Saved securely — enter only to replace'
+                      : 'Optional until provider connects'
+                  }
+                />
+                <Input
+                  label="API key"
+                  type="password"
+                  value={cloudApiKey}
+                  onChange={(e) => setCloudApiKey(e.target.value)}
+                  placeholder={
+                    cloudQuery.data?.hasApiKey
+                      ? 'Saved securely — enter only to replace'
+                      : 'Optional'
+                  }
+                />
+                <Input
+                  label="API secret"
+                  type="password"
+                  value={cloudApiSecret}
+                  onChange={(e) => setCloudApiSecret(e.target.value)}
+                  placeholder={
+                    cloudQuery.data?.hasApiSecret
+                      ? 'Saved securely — enter only to replace'
+                      : 'Optional'
+                  }
+                />
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Notes (folder path, shared link base, etc.)"
+                    value={cloudForm.notes ?? ''}
+                    onChange={(e) => setCloudForm((c) => ({ ...c, notes: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => saveCloudMutation.mutate()} disabled={saveCloudMutation.isPending}>
+              {saveCloudMutation.isPending ? 'Saving…' : 'Save cloud settings'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                clearStatus();
+                setCloudTestResult(null);
+                testCloudMutation.mutate();
+              }}
+              disabled={testCloudMutation.isPending || cloudForm.provider === 'none'}
+            >
+              {testCloudMutation.isPending ? 'Testing…' : 'Test connection'}
+            </Button>
+          </div>
+
+          {cloudTestResult ? (
+            <div
+              className={
+                cloudTestResult.ok
+                  ? 'rounded-xl border-2 border-success/50 bg-success/10 p-4 text-sm'
+                  : 'rounded-xl border-2 border-danger/50 bg-danger/10 p-4 text-sm'
+              }
+              role="status"
+              aria-live="polite"
+            >
+              <p
+                className={`text-base font-bold ${cloudTestResult.ok ? 'text-success' : 'text-danger'}`}
+              >
+                {cloudTestResult.ok ? 'TEST PASSED — Cloud storage works' : 'TEST FAILED — Fix settings and try again'}
+              </p>
+              <p className={`mt-1 ${cloudTestResult.ok ? 'text-success' : 'text-danger'}`}>
+                {cloudTestResult.message}
+              </p>
+              {cloudTestResult.ok && cloudTestResult.sampleUrl ? (
+                <p className="mt-2 break-all font-mono text-xs text-text">
+                  Sample signed link:{' '}
+                  <span className="text-text-light">{cloudTestResult.sampleUrl}</span>
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </Card>
       )}
 

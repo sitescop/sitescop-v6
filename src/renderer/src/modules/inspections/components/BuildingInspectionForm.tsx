@@ -71,6 +71,12 @@ import {
   applyRoofFramingFinding,
   clearRoofFramingFinding,
   updateMajorDefectCheckboxField,
+  ACCESSIBILITY_AREA_REASON_OPTIONS,
+  getMissingAccessibilityAreas,
+  lockedInaccessibleAreaMessage,
+  resolveAccessibilityAreaForRoute,
+  setInaccessibleAreaReason,
+  syncInaccessibleAreasFromAccessibility,
   type BuildingExtensionSections,
   type CheckboxFieldState,
   type InspectionFormDataV2,
@@ -78,7 +84,8 @@ import {
   type MajorDefectRollupDismissibleField,
   type SharedInspectionSections,
 } from '@sitescop/room-engine-core';
-import { Input, Select, Textarea } from '@/design-system/components';
+import { Button, Input, Modal, Select, Textarea } from '@/design-system/components';
+import { AlertTriangle } from 'lucide-react';
 import type { InspectionRoomDetail } from '@shared/inspection-types';
 import { InspectionAccordion, InspectionAccordionSection } from './InspectionAccordion';
 import { CheckboxGroupField, InspectionSubsectionHeading, PhotoField, RatingSelect, SectionComments, YesNoSelect } from './InspectionFields';
@@ -91,19 +98,28 @@ import { buildInspectionSectionStatuses, type SectionCompletionStatus } from './
 import { buildInspectionRouteIds, type InspectionRouteFormKind } from './inspection-route';
 import { InspectionRoomSections } from './InspectionRoomSections';
 import { NoMajorDefectSectionWrapper } from './NoMajorDefectSectionWrapper';
+import { AreaInaccessibleBanner } from './AreaInaccessibleBanner';
 import { SectionQuickActions } from './SectionQuickActions';
 import { CrackingRegisterField } from './CrackingRegisterField';
 import { FinishElementDamageField } from './FinishElementDamageField';
 import { RoofSpaceFramingDiagram } from './RoofSpaceFramingDiagram';
 import { useDebouncedValue } from '@/modules/inspections/hooks/useDebouncedValue';
 
-const SUBFLOOR_INACCESSIBLE = new Set(['Unsafe subfloor access', 'Subfloor access obstructed']);
+const SUBFLOOR_INACCESSIBLE = new Set([
+  'Unsafe subfloor access',
+  'Subfloor access obstructed',
+  'Low height clearance — inspector unable to enter and inspect',
+  'Restricted or undersized access hatch',
+  'Low ground clearance',
+  'Standing water or flooding',
+]);
 
 function stripSubfloorFromAccessibility(
   accessibility: SharedInspectionSections['accessibilityObstructions'],
 ): Partial<SharedInspectionSections['accessibilityObstructions']> {
   const areas = normalizeCheckboxField(accessibility.accessibilityAreas);
   const inaccessible = normalizeCheckboxField(accessibility.inaccessibleAreas);
+  const { Subfloor: _removed, ...restReasons } = accessibility.inaccessibleAreaReasons ?? {};
   return {
     accessibilityAreas: {
       selected: areas.selected.filter((item) => item !== 'Subfloor'),
@@ -112,9 +128,14 @@ function stripSubfloorFromAccessibility(
     subfloorObstructions: { selected: [], custom: [] },
     subfloorObstructionPhotos: [],
     inaccessibleAreas: {
-      selected: inaccessible.selected.filter((item) => !SUBFLOOR_INACCESSIBLE.has(item)),
-      custom: inaccessible.custom.filter((item) => !SUBFLOOR_INACCESSIBLE.has(item)),
+      selected: inaccessible.selected.filter(
+        (item) => item !== 'Subfloor' && !SUBFLOOR_INACCESSIBLE.has(item),
+      ),
+      custom: inaccessible.custom.filter(
+        (item) => item !== 'Subfloor' && !SUBFLOOR_INACCESSIBLE.has(item),
+      ),
     },
+    inaccessibleAreaReasons: restReasons,
   };
 }
 
@@ -166,6 +187,7 @@ export function BuildingInspectionForm({
 }: BuildingInspectionFormProps) {
   const [gpsCapturing, setGpsCapturing] = useState(false);
   const [gpsStatus, setGpsStatus] = useState('');
+  const [lockedAreaMessage, setLockedAreaMessage] = useState<string | null>(null);
   const disabled = Boolean(readOnly);
   const building = formData.building;
   const showShared = mode === 'full' || mode === 'shared-only';
@@ -269,6 +291,75 @@ export function BuildingInspectionForm({
     onSectionChange('building', section, partial);
   };
 
+  const missingLockedAreas = getMissingAccessibilityAreas(a.accessibilityAreas, subfloorApplicable);
+  const inaccessibleReasons = a.inaccessibleAreaReasons ?? {};
+  const sectionAccessibilityLock = (routeId: string) => {
+    const area = resolveAccessibilityAreaForRoute(routeId);
+    if (!area || !missingLockedAreas.includes(area)) {
+      return { area: null as string | null, reason: undefined as string | undefined };
+    }
+    return { area, reason: inaccessibleReasons[area] };
+  };
+
+  const patchAccessibilityAreas = (value: CheckboxFieldState) => {
+    const synced = syncInaccessibleAreasFromAccessibility(
+      { ...a, accessibilityAreas: value },
+      subfloorApplicable,
+    );
+    // Single section patch — enrich applies reason comments across the form in-memory,
+    // and the 30s save persists the full enriched form on the server. Do not fan out
+    // extra patchSection/patchRoom calls (that was freezing scroll/work).
+    patchShared('accessibilityObstructions', {
+      accessibilityAreas: synced.accessibilityAreas,
+      inaccessibleAreas: synced.inaccessibleAreas,
+      inaccessibleAreaReasons: synced.inaccessibleAreaReasons,
+      interiorObstructions: synced.interiorObstructions,
+      exteriorObstructions: synced.exteriorObstructions,
+      roofSpaceObstructions: synced.roofSpaceObstructions,
+      subfloorObstructions: synced.subfloorObstructions,
+      interiorObstructionPhotos: synced.interiorObstructionPhotos,
+      exteriorObstructionPhotos: synced.exteriorObstructionPhotos,
+      roofSpaceObstructionPhotos: synced.roofSpaceObstructionPhotos,
+      subfloorObstructionPhotos: synced.subfloorObstructionPhotos,
+    });
+  };
+
+  const patchInaccessibleReason = (area: string, reason: string) => {
+    const synced = setInaccessibleAreaReason(a, area, reason, subfloorApplicable);
+    patchShared('accessibilityObstructions', {
+      inaccessibleAreas: synced.inaccessibleAreas,
+      inaccessibleAreaReasons: synced.inaccessibleAreaReasons,
+      interiorObstructions: synced.interiorObstructions,
+      exteriorObstructions: synced.exteriorObstructions,
+      roofSpaceObstructions: synced.roofSpaceObstructions,
+      subfloorObstructions: synced.subfloorObstructions,
+      interiorObstructionPhotos: synced.interiorObstructionPhotos,
+      exteriorObstructionPhotos: synced.exteriorObstructionPhotos,
+      roofSpaceObstructionPhotos: synced.roofSpaceObstructionPhotos,
+      subfloorObstructionPhotos: synced.subfloorObstructionPhotos,
+    });
+  };
+
+  const patchInaccessibleAreas = (value: CheckboxFieldState) => {
+    const locked = getMissingAccessibilityAreas(a.accessibilityAreas, subfloorApplicable);
+    const lockedSet = new Set<string>(locked);
+    const next = normalizeCheckboxField(value);
+    let selected = [...new Set([...next.selected.filter((item) => !lockedSet.has(item)), ...locked])];
+    if (locked.length > 0) {
+      selected = selected.filter((item) => item !== 'All areas permitted entry');
+    }
+    patchShared('accessibilityObstructions', {
+      inaccessibleAreas: {
+        selected,
+        custom: next.custom.filter((item) => !lockedSet.has(item)),
+      },
+    });
+  };
+
+  const onLockedInaccessibleToggle = (option: string) => {
+    setLockedAreaMessage(lockedInaccessibleAreaMessage(option));
+  };
+
   const captureGps = async () => {
     if (readOnly) return;
 
@@ -326,15 +417,30 @@ export function BuildingInspectionForm({
   const handleSubfloorPresentChange = (value: string) => {
     patchShared('propertyDescription', { subfloorPresent: value });
     if (value === 'No') {
-      patchShared('accessibilityObstructions', stripSubfloorFromAccessibility(a));
+      const stripped = stripSubfloorFromAccessibility(a);
+      const synced = syncInaccessibleAreasFromAccessibility(
+        { ...a, ...stripped },
+        false,
+      );
+      patchShared('accessibilityObstructions', {
+        ...stripped,
+        inaccessibleAreas: synced.inaccessibleAreas,
+        inaccessibleAreaReasons: synced.inaccessibleAreaReasons,
+        interiorObstructions: synced.interiorObstructions,
+        exteriorObstructions: synced.exteriorObstructions,
+        roofSpaceObstructions: synced.roofSpaceObstructions,
+        subfloorObstructions: synced.subfloorObstructions,
+        interiorObstructionPhotos: synced.interiorObstructionPhotos,
+        exteriorObstructionPhotos: synced.exteriorObstructionPhotos,
+        roofSpaceObstructionPhotos: synced.roofSpaceObstructionPhotos,
+        subfloorObstructionPhotos: synced.subfloorObstructionPhotos,
+      });
     } else if (value === 'Yes') {
       const areas = normalizeCheckboxField(a.accessibilityAreas);
       if (!areas.selected.includes('Subfloor') && !areas.custom.includes('Subfloor')) {
-        patchShared('accessibilityObstructions', {
-          accessibilityAreas: {
-            ...areas,
-            selected: [...new Set([...areas.selected, 'Subfloor'])],
-          },
+        patchAccessibilityAreas({
+          ...areas,
+          selected: [...new Set([...areas.selected, 'Subfloor'])],
         });
       }
     }
@@ -351,6 +457,8 @@ export function BuildingInspectionForm({
         statuses={statuses}
         onRoomDataChange={onRoomDataChange}
         onRoomPatch={onRoomPatch}
+        inaccessibleArea={sectionAccessibilityLock('kitchen').area}
+        inaccessibleReason={sectionAccessibilityLock('kitchen').reason}
       />
     ) : !onlySectionId ? (
       roomSections
@@ -611,40 +719,104 @@ export function BuildingInspectionForm({
             ? 'Record obstructions and inaccessible areas. Undetected Timber Pest Risk is assessed in the Timber Pest Risk Assessment section.'
             : 'Record obstructions and inaccessible areas first. Undetected Structural Damage Risk defaults to Moderate and increases automatically when limitations are present — for example a dog, locked rooms, stored goods, or unsafe access.'}
         </p>
-        <CheckboxGroupField disabled={disabled} label="Accessibility Areas" options={accessibilityAreaOptions} value={a.accessibilityAreas} onChange={(v) => patchShared('accessibilityObstructions', { accessibilityAreas: v })} />
-        <CheckboxGroupField disabled={disabled} label="A - Building Interior Obstructions" options={INTERIOR_OBSTRUCTIONS} value={a.interiorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { interiorObstructions: v })} />
-        <PhotoField
+        <CheckboxGroupField
           disabled={disabled}
-          label="A — Interior Obstruction Photos"
-          photos={a.interiorObstructionPhotos ?? []}
-          onChange={(v) => patchShared('accessibilityObstructions', { interiorObstructionPhotos: v })}
+          label="Accessibility Areas"
+          options={accessibilityAreaOptions}
+          value={a.accessibilityAreas}
+          onChange={patchAccessibilityAreas}
         />
-        <CheckboxGroupField disabled={disabled} label="B - Building Exterior Obstructions" options={EXTERIOR_OBSTRUCTIONS} value={a.exteriorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { exteriorObstructions: v })} />
-        <PhotoField
-          disabled={disabled}
-          label="B — Exterior Obstruction Photos"
-          photos={a.exteriorObstructionPhotos ?? []}
-          onChange={(v) => patchShared('accessibilityObstructions', { exteriorObstructionPhotos: v })}
-        />
-        <CheckboxGroupField disabled={disabled} label="C - Roof Space Obstructions" options={ROOF_SPACE_OBSTRUCTIONS} value={a.roofSpaceObstructions} onChange={(v) => patchShared('accessibilityObstructions', { roofSpaceObstructions: v })} />
-        <PhotoField
-          disabled={disabled}
-          label="C — Roof Space Obstruction Photos"
-          photos={a.roofSpaceObstructionPhotos ?? []}
-          onChange={(v) => patchShared('accessibilityObstructions', { roofSpaceObstructionPhotos: v })}
-        />
-        {subfloorApplicable ? (
+        {missingLockedAreas.includes('Interior') ? (
+          <p className="rounded-lg border border-[#B45309]/30 bg-[#FFFBEB] px-3 py-2 text-sm text-[#92400E]">
+            A — Building Interior Obstructions: not applicable — Interior is inaccessible (not ticked in Accessibility Areas).
+          </p>
+        ) : (
           <>
-            <CheckboxGroupField disabled={disabled} label="D - Subfloor Space Obstructions" options={SUBFLOOR_OBSTRUCTIONS} value={a.subfloorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { subfloorObstructions: v })} />
+            <CheckboxGroupField disabled={disabled} label="A - Building Interior Obstructions" options={INTERIOR_OBSTRUCTIONS} value={a.interiorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { interiorObstructions: v })} />
             <PhotoField
               disabled={disabled}
-              label="D — Subfloor Obstruction Photos"
-              photos={a.subfloorObstructionPhotos ?? []}
-              onChange={(v) => patchShared('accessibilityObstructions', { subfloorObstructionPhotos: v })}
+              label="A — Interior Obstruction Photos"
+              photos={a.interiorObstructionPhotos ?? []}
+              onChange={(v) => patchShared('accessibilityObstructions', { interiorObstructionPhotos: v })}
             />
           </>
+        )}
+        {missingLockedAreas.includes('Exterior') ? (
+          <p className="rounded-lg border border-[#B45309]/30 bg-[#FFFBEB] px-3 py-2 text-sm text-[#92400E]">
+            B — Building Exterior Obstructions: not applicable — Exterior is inaccessible (not ticked in Accessibility Areas).
+          </p>
+        ) : (
+          <>
+            <CheckboxGroupField disabled={disabled} label="B - Building Exterior Obstructions" options={EXTERIOR_OBSTRUCTIONS} value={a.exteriorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { exteriorObstructions: v })} />
+            <PhotoField
+              disabled={disabled}
+              label="B — Exterior Obstruction Photos"
+              photos={a.exteriorObstructionPhotos ?? []}
+              onChange={(v) => patchShared('accessibilityObstructions', { exteriorObstructionPhotos: v })}
+            />
+          </>
+        )}
+        {missingLockedAreas.includes('Roof Space') ? (
+          <p className="rounded-lg border border-[#B45309]/30 bg-[#FFFBEB] px-3 py-2 text-sm text-[#92400E]">
+            C — Roof Space Obstructions: not applicable — Roof Space is inaccessible (not ticked in Accessibility Areas).
+          </p>
+        ) : (
+          <>
+            <CheckboxGroupField disabled={disabled} label="C - Roof Space Obstructions" options={ROOF_SPACE_OBSTRUCTIONS} value={a.roofSpaceObstructions} onChange={(v) => patchShared('accessibilityObstructions', { roofSpaceObstructions: v })} />
+            <PhotoField
+              disabled={disabled}
+              label="C — Roof Space Obstruction Photos"
+              photos={a.roofSpaceObstructionPhotos ?? []}
+              onChange={(v) => patchShared('accessibilityObstructions', { roofSpaceObstructionPhotos: v })}
+            />
+          </>
+        )}
+        {subfloorApplicable ? (
+          missingLockedAreas.includes('Subfloor') ? (
+            <p className="rounded-lg border border-[#B45309]/30 bg-[#FFFBEB] px-3 py-2 text-sm text-[#92400E]">
+              D — Subfloor Space Obstructions: not applicable — Subfloor is inaccessible (not ticked in Accessibility Areas).
+            </p>
+          ) : (
+            <>
+              <CheckboxGroupField disabled={disabled} label="D - Subfloor Space Obstructions" options={SUBFLOOR_OBSTRUCTIONS} value={a.subfloorObstructions} onChange={(v) => patchShared('accessibilityObstructions', { subfloorObstructions: v })} />
+              <PhotoField
+                disabled={disabled}
+                label="D — Subfloor Obstruction Photos"
+                photos={a.subfloorObstructionPhotos ?? []}
+                onChange={(v) => patchShared('accessibilityObstructions', { subfloorObstructionPhotos: v })}
+              />
+            </>
+          )
         ) : null}
-        <CheckboxGroupField disabled={disabled} label="Inaccessible Areas" options={inaccessibleAreaOptions} value={a.inaccessibleAreas} onChange={(v) => patchShared('accessibilityObstructions', { inaccessibleAreas: v })} />
+        <CheckboxGroupField
+          disabled={disabled}
+          label="Inaccessible Areas"
+          options={inaccessibleAreaOptions}
+          value={a.inaccessibleAreas}
+          onChange={patchInaccessibleAreas}
+          lockedOptions={missingLockedAreas}
+          onLockedToggleAttempt={onLockedInaccessibleToggle}
+        />
+        {missingLockedAreas.length > 0 ? (
+          <div className="space-y-3 rounded-lg border border-[#B45309]/40 bg-[#FFFBEB] p-3">
+            <p className="text-sm font-semibold text-[#92400E]">
+              Reasons for areas locked from Accessibility Areas
+            </p>
+            {missingLockedAreas.map((area) => {
+              const reasonOptions = ACCESSIBILITY_AREA_REASON_OPTIONS[area] ?? [];
+              return (
+                <Select
+                  key={area}
+                  label={`${area} — inaccessible reason`}
+                  placeholder="Select reason"
+                  value={inaccessibleReasons[area] ?? ''}
+                  onChange={(e) => patchInaccessibleReason(area, e.target.value)}
+                  options={reasonOptions.map((v) => ({ value: v, label: v }))}
+                />
+              );
+            })}
+          </div>
+        ) : null}
         <Input
           label="Inaccessible Area Notes"
           value={(a.inaccessibleCustomLines ?? [''])[0] ?? ''}
@@ -669,33 +841,47 @@ export function BuildingInspectionForm({
             />}
 
       {showSection('site-conditions') && <InspectionAccordionSection id="site-conditions" title="Site Conditions" status={statuses['site-conditions']}
-        render={() => (
-        <>        <SectionQuickActions
-          disabled={disabled}
-          onNoIssues={() =>
-            patchShared('siteConditions', {
-              landSlope: 'Generally Level',
-              surfaceDrainage: 'Adequate',
-              evidenceOfWaterPooling: 'No',
-              comments: NO_ISSUES_OBSERVED_COMMENT,
-            })
-          }
-        />
-        <div className="grid gap-4 md:grid-cols-3">
-          <RatingSelect label="Land Slope" value={formData.shared.siteConditions.landSlope} onChange={(v) => patchShared('siteConditions', { landSlope: v })} options={LAND_SLOPE} />
-          <RatingSelect label="Surface Drainage" value={formData.shared.siteConditions.surfaceDrainage} onChange={(v) => patchShared('siteConditions', { surfaceDrainage: v })} options={DRAINAGE_RATING} />
-          <YesNoSelect label="Evidence Of Water Pooling" value={formData.shared.siteConditions.evidenceOfWaterPooling} onChange={(v) => patchShared('siteConditions', { evidenceOfWaterPooling: v })} />
-        </div>
-        <CheckboxGroupField disabled={disabled} label="Site Drainage Concerns" options={SITE_DRAINAGE_CONCERNS} value={formData.shared.siteConditions.siteDrainageConcerns} onChange={(v) => patchShared('siteConditions', { siteDrainageConcerns: v })} />
+        render={() => {
+          const siteLock = sectionAccessibilityLock('site-conditions');
+          return (
+        <>
+        {siteLock.area ? (
+          <AreaInaccessibleBanner area={siteLock.area} reason={siteLock.reason} />
+        ) : (
+          <>
+            <SectionQuickActions
+              disabled={disabled}
+              onNoIssues={() =>
+                patchShared('siteConditions', {
+                  landSlope: 'Generally Level',
+                  surfaceDrainage: 'Adequate',
+                  evidenceOfWaterPooling: 'No',
+                  comments: NO_ISSUES_OBSERVED_COMMENT,
+                })
+              }
+            />
+            <div className="grid gap-4 md:grid-cols-3">
+              <RatingSelect label="Land Slope" value={formData.shared.siteConditions.landSlope} onChange={(v) => patchShared('siteConditions', { landSlope: v })} options={LAND_SLOPE} />
+              <RatingSelect label="Surface Drainage" value={formData.shared.siteConditions.surfaceDrainage} onChange={(v) => patchShared('siteConditions', { surfaceDrainage: v })} options={DRAINAGE_RATING} />
+              <YesNoSelect label="Evidence Of Water Pooling" value={formData.shared.siteConditions.evidenceOfWaterPooling} onChange={(v) => patchShared('siteConditions', { evidenceOfWaterPooling: v })} />
+            </div>
+            <CheckboxGroupField disabled={disabled} label="Site Drainage Concerns" options={SITE_DRAINAGE_CONCERNS} value={formData.shared.siteConditions.siteDrainageConcerns} onChange={(v) => patchShared('siteConditions', { siteDrainageConcerns: v })} />
+          </>
+        )}
         <SectionComments sectionId="site-conditions" disabled={disabled} comments={formData.shared.siteConditions.comments} photos={formData.shared.siteConditions.photos} onCommentsChange={(v) => patchShared('siteConditions', { comments: v })} onPhotosChange={(v) => patchShared('siteConditions', { photos: v })} />
               </>
-        )}
+          );
+        }}
             />}
 
       {showSection('external') && <InspectionAccordionSection id="external" title="External" status={statuses.external}
-        render={() => (
+        render={() => {
+          const externalLock = sectionAccessibilityLock('external');
+          return (
         <>        <NoMajorDefectSectionWrapper
           disabled={disabled}
+          inaccessibleArea={externalLock.area}
+          inaccessibleReason={externalLock.reason}
           noMajorActive={Boolean(formData.shared.external.noMajorDefectObserved)}
           majorActive={Boolean(formData.shared.external.majorDefectObserved)}
           onApply={() =>
@@ -719,7 +905,8 @@ export function BuildingInspectionForm({
         </NoMajorDefectSectionWrapper>
         <SectionComments sectionId="external" disabled={disabled} majorActive={Boolean(formData.shared.external.majorDefectObserved)} comments={formData.shared.external.comments} photos={formData.shared.external.photos} onCommentsChange={(v) => patchShared('external', { comments: v })} onPhotosChange={(v) => patchShared('external', { photos: v })} />
               </>
-        )}
+          );
+        }}
             />}
 
       {building ? (
@@ -729,6 +916,8 @@ export function BuildingInspectionForm({
         render={() => (
         <>              <NoMajorDefectSectionWrapper
                 disabled={disabled}
+                inaccessibleArea={sectionAccessibilityLock('subfloor').area}
+                inaccessibleReason={sectionAccessibilityLock('subfloor').reason}
                 noMajorActive={Boolean(building.subfloor.noMajorDefectObserved)}
                 majorActive={Boolean(building.subfloor.majorDefectObserved)}
                 onApply={() =>
@@ -757,6 +946,8 @@ export function BuildingInspectionForm({
         render={() => (
         <>            <NoMajorDefectSectionWrapper
               disabled={disabled}
+              inaccessibleArea={sectionAccessibilityLock('fencing').area}
+              inaccessibleReason={sectionAccessibilityLock('fencing').reason}
               noMajorActive={Boolean(building.fencing.noMajorDefectObserved)}
               majorActive={Boolean(building.fencing.majorDefectObserved)}
               onApply={() =>
@@ -784,6 +975,8 @@ export function BuildingInspectionForm({
         render={() => (
         <>            <NoMajorDefectSectionWrapper
               disabled={disabled}
+              inaccessibleArea={sectionAccessibilityLock('outbuildings').area}
+              inaccessibleReason={sectionAccessibilityLock('outbuildings').reason}
               noMajorActive={Boolean(building.outbuildings.noMajorDefectObserved)}
               majorActive={Boolean(building.outbuildings.majorDefectObserved)}
               onApply={() =>
@@ -816,6 +1009,8 @@ export function BuildingInspectionForm({
         render={() => (
         <>        <NoMajorDefectSectionWrapper
           disabled={disabled}
+          inaccessibleArea={sectionAccessibilityLock('roof-exterior').area}
+          inaccessibleReason={sectionAccessibilityLock('roof-exterior').reason}
           noMajorActive={Boolean(formData.shared.roofExterior.noMajorDefectObserved)}
           majorActive={Boolean(formData.shared.roofExterior.majorDefectObserved)}
           onApply={() =>
@@ -846,6 +1041,8 @@ export function BuildingInspectionForm({
         render={() => (
         <>        <NoMajorDefectSectionWrapper
           disabled={disabled}
+          inaccessibleArea={sectionAccessibilityLock('roof-space').area}
+          inaccessibleReason={sectionAccessibilityLock('roof-space').reason}
           noMajorActive={Boolean(formData.shared.roofSpace.noMajorDefectObserved)}
           majorActive={Boolean(formData.shared.roofSpace.majorDefectObserved)}
           onApply={() =>
@@ -865,6 +1062,7 @@ export function BuildingInspectionForm({
         >
           <CheckboxGroupField disabled={disabled} label="Defects" options={ROOF_SPACE_DEFECTS} value={formData.shared.roofSpace.defects} onChange={(v) => patchShared('roofSpace', { defects: v })} />
         </NoMajorDefectSectionWrapper>
+        {!sectionAccessibilityLock('roof-space').area ? (
         <RoofSpaceFramingDiagram
           disabled={disabled}
           value={formData.shared.roofSpace.framingElements ?? { selected: [], custom: [] }}
@@ -891,6 +1089,7 @@ export function BuildingInspectionForm({
             )
           }
         />
+        ) : null}
         <SectionComments sectionId="roof-space" disabled={disabled} majorActive={Boolean(formData.shared.roofSpace.majorDefectObserved)} comments={formData.shared.roofSpace.comments} photos={formData.shared.roofSpace.photos} onCommentsChange={(v) => patchShared('roofSpace', { comments: v })} onPhotosChange={(v) => patchShared('roofSpace', { photos: v })} />
               </>
         )}
@@ -904,6 +1103,8 @@ export function BuildingInspectionForm({
         render={() => (
         <>        <NoMajorDefectSectionWrapper
           disabled={disabled}
+          inaccessibleArea={sectionAccessibilityLock('kitchen').area}
+          inaccessibleReason={sectionAccessibilityLock('kitchen').reason}
           noMajorActive={Boolean(building.kitchen.noMajorDefectObserved)}
           majorActive={Boolean(building.kitchen.majorDefectObserved)}
           onApply={() => patchBuilding('kitchen', buildNoMajorDefectPatch(building.kitchen.comments))}
@@ -979,6 +1180,8 @@ export function BuildingInspectionForm({
         render={() => (
         <>        <NoMajorDefectSectionWrapper
           disabled={disabled}
+          inaccessibleArea={sectionAccessibilityLock('laundry').area}
+          inaccessibleReason={sectionAccessibilityLock('laundry').reason}
           noMajorActive={Boolean(building.laundry.noMajorDefectObserved)}
           majorActive={Boolean(building.laundry.majorDefectObserved)}
           onApply={() => patchBuilding('laundry', buildNoMajorDefectPatch(building.laundry.comments))}
@@ -1242,16 +1445,55 @@ export function BuildingInspectionForm({
     </>
   );
 
+  const lockedMessageModal = (
+    <Modal
+      open={Boolean(lockedAreaMessage)}
+      onClose={() => setLockedAreaMessage(null)}
+      size="sm"
+      hideHeader
+    >
+      <div className="-mx-6 -mt-3 overflow-hidden rounded-t-xl">
+        <div className="bg-gradient-to-r from-[#B45309] to-[#D97706] px-6 py-5 text-center">
+          <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-[#FEF3C7] shadow-md">
+            <AlertTriangle className="h-8 w-8 text-[#B45309]" aria-hidden />
+          </div>
+          <h2 className="text-lg font-bold text-white">Area locked</h2>
+          <p className="mt-1 text-sm font-medium text-[#FEF3C7]">Inaccessible from Accessibility Areas</p>
+        </div>
+        <div className="space-y-4 bg-[#FFFBEB] px-6 py-5">
+          <p className="text-center text-base font-semibold leading-snug text-[#92400E]">
+            {lockedAreaMessage}
+          </p>
+          <p className="text-center text-sm text-[#A16207]">
+            Tick this area again under <span className="font-semibold">Accessibility Areas</span> to unlock
+            it, then you can clear it from Inaccessible Areas.
+          </p>
+          <div className="flex justify-center">
+            <Button type="button" onClick={() => setLockedAreaMessage(null)}>
+              Got it
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+
   if (onlySectionId) {
     return (
       <InspectionFormProvider>
         <div className="inspection-workspace-single-section space-y-3">{sections}</div>
+        {lockedMessageModal}
       </InspectionFormProvider>
     );
   }
 
   if (embedded) {
-    return sections;
+    return (
+      <>
+        {sections}
+        {lockedMessageModal}
+      </>
+    );
   }
 
   return (
@@ -1263,6 +1505,7 @@ export function BuildingInspectionForm({
       >
         {sections}
       </InspectionAccordion>
+      {lockedMessageModal}
     </InspectionFormProvider>
   );
 }

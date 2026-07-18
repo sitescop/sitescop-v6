@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { getSettingsApi, getSitescopApi } from '@/lib/sitescop-api';
 import { cn } from '@/lib/cn';
-import { Button, Card, Modal } from '@/design-system/components';
+import { Button, Card, ConfirmActionModal, Modal } from '@/design-system/components';
 import {
   AgreementCloudSigningStatus,
   resolveCloudSigningStatus,
@@ -43,6 +43,9 @@ export function AgreementDetailPage() {
   const [signingBusy, setSigningBusy] = useState(false);
   const [revising, setRevising] = useState(false);
   const [reviseConfirmOpen, setReviseConfirmOpen] = useState(false);
+  const [markPaidConfirmOpen, setMarkPaidConfirmOpen] = useState(false);
+  const [paidSuccessOpen, setPaidSuccessOpen] = useState(false);
+  const [paidError, setPaidError] = useState<string | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ['settings-github'],
@@ -147,10 +150,12 @@ export function AgreementDetailPage() {
       queryClient.setQueryData(['job', updatedJob.id], updatedJob);
       invalidate();
       void queryClient.invalidateQueries({ queryKey: ['job', updatedJob.id] });
+      setMarkPaidConfirmOpen(false);
+      setPaidSuccessOpen(true);
     },
     onError: (e) => {
-      setCopyMessage(e instanceof Error ? e.message : 'Could not mark job as paid.');
-      setTimeout(() => setCopyMessage(''), 6000);
+      setMarkPaidConfirmOpen(false);
+      setPaidError(e instanceof Error ? e.message : 'Could not mark job as paid.');
     },
   });
 
@@ -483,15 +488,7 @@ export function AgreementDetailPage() {
           {canMarkPaid && agreement.jobId && (
             <Button
               variant="accent"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Mark ${linkedJob?.jobNumber ?? 'this job'} as paid? The client can then receive inspection reports.`,
-                  )
-                ) {
-                  markPaidMutation.mutate(agreement.jobId!);
-                }
-              }}
+              onClick={() => setMarkPaidConfirmOpen(true)}
               disabled={markPaidMutation.isPending}
             >
               <CircleDollarSign className="h-4 w-4" />
@@ -815,6 +812,50 @@ export function AgreementDetailPage() {
           the new draft.
         </p>
       </Modal>
+
+      <ConfirmActionModal
+        open={markPaidConfirmOpen}
+        onClose={() => setMarkPaidConfirmOpen(false)}
+        tone="payment"
+        title="Mark as paid?"
+        eyebrow="Payment confirmation"
+        message={
+          <>
+            Mark <span className="font-bold">{linkedJob?.jobNumber ?? 'this job'}</span> as paid?
+          </>
+        }
+        hint="Once paid, the client can receive inspection reports by copy and email."
+        confirmLabel="Yes, mark as paid"
+        cancelLabel="Not yet"
+        isPending={markPaidMutation.isPending}
+        pendingLabel="Updating…"
+        onConfirm={() => {
+          if (agreement.jobId) markPaidMutation.mutate(agreement.jobId);
+        }}
+      />
+
+      <ConfirmActionModal
+        open={paidSuccessOpen}
+        onClose={() => setPaidSuccessOpen(false)}
+        tone="success"
+        title="Marked as paid"
+        eyebrow="Payment recorded"
+        message={
+          <>
+            <span className="font-bold">{linkedJob?.jobNumber ?? 'Job'}</span> is now paid. Reports can
+            be shared with the client.
+          </>
+        }
+      />
+
+      <ConfirmActionModal
+        open={Boolean(paidError)}
+        onClose={() => setPaidError(null)}
+        tone="danger"
+        title="Could not mark as paid"
+        eyebrow="Something went wrong"
+        message={paidError ?? 'Could not mark job as paid.'}
+      />
     </div>
   );
 }

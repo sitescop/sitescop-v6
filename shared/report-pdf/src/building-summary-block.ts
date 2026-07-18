@@ -8,8 +8,12 @@ import {
   applyDerivedMajorDefectFields,
   filterFilledCrackingEntries,
   generateMajorDefectAutoRecommendations,
+  getMissingAccessibilityAreas,
+  isSubfloorApplicable,
   normalizeCheckboxField,
   normalizeFinishElementDamageEntry,
+  resolveInaccessibleReasonText,
+  resolveSubfloorPresent,
 } from '../../room-engine-core/src/index.js';
 import type { CheckboxFieldState } from '../../room-engine-core/src/index.js';
 import { escapeHtml, renderHeadingGroup, renderSectionHeading } from './html-utils.js';
@@ -127,6 +131,27 @@ function crackingMonitoringAnswer(majorDefects: MajorDefectsSection | undefined)
   return recommended ? `Yes ${seeSection(MAJOR_DEFECTS_SECTION_NAME)}` : 'No';
 }
 
+function inaccessibleAreasSummaryAnswer(ctx: ReportRenderContext): string {
+  const accessibility = ctx.formData.shared.accessibilityObstructions;
+  const subfloorApplicable = isSubfloorApplicable(
+    resolveSubfloorPresent(
+      ctx.formData.shared.propertyDescription,
+      ctx.formData.building?.subfloor,
+      accessibility,
+    ),
+  );
+  const missing = getMissingAccessibilityAreas(
+    accessibility.accessibilityAreas,
+    subfloorApplicable,
+  );
+  if (!missing.length) return 'None — all applicable areas were accessible.';
+  const lines = missing.map((area) => {
+    const reason = resolveInaccessibleReasonText(area, accessibility.inaccessibleAreaReasons);
+    return `${area} — ${reason}`;
+  });
+  return `were not accessible for inspection — ${escapeHtml(lines.join('; '))} ${seeSection(buildingPdfSectionTitle('accessibilityObstructions'))}`;
+}
+
 function resolveOverallConditionAnswer(conclusion: ConclusionSection): string {
   const condition = conclusion.overallBuildingCondition?.trim() || conclusion.overallComparison?.trim();
   if (!condition) return '—';
@@ -165,6 +190,7 @@ export function renderInspectionFindingsSummaryBlock(ctx: ReportRenderContext): 
   ].join('\n');
 
   const significantRows = [
+    renderSummaryRow('Areas not accessible for inspection', inaccessibleAreasSummaryAnswer(ctx)),
     renderSummaryRow(
       'Structural movement',
       observedItemsAnswer(checkboxItems(majorDefects?.structuralMovement), MAJOR_DEFECTS_SECTION_NAME),

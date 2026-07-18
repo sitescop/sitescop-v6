@@ -30,11 +30,19 @@ import type {
 import type { PestInspectionSections } from './pest-types.js';
 import { createEmptyFormData, normalizeAccessibilityAreas, normalizeCheckboxField, mergeSectionRecord, applyRoomElectricalDefaults, applySharedInspectionDefaults, defaultElectricalDisclaimersField, defaultKitchenDisclaimersField, defaultLaundryDisclaimersField, defaultIfEmptyWorkingStatus, defaultSwitchesStatus, applyLaundrySurfaceDefaults } from './defaults.js';
 import {
+  ACCESSIBILITY_AREAS,
   DEFAULT_INCOMPLETE_CONSTRUCTION,
   DEFAULT_OCCUPANCY_STATUS,
   DEFAULT_WEATHER_CONDITIONS,
 } from './options.js';
 import { createEmptyPestSections, applyPestSectionDefaults } from './pest-defaults.js';
+import {
+  syncInaccessibleAreasFromAccessibility,
+  applyInaccessibleReasonComment,
+  ACCESSIBILITY_AREA_COMMENT_TARGETS,
+  getMissingAccessibilityAreas,
+  resolveInaccessibleReasonText,
+} from './accessibility-sync.js';
 import { applyAccessibilityRiskAssessment } from './risk-assessment.js';
 import { applyInspectorHazardAssessment, createEmptyInspectorHazardAssessment } from './hazard-assessment.js';
 import {
@@ -853,14 +861,23 @@ export function enrichSharedSections(
     ? (accessibility.photos ?? [])
     : stripLinkedServicePhotosFromAccessibility(accessibility.photos, synced.services);
 
-  return {
-    ...synced,
-    accessibilityObstructions: applyAccessibilityRiskAssessment({
+  const subfloorApplicable = isSubfloorApplicable(
+    resolveSubfloorPresent(shared.propertyDescription, undefined, accessibility),
+  );
+  const accessibilitySynced = syncInaccessibleAreasFromAccessibility(
+    {
       ...accessibility,
       photos: accessibilityPhotos,
       inaccessibleCustomLines: noteLines.slice(0, 1),
       accessibilityAreas: normalizeAccessibilityAreas(accessibility.accessibilityAreas),
-    }),
+      inaccessibleAreaReasons: accessibility.inaccessibleAreaReasons ?? {},
+    },
+    subfloorApplicable,
+  );
+
+  return {
+    ...synced,
+    accessibilityObstructions: applyAccessibilityRiskAssessment(accessibilitySynced),
     inspectorHazardAssessment: applyInspectorHazardAssessment(
       shared.inspectorHazardAssessment ?? createEmptyInspectorHazardAssessment(),
     ),
@@ -923,8 +940,79 @@ export function enrichInspectionFormData(
   const shared = enrichSharedBase(form, options);
   const building = form.building ? enrichBuildingExtension(form.building, shared, options?.rooms) : undefined;
   const pest = enrichPestWithContext(form.pest, shared, building);
-  return {
+  return applyInaccessibleReasonsToInspectionForm({
     version: INSPECTION_FORM_VERSION,
+    shared,
+    building,
+    pest,
+  });
+}
+
+/**
+ * Ensure locked Accessibility Areas have their reason line in matching section comments
+ * (e.g. Subfloor comments) so PDF and workspace stay in sync.
+ * Unlocked areas have the auto inaccessible comment cleared.
+ */
+export function applyInaccessibleReasonsToInspectionForm(
+  form: InspectionFormDataV2,
+): InspectionFormDataV2 {
+  const accessibility = form.shared.accessibilityObstructions;
+  const subfloorApplicable = isSubfloorApplicable(
+    resolveSubfloorPresent(form.shared.propertyDescription, form.building?.subfloor, accessibility),
+  );
+  const missing = new Set(
+    getMissingAccessibilityAreas(accessibility.accessibilityAreas, subfloorApplicable),
+  );
+  const reasons = accessibility.inaccessibleAreaReasons ?? {};
+
+  let shared = form.shared;
+  let building = form.building;
+  let pest = form.pest;
+
+  for (const area of ACCESSIBILITY_AREAS) {
+    if (area === 'Subfloor' && !subfloorApplicable) continue;
+    const reason = missing.has(area) ? resolveInaccessibleReasonText(area, reasons) : '';
+    const targets = ACCESSIBILITY_AREA_COMMENT_TARGETS[area] ?? [];
+    for (const target of targets) {
+      if (target.realm === 'shared') {
+        const section = shared[target.section as keyof SharedInspectionSections] as
+          | { comments?: string }
+          | undefined;
+        if (!section || typeof section !== 'object') continue;
+        const nextComments = applyInaccessibleReasonComment(section.comments, area, reason);
+        if (nextComments === (section.comments ?? '')) continue;
+        shared = {
+          ...shared,
+          [target.section]: { ...section, comments: nextComments },
+        };
+      } else if (target.realm === 'building' && building) {
+        const section = building[target.section as keyof typeof building] as
+          | { comments?: string }
+          | undefined;
+        if (!section || typeof section !== 'object') continue;
+        const nextComments = applyInaccessibleReasonComment(section.comments, area, reason);
+        if (nextComments === (section.comments ?? '')) continue;
+        building = {
+          ...building,
+          [target.section]: { ...section, comments: nextComments },
+        };
+      } else if (target.realm === 'pest' && pest) {
+        const section = pest[target.section as keyof PestInspectionSections] as
+          | { comments?: string }
+          | undefined;
+        if (!section || typeof section !== 'object') continue;
+        const nextComments = applyInaccessibleReasonComment(section.comments, area, reason);
+        if (nextComments === (section.comments ?? '')) continue;
+        pest = {
+          ...pest,
+          [target.section]: { ...section, comments: nextComments },
+        };
+      }
+    }
+  }
+
+  return {
+    ...form,
     shared,
     building,
     pest,
@@ -952,12 +1040,18 @@ export function enrichInspectionFormDataForSection(
       ? enrichBuildingExtension(form.building, shared, options?.rooms)
       : form.building ? applyBuildingElectricalDefaults(form.building) : undefined;
     const pest = shouldRefreshBuilding ? enrichPestWithContext(form.pest, shared, building) : form.pest;
-    return {
+    const next = {
       version: INSPECTION_FORM_VERSION,
       shared,
       building,
       pest,
     };
+    // Accessibility changes apply reason comments across sections in one enrich pass
+    // (avoids N separate UI patches / saves).
+    if (section === 'accessibilityObstructions' || section === 'propertyDescription') {
+      return applyInaccessibleReasonsToInspectionForm(next);
+    }
+    return next;
   }
 
   if (realm === 'building') {

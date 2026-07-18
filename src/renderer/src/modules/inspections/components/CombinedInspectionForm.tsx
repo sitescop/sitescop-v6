@@ -118,6 +118,8 @@ export function CombinedInspectionForm({
           readOnly={readOnly}
           embedded
           subfloorApplicable={subfloorApplicable}
+          accessibilityAreas={formData.shared.accessibilityObstructions.accessibilityAreas}
+          inaccessibleAreaReasons={formData.shared.accessibilityObstructions.inaccessibleAreaReasons}
         />
       </InspectionAccordion>
     </InspectionFormProvider>

@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useState } from 'react';
 import { ArrowLeft, Play, ClipboardCheck, Trash2, FileText, CircleDollarSign } from 'lucide-react';
 import { getSitescopApi } from '@/lib/sitescop-api';
 import { cn } from '@/lib/cn';
-import { Button, Card, PageHeader } from '@/design-system/components';
+import { Button, Card, ConfirmActionModal, PageHeader } from '@/design-system/components';
 import { formatDisplayDate } from '@/lib/dates';
 import { INSPECTION_TYPE_LABELS, PaymentBadge, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
 import { JobQuickActions } from '@/modules/jobs/components/JobQuickActions';
@@ -15,6 +16,9 @@ export function JobDetailPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const justCreated = Boolean((location.state as { created?: boolean } | null)?.created);
+  const [markPaidConfirmOpen, setMarkPaidConfirmOpen] = useState(false);
+  const [paidSuccessOpen, setPaidSuccessOpen] = useState(false);
+  const [paidError, setPaidError] = useState<string | null>(null);
 
   const { data: job, isLoading, error } = useQuery({
     queryKey: ['job', jobId],
@@ -59,9 +63,12 @@ export function JobDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['accounting-by-client'] });
       void queryClient.invalidateQueries({ queryKey: ['accounting-summary'] });
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      setMarkPaidConfirmOpen(false);
+      setPaidSuccessOpen(true);
     },
     onError: (error) => {
-      window.alert(error instanceof Error ? error.message : 'Could not mark job as paid.');
+      setMarkPaidConfirmOpen(false);
+      setPaidError(error instanceof Error ? error.message : 'Could not mark job as paid.');
     },
   });
 
@@ -238,19 +245,7 @@ export function JobDetailPage() {
               </Button>
             )}
             {canMarkPaid && (
-              <Button
-                variant="accent"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Mark ${job.jobNumber} as paid? The client can then receive inspection reports.`,
-                    )
-                  ) {
-                    markPaidMutation.mutate();
-                  }
-                }}
-                disabled={markPaidMutation.isPending}
-              >
+              <Button variant="accent" onClick={() => setMarkPaidConfirmOpen(true)} disabled={markPaidMutation.isPending}>
                 <CircleDollarSign className="h-4 w-4" />
                 {markPaidMutation.isPending ? 'Updating…' : 'Mark as paid'}
               </Button>
@@ -286,6 +281,48 @@ export function JobDetailPage() {
       </div>
 
       {deleteDialog}
+
+      <ConfirmActionModal
+        open={markPaidConfirmOpen}
+        onClose={() => setMarkPaidConfirmOpen(false)}
+        tone="payment"
+        title="Mark as paid?"
+        eyebrow="Payment confirmation"
+        message={
+          <>
+            Mark <span className="font-bold">{job.jobNumber}</span> as paid?
+          </>
+        }
+        hint="Once paid, the client can receive inspection reports by copy and email."
+        confirmLabel="Yes, mark as paid"
+        cancelLabel="Not yet"
+        isPending={markPaidMutation.isPending}
+        pendingLabel="Updating…"
+        onConfirm={() => markPaidMutation.mutate()}
+      />
+
+      <ConfirmActionModal
+        open={paidSuccessOpen}
+        onClose={() => setPaidSuccessOpen(false)}
+        tone="success"
+        title="Marked as paid"
+        eyebrow="Payment recorded"
+        message={
+          <>
+            <span className="font-bold">{job.jobNumber}</span> is now paid. Reports can be shared with the
+            client.
+          </>
+        }
+      />
+
+      <ConfirmActionModal
+        open={Boolean(paidError)}
+        onClose={() => setPaidError(null)}
+        tone="danger"
+        title="Could not mark as paid"
+        eyebrow="Something went wrong"
+        message={paidError ?? 'Could not mark job as paid.'}
+      />
     </div>
   );
 }

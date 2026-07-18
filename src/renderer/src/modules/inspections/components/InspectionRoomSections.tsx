@@ -18,6 +18,9 @@ interface InspectionRoomSectionsProps {
   statuses: Record<string, SectionCompletionStatus>;
   onRoomDataChange: (roomId: string, data: Record<string, unknown>) => void;
   onRoomPatch: (roomId: string, partial: Record<string, unknown>) => void;
+  /** When Interior is unticked in Accessibility Areas. */
+  inaccessibleArea?: string | null;
+  inaccessibleReason?: string;
 }
 
 function roomNoMajorActive(data: Record<string, unknown>): boolean {
@@ -42,11 +45,15 @@ const BedroomCard = memo(function BedroomCard({
   label,
   disabled,
   onRoomPatch,
+  inaccessibleArea,
+  inaccessibleReason,
 }: {
   room: InspectionRoomDetail;
   label: string;
   disabled: boolean;
   onRoomPatch: (roomId: string, partial: Record<string, unknown>) => void;
+  inaccessibleArea?: string | null;
+  inaccessibleReason?: string;
 }) {
   return (
     <div className="inspection-subpanel mb-3 last:mb-0 [content-visibility:auto] [contain-intrinsic-size:1px_960px]">
@@ -61,6 +68,8 @@ const BedroomCard = memo(function BedroomCard({
       />
       <NoMajorDefectSectionWrapper
         disabled={disabled}
+        inaccessibleArea={inaccessibleArea}
+        inaccessibleReason={inaccessibleReason}
         noMajorActive={roomNoMajorActive(room.data)}
         majorActive={roomMajorActive(room.data)}
         onApply={() => onRoomPatch(room.id, buildNoMajorDefectPatch(String(room.data.comments ?? '')))}
@@ -91,11 +100,15 @@ const BathroomCard = memo(function BathroomCard({
   label,
   disabled,
   onRoomPatch,
+  inaccessibleArea,
+  inaccessibleReason,
 }: {
   room: InspectionRoomDetail;
   label: string;
   disabled: boolean;
   onRoomPatch: (roomId: string, partial: Record<string, unknown>) => void;
+  inaccessibleArea?: string | null;
+  inaccessibleReason?: string;
 }) {
   return (
     <div className="inspection-subpanel mb-3 last:mb-0 [content-visibility:auto] [contain-intrinsic-size:1px_960px]">
@@ -110,6 +123,8 @@ const BathroomCard = memo(function BathroomCard({
       />
       <NoMajorDefectSectionWrapper
         disabled={disabled}
+        inaccessibleArea={inaccessibleArea}
+        inaccessibleReason={inaccessibleReason}
         noMajorActive={roomNoMajorActive(room.data)}
         majorActive={roomMajorActive(room.data)}
         onApply={() => onRoomPatch(room.id, buildNoMajorDefectPatch(String(room.data.comments ?? '')))}
@@ -142,12 +157,16 @@ const LivingCard = memo(function LivingCard({
   disabled,
   onRoomPatch,
   onRoomDataChange,
+  inaccessibleArea,
+  inaccessibleReason,
 }: {
   room: InspectionRoomDetail;
   label: string;
   disabled: boolean;
   onRoomPatch: (roomId: string, partial: Record<string, unknown>) => void;
   onRoomDataChange: (roomId: string, data: Record<string, unknown>) => void;
+  inaccessibleArea?: string | null;
+  inaccessibleReason?: string;
 }) {
   const livingData = room.data as unknown as LivingRoomData;
   return (
@@ -163,6 +182,8 @@ const LivingCard = memo(function LivingCard({
       />
       <NoMajorDefectSectionWrapper
         disabled={disabled}
+        inaccessibleArea={inaccessibleArea}
+        inaccessibleReason={inaccessibleReason}
         noMajorActive={roomNoMajorActive(room.data)}
         majorActive={roomMajorActive(room.data)}
         onApply={() => onRoomPatch(room.id, buildNoMajorDefectPatch(String(room.data.comments ?? '')))}
@@ -194,11 +215,15 @@ const GarageCard = memo(function GarageCard({
   label,
   disabled,
   onRoomPatch,
+  inaccessibleArea,
+  inaccessibleReason,
 }: {
   room: InspectionRoomDetail;
   label: string;
   disabled: boolean;
   onRoomPatch: (roomId: string, partial: Record<string, unknown>) => void;
+  inaccessibleArea?: string | null;
+  inaccessibleReason?: string;
 }) {
   const garageData = room.data as unknown as GarageRoomData;
   return (
@@ -206,6 +231,8 @@ const GarageCard = memo(function GarageCard({
       <InspectionSubsectionHeading as="h4">{label}</InspectionSubsectionHeading>
       <NoMajorDefectSectionWrapper
         disabled={disabled}
+        inaccessibleArea={inaccessibleArea}
+        inaccessibleReason={inaccessibleReason}
         noMajorActive={roomNoMajorActive(room.data)}
         majorActive={roomMajorActive(room.data)}
         onApply={() =>
@@ -258,6 +285,8 @@ export function InspectionRoomSections({
   statuses,
   onRoomDataChange,
   onRoomPatch,
+  inaccessibleArea = null,
+  inaccessibleReason,
 }: InspectionRoomSectionsProps) {
   const disabled = Boolean(readOnly);
   const bathrooms = useMemo(
@@ -313,6 +342,8 @@ export function InspectionRoomSections({
                 label={bathroomLabels[index]}
                 disabled={disabled}
                 onRoomPatch={onRoomPatch}
+                inaccessibleArea={inaccessibleArea}
+                inaccessibleReason={inaccessibleReason}
               />
             ))
           }
@@ -332,6 +363,8 @@ export function InspectionRoomSections({
                 label={bedroomLabels[index]}
                 disabled={disabled}
                 onRoomPatch={onRoomPatch}
+                inaccessibleArea={inaccessibleArea}
+                inaccessibleReason={inaccessibleReason}
               />
             ))
           }
@@ -352,6 +385,8 @@ export function InspectionRoomSections({
                 disabled={disabled}
                 onRoomPatch={onRoomPatch}
                 onRoomDataChange={onRoomDataChange}
+                inaccessibleArea={inaccessibleArea}
+                inaccessibleReason={inaccessibleReason}
               />
             ))
           }
@@ -371,6 +406,8 @@ export function InspectionRoomSections({
                 label={garageLabels[index]}
                 disabled={disabled}
                 onRoomPatch={onRoomPatch}
+                inaccessibleArea={inaccessibleArea}
+                inaccessibleReason={inaccessibleReason}
               />
             ))
           }

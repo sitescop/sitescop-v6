@@ -109,6 +109,10 @@ export function applyAccessibilityObstructionDefaults(
     exteriorObstructions: isCheckboxFieldEmpty(section.exteriorObstructions)
       ? checkboxFieldFromPresets(DEFAULT_EXTERIOR_OBSTRUCTION_SELECTION)
       : normalizeCheckboxField(section.exteriorObstructions),
+    inaccessibleAreaReasons:
+      section.inaccessibleAreaReasons && typeof section.inaccessibleAreaReasons === 'object'
+        ? section.inaccessibleAreaReasons
+        : {},
   };
 }
 
@@ -381,6 +385,7 @@ export function createEmptyFormData(prefill?: PrefillJobContext): BuildingInspec
       subfloorObstructionPhotos: [],
       inaccessibleAreas: emptyCheckboxField(),
       inaccessibleCustomLines: [''],
+      inaccessibleAreaReasons: {},
       undetectedStructuralRisk: 'Moderate',
       riskExplanation: '',
     },

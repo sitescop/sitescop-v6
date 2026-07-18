@@ -15,7 +15,7 @@ import { LivingRoomForm } from '@/modules/inspections/components/LivingRoomForm'
 import { RoomIdentityFields } from '@/modules/inspections/components/RoomIdentityFields';
 import { NoMajorDefectSectionWrapper } from '@/modules/inspections/components/NoMajorDefectSectionWrapper';
 import { SectionComments, CheckboxGroupField } from '@/modules/inspections/components/InspectionFields';
-import { buildNoMajorDefectPatch, buildMajorDefectPatch, clearDefectQuickPatch, GARAGE_DEFECTS } from '@sitescop/room-engine-core';
+import { buildNoMajorDefectPatch, buildMajorDefectPatch, clearDefectQuickPatch, GARAGE_DEFECTS, resolveAccessibilityAreaForRoute, isRouteInaccessibleFromAccessibility } from '@sitescop/room-engine-core';
 import type { BathroomRoomData, BedroomRoomData, GarageRoomData, LivingRoomData } from '@sitescop/room-engine-core';
 import { InspectionRoomType } from '@shared/inspection-types';
 
@@ -36,9 +36,25 @@ interface ActiveSectionPanelProps {
   computedMajorDefectAuto?: ReturnType<typeof collectMajorDefectAutoSuggestions> | null;
 }
 
-const RoomPanel = memo(function RoomPanel({ routeId }: { routeId: string }) {
-  const { rooms, readOnly, patchRoom, updateRoomData } = useWorkspaceEditor();
+const RoomPanel = memo(function RoomPanel({
+  routeId,
+  subfloorApplicable,
+}: {
+  routeId: string;
+  subfloorApplicable: boolean;
+}) {
+  const { rooms, readOnly, patchRoom, updateRoomData, formData } = useWorkspaceEditor();
   const disabled = readOnly;
+  const accessibility = formData.shared.accessibilityObstructions;
+  const interiorLocked = isRouteInaccessibleFromAccessibility(
+    routeId,
+    accessibility.accessibilityAreas,
+    subfloorApplicable,
+  );
+  const inaccessibleArea = interiorLocked ? resolveAccessibilityAreaForRoute(routeId) : null;
+  const inaccessibleReason = inaccessibleArea
+    ? accessibility.inaccessibleAreaReasons?.[inaccessibleArea]
+    : undefined;
 
   if (!isRoomRouteId(routeId)) return null;
 
@@ -56,6 +72,8 @@ const RoomPanel = memo(function RoomPanel({ routeId }: { routeId: string }) {
               />
               <NoMajorDefectSectionWrapper
                 disabled={disabled}
+                inaccessibleArea={inaccessibleArea}
+                inaccessibleReason={inaccessibleReason}
                 noMajorActive={roomNoMajorActive(room.data)}
                 majorActive={roomMajorActive(room.data)}
                 onApply={() => patchRoom(room.id, buildNoMajorDefectPatch(String(room.data.comments ?? '')))}
@@ -93,6 +111,8 @@ const RoomPanel = memo(function RoomPanel({ routeId }: { routeId: string }) {
               />
               <NoMajorDefectSectionWrapper
                 disabled={disabled}
+                inaccessibleArea={inaccessibleArea}
+                inaccessibleReason={inaccessibleReason}
                 noMajorActive={roomNoMajorActive(room.data)}
                 majorActive={roomMajorActive(room.data)}
                 onApply={() => patchRoom(room.id, buildNoMajorDefectPatch(String(room.data.comments ?? '')))}
@@ -130,6 +150,8 @@ const RoomPanel = memo(function RoomPanel({ routeId }: { routeId: string }) {
               />
               <NoMajorDefectSectionWrapper
                 disabled={disabled}
+                inaccessibleArea={inaccessibleArea}
+                inaccessibleReason={inaccessibleReason}
                 noMajorActive={roomNoMajorActive(room.data)}
                 majorActive={roomMajorActive(room.data)}
                 onApply={() => patchRoom(room.id, buildNoMajorDefectPatch(String(room.data.comments ?? '')))}
@@ -161,6 +183,8 @@ const RoomPanel = memo(function RoomPanel({ routeId }: { routeId: string }) {
           <div className="inspection-subpanel space-y-3">
             <NoMajorDefectSectionWrapper
               disabled={disabled}
+              inaccessibleArea={inaccessibleArea}
+              inaccessibleReason={inaccessibleReason}
               noMajorActive={roomNoMajorActive(room.data)}
               majorActive={roomMajorActive(room.data)}
               onApply={() =>
@@ -243,7 +267,7 @@ export function ActiveSectionPanel({
               className="inspection-workspace-panel [content-visibility:auto] [contain-intrinsic-size:1px_1200px]"
             >
               {isRoomRouteId(mountedId) ? (
-                <RoomPanel routeId={mountedId} />
+                <RoomPanel routeId={mountedId} subfloorApplicable={subfloorApplicable} />
               ) : isPestSection && formData.pest ? (
                 <PestInspectionForm
                   pest={formData.pest}
@@ -252,6 +276,8 @@ export function ActiveSectionPanel({
                   embedded
                   onlySectionId={mountedId}
                   subfloorApplicable={subfloorApplicable}
+                  accessibilityAreas={formData.shared.accessibilityObstructions.accessibilityAreas}
+                  inaccessibleAreaReasons={formData.shared.accessibilityObstructions.inaccessibleAreaReasons}
                 />
               ) : (
                 <BuildingInspectionForm

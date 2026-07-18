@@ -2,6 +2,10 @@ import {
   BUILDING_EXTENSION_SECTION_KEYS,
   GENERAL_ELECTRICAL_DISCLAIMERS,
   SHARED_INSPECTION_SECTION_KEYS,
+  isFormSectionInaccessibleFromAccessibility,
+  isSubfloorApplicable,
+  resolveInaccessibleReasonText,
+  resolveSubfloorPresent,
   type ConclusionSection,
   type InspectionPhotoRef,
 } from '../../room-engine-core/src/index.js';
@@ -29,6 +33,7 @@ import {
 } from './section-fields.js';
 import { reportPrintStyles } from './styles.js';
 import { renderPropertyReportDetailsBlock, resolveBuildingReportTitle } from './property-report-details-block.js';
+import { pdfSectionInaccessibleOptions } from './inaccessible-pdf.js';
 import type { ReportRenderContext, ReportRoomInfo } from './types.js';
 
 const ROOM_SECTION_ORDER: Record<string, number> = {
@@ -125,6 +130,7 @@ function renderBuildingSection(
   collector: BuildingPartCollector,
   key: string,
   data: Record<string, unknown>,
+  ctx: ReportRenderContext,
 ): void {
   const partTitle = buildingPdfPartTitleForKey(key);
   if (partTitle) {
@@ -157,23 +163,51 @@ function renderBuildingSection(
     return;
   }
 
+  const inaccessible = pdfSectionInaccessibleOptions(key, data, ctx);
   collector.push(
     renderSectionBlock(
       buildingPdfSectionTitle(key),
-      data,
+      inaccessible.data,
       new Set(),
       BUILDING_FIELD_LABEL_OVERRIDES[key],
       getBuildingSectionFieldDefs(key),
+      { collapseFields: inaccessible.collapseFields },
     ),
   );
 }
 
-function renderInspectionRooms(collector: BuildingPartCollector, rooms: ReportRoomInfo[]): void {
+function renderInspectionRooms(
+  collector: BuildingPartCollector,
+  rooms: ReportRoomInfo[],
+  ctx: ReportRenderContext,
+): void {
   const sorted = sortInspectionRooms(rooms);
   const resolvedLabels = resolveSortedRoomReportLabels(sorted);
+  const accessibility = ctx.formData.shared.accessibilityObstructions;
+  const subfloorApplicable = isSubfloorApplicable(
+    resolveSubfloorPresent(
+      ctx.formData.shared.propertyDescription,
+      ctx.formData.building?.subfloor,
+      accessibility,
+    ),
+  );
+  const interiorLocked = isFormSectionInaccessibleFromAccessibility(
+    'kitchen',
+    accessibility.accessibilityAreas,
+    subfloorApplicable,
+  );
+  const interiorReason = interiorLocked
+    ? resolveInaccessibleReasonText('Interior', accessibility.inaccessibleAreaReasons)
+    : '';
 
   sorted.forEach((room, index) => {
-    collector.push(renderRoomSectionBlock(room, resolvedLabels, index));
+    collector.push(
+      renderRoomSectionBlock(room, resolvedLabels, index, {
+        collapseFields: interiorLocked,
+        inaccessibleArea: interiorLocked ? 'Interior' : null,
+        inaccessibleReason: interiorReason,
+      }),
+    );
   });
 }
 
@@ -233,8 +267,22 @@ export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
     }
   }
 
+  const subfloorApplicable = isSubfloorApplicable(
+    resolveSubfloorPresent(
+      ctx.formData.shared.propertyDescription,
+      ctx.formData.building?.subfloor,
+      ctx.formData.shared.accessibilityObstructions,
+    ),
+  );
+
+  // Match workspace order: External → Subfloor → Fencing → Outbuildings → Roof Exterior → Roof Space,
+  // then Internal Areas. (Previously Subfloor sat after all rooms, so it looked "missing" vs Roof Space.)
+  const outsideBuildingKeys = ['subfloor', 'fencing', 'outbuildings'] as const;
+  const deferredRoofKeys = new Set(['roofExterior', 'roofSpace']);
+
   for (const key of SHARED_INSPECTION_SECTION_KEYS) {
     if (key === 'jobInformation') continue;
+    if (deferredRoofKeys.has(key)) continue;
 
     const partTitle = buildingPdfPartTitleForKey(key);
     if (partTitle) {
@@ -243,14 +291,41 @@ export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
     }
 
     const data = sharedSectionDataForReport(key, ctx.formData.shared);
+    const inaccessible = pdfSectionInaccessibleOptions(key, data, ctx);
     collector.push(
       renderSectionBlock(
         SHARED_SECTION_TITLES[key] ?? buildingPdfSectionTitle(key),
-        data,
+        inaccessible.data,
         new Set(),
         BUILDING_FIELD_LABEL_OVERRIDES[key],
         getSharedSectionFieldDefs(key),
-        { startNewPage: key === 'services' || key === 'propertyDescription' },
+        {
+          startNewPage: key === 'services' || key === 'propertyDescription',
+          collapseFields: inaccessible.collapseFields,
+        },
+      ),
+    );
+
+    if (key === 'external' && ctx.formData.building) {
+      for (const outsideKey of outsideBuildingKeys) {
+        if (outsideKey === 'subfloor' && !subfloorApplicable) continue;
+        const outsideData = ctx.formData.building[outsideKey] as unknown as Record<string, unknown>;
+        renderBuildingSection(collector, outsideKey, outsideData, ctx);
+      }
+    }
+  }
+
+  for (const key of ['roofExterior', 'roofSpace'] as const) {
+    const data = sharedSectionDataForReport(key, ctx.formData.shared);
+    const inaccessible = pdfSectionInaccessibleOptions(key, data, ctx);
+    collector.push(
+      renderSectionBlock(
+        SHARED_SECTION_TITLES[key] ?? buildingPdfSectionTitle(key),
+        inaccessible.data,
+        new Set(),
+        BUILDING_FIELD_LABEL_OVERRIDES[key],
+        getSharedSectionFieldDefs(key),
+        { collapseFields: inaccessible.collapseFields },
       ),
     );
   }
@@ -258,9 +333,11 @@ export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
   if (ctx.formData.building) {
     const hazard = ctx.formData.shared.inspectorHazardAssessment;
     const hazardLowNote = renderInspectorHazardLowConclusionNote(hazard);
+    const outsideRendered = new Set<string>(outsideBuildingKeys);
 
     for (const key of BUILDING_EXTENSION_SECTION_KEYS) {
       if (key === 'electricalGeneral') continue;
+      if (outsideRendered.has(key)) continue;
 
       const data = ctx.formData.building[key] as unknown as Record<string, unknown>;
 
@@ -275,9 +352,9 @@ export function renderBuildingReportHtml(ctx: ReportRenderContext): string {
         continue;
       }
 
-      renderBuildingSection(collector, key, data);
+      renderBuildingSection(collector, key, data, ctx);
       if (key === 'laundry') {
-        renderInspectionRooms(collector, ctx.rooms);
+        renderInspectionRooms(collector, ctx.rooms, ctx);
       }
     }
   }

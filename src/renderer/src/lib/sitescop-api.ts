@@ -1,6 +1,6 @@
 import type { SitescopApi } from '@shared/api-types';
 
-export const CURRENT_BRIDGE_VERSION = 12;
+export const CURRENT_BRIDGE_VERSION = 14;
 
 /** True when running inside the Electron desktop window (not Chrome/Edge). */
 export function isDesktopApp(): boolean {

@@ -34,6 +34,14 @@ export function collectAccessibilityRiskReasons(section: AccessibilityObstructio
     if (text) reasons.push(text);
   }
 
+  for (const [area, reason] of Object.entries(section.inaccessibleAreaReasons ?? {})) {
+    const areaName = area.trim();
+    const reasonText = String(reason ?? '').trim();
+    if (!areaName) continue;
+    if (reasonText) reasons.push(`Inaccessible area: ${areaName} — ${reasonText}`);
+    else reasons.push(`Inaccessible area: ${areaName}`);
+  }
+
   return [...new Set(reasons)];
 }
 

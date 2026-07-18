@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useEffect, useRef, useState, type ElementType, type ReactNode } from 'react';
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from 'react';
 import { Camera, ChevronLeft, ChevronRight, ImagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
 import {
   appendInspectionComment,
@@ -43,6 +43,10 @@ interface CheckboxGroupFieldProps {
   layout?: 'grid' | 'horizontal';
   /** Plain text label without the blue banner background. */
   plainLabel?: boolean;
+  /** Options that stay checked and cannot be cleared (show message instead). */
+  lockedOptions?: readonly string[];
+  /** Called when the user tries to untick a locked option. */
+  onLockedToggleAttempt?: (option: string) => void;
 }
 
 export const CheckboxGroupField = memo(function CheckboxGroupField({
@@ -54,13 +58,16 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
   disabled = false,
   layout = 'grid',
   plainLabel = false,
+  lockedOptions = [],
+  onLockedToggleAttempt,
 }: CheckboxGroupFieldProps) {
   const [customInput, setCustomInput] = useState('');
   const valueRef = useRef(value);
   valueRef.current = value;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  const presetOptions = [...new Set(options)];
+  const lockedSet = useMemo(() => new Set(lockedOptions), [lockedOptions]);
+  const presetOptions = [...new Set([...options, ...lockedOptions])];
   const field = normalizeCheckboxField(value);
   const visibleCustom = field.custom.filter((item) => !presetOptions.includes(item));
   const horizontal = layout === 'horizontal';
@@ -69,12 +76,16 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
     (option: string) => {
       if (disabled) return;
       const current = normalizeCheckboxField(valueRef.current);
+      if (lockedSet.has(option) && current.selected.includes(option)) {
+        onLockedToggleAttempt?.(option);
+        return;
+      }
       const selected = current.selected.includes(option)
         ? current.selected.filter((item) => item !== option)
         : [...current.selected, option];
       onChangeRef.current({ ...current, selected: [...new Set(selected)] });
     },
-    [disabled],
+    [disabled, lockedSet, onLockedToggleAttempt],
   );
 
   const addCustom = () => {
@@ -88,6 +99,10 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
 
   const removeCustom = (item: string) => {
     if (disabled) return;
+    if (lockedSet.has(item)) {
+      onLockedToggleAttempt?.(item);
+      return;
+    }
     const current = normalizeCheckboxField(valueRef.current);
     onChangeRef.current({ ...current, custom: current.custom.filter((entry) => entry !== item) });
   };
@@ -106,31 +121,39 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
           horizontal ? 'flex flex-wrap items-center gap-x-4 gap-y-1.5' : 'grid gap-2 sm:grid-cols-2',
         )}
       >
-        {presetOptions.map((option) => (
-          <label
-            key={option}
-            className={cn(
-              horizontal
-                ? cn(
-                    'inline-flex items-center gap-1.5 text-sm text-text',
-                    disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-                  )
-                : cn(
-                    'inspection-checkbox-option',
-                    disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-                  ),
-            )}
-          >
-            <input
-              type="checkbox"
-              className={horizontal ? 'shrink-0' : 'mt-1'}
-              checked={field.selected.includes(option)}
-              disabled={disabled}
-              onChange={() => toggle(option)}
-            />
-            <span>{option}</span>
-          </label>
-        ))}
+        {presetOptions.map((option) => {
+          const locked = lockedSet.has(option);
+          return (
+            <label
+              key={option}
+              className={cn(
+                horizontal
+                  ? cn(
+                      'inline-flex items-center gap-1.5 text-sm text-text',
+                      disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                    )
+                  : cn(
+                      'inspection-checkbox-option',
+                      disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                    ),
+                locked && 'ring-1 ring-[#B45309]/40',
+              )}
+              title={locked ? lockedInaccessibleHint(option) : undefined}
+            >
+              <input
+                type="checkbox"
+                className={horizontal ? 'shrink-0' : 'mt-1'}
+                checked={field.selected.includes(option) || locked}
+                disabled={disabled}
+                onChange={() => toggle(option)}
+              />
+              <span>
+                {option}
+                {locked ? <span className="ml-1 text-xs text-[#B45309]">(locked)</span> : null}
+              </span>
+            </label>
+          );
+        })}
         {visibleCustom.map((item) => (
           <label
             key={item}
@@ -175,8 +198,15 @@ export const CheckboxGroupField = memo(function CheckboxGroupField({
   prev.plainLabel === next.plainLabel &&
   prev.options.length === next.options.length &&
   prev.options.every((option, index) => option === next.options[index]) &&
+  (prev.lockedOptions?.length ?? 0) === (next.lockedOptions?.length ?? 0) &&
+  (prev.lockedOptions ?? []).every((option, index) => option === (next.lockedOptions ?? [])[index]) &&
+  prev.onLockedToggleAttempt === next.onLockedToggleAttempt &&
   prev.value === next.value,
 );
+
+function lockedInaccessibleHint(option: string): string {
+  return `${option} is inaccessible because it was not ticked in Accessibility Areas`;
+}
 
 interface PhotoFieldProps {
   label?: string;

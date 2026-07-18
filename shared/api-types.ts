@@ -367,6 +367,73 @@ export interface GitHubTestConnectionResult {
   writeAccessVerified: boolean;
 }
 
+/** Optional cloud for inspection PDF share links (separate from GitHub agreement signing). */
+export type CloudStorageProvider =
+  | 'none'
+  | 's3'
+  | 'google_drive'
+  | 'onedrive'
+  | 'mega'
+  | 'proton'
+  | 'sync';
+
+export interface CloudStorageSettingsPublic {
+  enabled: boolean;
+  provider: CloudStorageProvider;
+  /** When upload succeeds, email share links instead of attaching large PDFs. */
+  preferLinksOverAttachments: boolean;
+  /**
+   * When true (recommended), bucket stays private and SiteScop emails temporary signed links.
+   * When false, uses permanent public base URL (legacy).
+   */
+  useSignedDownloadLinks: boolean;
+  /** Signed link lifetime in days (e.g. 7 or 10). */
+  linkExpiryDays: number;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  s3AccessKeyId: string;
+  hasS3SecretAccessKey: boolean;
+  /** Optional; only needed when useSignedDownloadLinks is false. */
+  s3PublicBaseUrl: string;
+  s3Prefix: string;
+  accountEmail: string;
+  hasAccountPassword: boolean;
+  hasApiKey: boolean;
+  hasApiSecret: boolean;
+  notes: string;
+  /** True when this provider can upload report PDFs right now. */
+  uploadReady: boolean;
+  statusMessage: string;
+}
+
+export interface CloudStorageSettingsInput {
+  enabled: boolean;
+  provider: CloudStorageProvider;
+  preferLinksOverAttachments: boolean;
+  useSignedDownloadLinks?: boolean;
+  linkExpiryDays?: number;
+  s3Endpoint?: string;
+  s3Region?: string;
+  s3Bucket?: string;
+  s3AccessKeyId?: string;
+  /** Leave empty to keep the currently stored secret. */
+  s3SecretAccessKey?: string;
+  s3PublicBaseUrl?: string;
+  s3Prefix?: string;
+  accountEmail?: string;
+  accountPassword?: string;
+  apiKey?: string;
+  apiSecret?: string;
+  notes?: string;
+}
+
+export interface CloudStorageTestResult {
+  ok: boolean;
+  message: string;
+  sampleUrl?: string;
+}
+
 export interface GitHubSyncResult {
   imported: number;
   viewed: number;
@@ -852,6 +919,9 @@ export interface SitescopApi {
       tunnelRunning: boolean;
       message: string;
     }>;
+    getCloudStorage: () => Promise<CloudStorageSettingsPublic>;
+    saveCloudStorage: (input: CloudStorageSettingsInput) => Promise<CloudStorageSettingsPublic>;
+    testCloudStorage: () => Promise<CloudStorageTestResult>;
     getXero: () => Promise<XeroSettingsPublic>;
     saveXero: (input: XeroSettingsInput) => Promise<XeroSettingsPublic>;
     connectXero: () => Promise<{ tenantName: string }>;

@@ -16,17 +16,25 @@ export function useAccountingRefresh() {
   };
 }
 
-export function useMarkJobPaid() {
+export function useMarkJobPaid(options?: {
+  onSuccess?: (job: unknown, jobId: string) => void;
+  onError?: (error: Error) => void;
+}) {
   const queryClient = useQueryClient();
   const refreshAccounting = useAccountingRefresh();
 
   return useMutation({
     mutationFn: (jobId: string) => getSitescopApi().jobs.markPaid(jobId),
-    onSuccess: (_job, jobId) => {
+    onSuccess: (job, jobId) => {
       void queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       refreshAccounting();
+      options?.onSuccess?.(job, jobId);
     },
     onError: (error: Error) => {
+      if (options?.onError) {
+        options.onError(error);
+        return;
+      }
       window.alert(error.message || 'Could not mark job as paid.');
     },
   });

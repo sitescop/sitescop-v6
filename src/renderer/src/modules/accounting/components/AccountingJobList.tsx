@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { CircleDollarSign, Download, FileText, MapPin, Receipt, AlertTriangle, CloudUpload } from 'lucide-react';
 import type { AccountingJobRow } from '@shared/api-types';
 import { filterJobsBySearch } from '@/lib/job-search';
-import { Button, Card } from '@/design-system/components';
+import { Button, Card, ConfirmActionModal } from '@/design-system/components';
 import { formatDisplayDate } from '@/lib/dates';
 import { formatAud } from '@/modules/agreements/agreement-labels';
 import { INSPECTION_TYPE_LABELS, PaymentBadge, StatusBadge, TypeBadge } from '@/modules/jobs/job-labels';
@@ -54,7 +54,21 @@ export function AccountingJobList({
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [openingInvoiceId, setOpeningInvoiceId] = useState<string | null>(null);
-  const markPaidMutation = useMarkJobPaid();
+  const [jobToMarkPaid, setJobToMarkPaid] = useState<AccountingJobRow | null>(null);
+  const [paidSuccessJob, setPaidSuccessJob] = useState<AccountingJobRow | null>(null);
+  const [paidError, setPaidError] = useState<string | null>(null);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
+  const markPaidMutation = useMarkJobPaid({
+    onSuccess: (_job, jobId) => {
+      const matched = jobs.find((job) => job.id === jobId) ?? jobToMarkPaid;
+      setJobToMarkPaid(null);
+      if (matched) setPaidSuccessJob(matched);
+    },
+    onError: (error) => {
+      setJobToMarkPaid(null);
+      setPaidError(error.message || 'Could not mark job as paid.');
+    },
+  });
   const pushXeroMutation = usePushToXero();
 
   const xeroQuery = useQuery({
@@ -73,7 +87,7 @@ export function AccountingJobList({
     try {
       await openJobInvoice(jobId);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not open invoice.');
+      setInvoiceError(err instanceof Error ? err.message : 'Could not open invoice.');
     } finally {
       setOpeningInvoiceId(null);
     }
@@ -232,7 +246,7 @@ export function AccountingJobList({
                           variant="primary"
                           size="sm"
                           disabled={markPaidMutation.isPending}
-                          onClick={() => markPaidMutation.mutate(job.id)}
+                          onClick={() => setJobToMarkPaid(job)}
                         >
                           <CircleDollarSign className="h-3.5 w-3.5" />
                           {markPaidMutation.isPending && markPaidMutation.variables === job.id
@@ -290,6 +304,67 @@ export function AccountingJobList({
           </ul>
         </div>
       )}
+
+      <ConfirmActionModal
+        open={Boolean(jobToMarkPaid)}
+        onClose={() => setJobToMarkPaid(null)}
+        tone="payment"
+        title="Mark as paid?"
+        eyebrow="Payment confirmation"
+        message={
+          jobToMarkPaid ? (
+            <>
+              Mark <span className="font-bold">{jobToMarkPaid.jobNumber}</span> for{' '}
+              <span className="font-bold">{jobToMarkPaid.clientName}</span> as paid?
+            </>
+          ) : (
+            'Mark this job as paid?'
+          )
+        }
+        hint="Once paid, the client can receive inspection reports by copy and email."
+        confirmLabel="Yes, mark as paid"
+        cancelLabel="Not yet"
+        isPending={markPaidMutation.isPending}
+        pendingLabel="Updating…"
+        onConfirm={() => {
+          if (jobToMarkPaid) markPaidMutation.mutate(jobToMarkPaid.id);
+        }}
+      />
+
+      <ConfirmActionModal
+        open={Boolean(paidSuccessJob)}
+        onClose={() => setPaidSuccessJob(null)}
+        tone="success"
+        title="Marked as paid"
+        eyebrow="Payment recorded"
+        message={
+          paidSuccessJob ? (
+            <>
+              <span className="font-bold">{paidSuccessJob.jobNumber}</span> is now paid and moved to Paid.
+            </>
+          ) : (
+            'Job marked as paid.'
+          )
+        }
+      />
+
+      <ConfirmActionModal
+        open={Boolean(paidError)}
+        onClose={() => setPaidError(null)}
+        tone="danger"
+        title="Could not mark as paid"
+        eyebrow="Something went wrong"
+        message={paidError ?? 'Could not mark job as paid.'}
+      />
+
+      <ConfirmActionModal
+        open={Boolean(invoiceError)}
+        onClose={() => setInvoiceError(null)}
+        tone="danger"
+        title="Could not open invoice"
+        eyebrow="Something went wrong"
+        message={invoiceError ?? 'Could not open invoice.'}
+      />
     </div>
   );
 }

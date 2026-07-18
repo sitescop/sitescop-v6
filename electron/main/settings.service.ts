@@ -18,6 +18,9 @@ import {
   SITESCOP_PDF_FOOTER_TEXT,
 } from '../../shared/company-branding.js';
 import type {
+  CloudStorageProvider,
+  CloudStorageSettingsInput,
+  CloudStorageSettingsPublic,
   CompanySettings,
   CompanySettingsInput,
   EmailMailClient,
@@ -81,6 +84,27 @@ interface StoredSettingsFile {
     tenantId?: string;
     tenantName?: string;
   };
+  cloudStorage?: {
+    enabled?: boolean;
+    provider?: CloudStorageProvider;
+    preferLinksOverAttachments?: boolean;
+    useSignedDownloadLinks?: boolean;
+    linkExpiryDays?: number;
+    s3Endpoint?: string;
+    s3Region?: string;
+    s3Bucket?: string;
+    s3AccessKeyId?: string;
+    encryptedS3SecretAccessKey?: string;
+    /** Legacy/plaintext fallback; migrated to encrypted on next save. */
+    s3SecretAccessKey?: string;
+    s3PublicBaseUrl?: string;
+    s3Prefix?: string;
+    accountEmail?: string;
+    encryptedAccountPassword?: string;
+    encryptedApiKey?: string;
+    encryptedApiSecret?: string;
+    notes?: string;
+  };
 }
 
 const DEFAULT_GITHUB: GitHubSettings = {
@@ -141,7 +165,9 @@ Your {{reportLabel}} for {{propertyAddress}} is ready.
 Job: {{jobNumber}}
 Inspection: {{inspectionNumber}}
 
-Please find the PDF report attached.
+Please find the PDF report attached (or use the download link below when cloud storage is enabled).
+
+{{reportLinks}}
 
 If you have any questions, reply to this email or call us on {{companyPhone}}.
 
@@ -712,6 +738,229 @@ export function saveGitHubSettings(input: GitHubSettingsInput): GitHubSettingsPu
   };
   saveRaw(raw);
   return getGitHubSettingsPublic();
+}
+
+export interface CloudStorageSettings {
+  enabled: boolean;
+  provider: CloudStorageProvider;
+  preferLinksOverAttachments: boolean;
+  useSignedDownloadLinks: boolean;
+  linkExpiryDays: number;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  s3AccessKeyId: string;
+  s3SecretAccessKey: string;
+  s3PublicBaseUrl: string;
+  s3Prefix: string;
+  accountEmail: string;
+  accountPassword: string;
+  apiKey: string;
+  apiSecret: string;
+  notes: string;
+}
+
+const DEFAULT_CLOUD_STORAGE: CloudStorageSettings = {
+  enabled: false,
+  provider: 'none',
+  preferLinksOverAttachments: true,
+  useSignedDownloadLinks: true,
+  linkExpiryDays: 7,
+  s3Endpoint: '',
+  s3Region: 'auto',
+  s3Bucket: '',
+  s3AccessKeyId: '',
+  s3SecretAccessKey: '',
+  s3PublicBaseUrl: '',
+  s3Prefix: 'sitescop-reports/',
+  accountEmail: '',
+  accountPassword: '',
+  apiKey: '',
+  apiSecret: '',
+  notes: '',
+};
+
+/** R2/S3 SigV4 query-string signed URLs are limited to 7 days. */
+function clampLinkExpiryDays(value: unknown, fallback = 7): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(7, Math.max(1, Math.round(n)));
+}
+
+function normalizeCloudProvider(value: unknown): CloudStorageProvider {
+  const allowed: CloudStorageProvider[] = [
+    'none',
+    's3',
+    'google_drive',
+    'onedrive',
+    'mega',
+    'proton',
+    'sync',
+  ];
+  if (typeof value === 'string' && (allowed as string[]).includes(value)) {
+    return value as CloudStorageProvider;
+  }
+  return 'none';
+}
+
+function cloudStatusMessage(settings: CloudStorageSettings): { uploadReady: boolean; statusMessage: string } {
+  if (!settings.enabled || settings.provider === 'none') {
+    return {
+      uploadReady: false,
+      statusMessage: 'Cloud storage is off. Reports stay on this PC (current behaviour).',
+    };
+  }
+  if (settings.provider === 's3') {
+    const keysReady = Boolean(
+      settings.s3Endpoint.trim() &&
+        settings.s3Bucket.trim() &&
+        settings.s3AccessKeyId.trim() &&
+        settings.s3SecretAccessKey.trim(),
+    );
+    const ready = settings.useSignedDownloadLinks
+      ? keysReady
+      : keysReady && Boolean(settings.s3PublicBaseUrl.trim());
+    return {
+      uploadReady: ready,
+      statusMessage: ready
+        ? settings.useSignedDownloadLinks
+          ? `Private bucket ready. Report emails use temporary signed links (expire after ${settings.linkExpiryDays} day${settings.linkExpiryDays === 1 ? '' : 's'}).`
+          : 'S3-compatible storage is ready with permanent public links.'
+        : settings.useSignedDownloadLinks
+          ? 'Fill endpoint, bucket, access key, and secret key, then Test.'
+          : 'Fill endpoint, bucket, keys, and public base URL, then Test.',
+    };
+  }
+  const labels: Record<Exclude<CloudStorageProvider, 'none' | 's3'>, string> = {
+    google_drive: 'Google Drive',
+    onedrive: 'OneDrive',
+    mega: 'MEGA',
+    proton: 'Proton Drive',
+    sync: 'Sync.com',
+  };
+  return {
+    uploadReady: false,
+    statusMessage: `${labels[settings.provider]} settings are saved. Direct upload for this provider will be connected next — use S3-compatible (e.g. Cloudflare R2) for working share links today.`,
+  };
+}
+
+export function getCloudStorageSettings(): CloudStorageSettings {
+  const raw = loadRaw().cloudStorage ?? {};
+  return {
+    enabled: Boolean(raw.enabled),
+    provider: normalizeCloudProvider(raw.provider),
+    preferLinksOverAttachments:
+      typeof raw.preferLinksOverAttachments === 'boolean'
+        ? raw.preferLinksOverAttachments
+        : DEFAULT_CLOUD_STORAGE.preferLinksOverAttachments,
+    useSignedDownloadLinks:
+      typeof raw.useSignedDownloadLinks === 'boolean'
+        ? raw.useSignedDownloadLinks
+        : DEFAULT_CLOUD_STORAGE.useSignedDownloadLinks,
+    linkExpiryDays: clampLinkExpiryDays(raw.linkExpiryDays, DEFAULT_CLOUD_STORAGE.linkExpiryDays),
+    s3Endpoint: raw.s3Endpoint?.trim() ?? '',
+    s3Region: raw.s3Region?.trim() || DEFAULT_CLOUD_STORAGE.s3Region,
+    s3Bucket: raw.s3Bucket?.trim() ?? '',
+    s3AccessKeyId: raw.s3AccessKeyId?.trim() ?? '',
+    s3SecretAccessKey: raw.encryptedS3SecretAccessKey
+      ? decryptSecret(raw.encryptedS3SecretAccessKey)
+      : raw.s3SecretAccessKey?.trim() || '',
+    s3PublicBaseUrl: raw.s3PublicBaseUrl?.trim().replace(/\/$/, '') ?? '',
+    s3Prefix: raw.s3Prefix?.trim() || DEFAULT_CLOUD_STORAGE.s3Prefix,
+    accountEmail: raw.accountEmail?.trim() ?? '',
+    accountPassword: raw.encryptedAccountPassword ? decryptSecret(raw.encryptedAccountPassword) : '',
+    apiKey: raw.encryptedApiKey ? decryptSecret(raw.encryptedApiKey) : '',
+    apiSecret: raw.encryptedApiSecret ? decryptSecret(raw.encryptedApiSecret) : '',
+    notes: raw.notes?.trim() ?? '',
+  };
+}
+
+export function getCloudStorageSettingsPublic(): CloudStorageSettingsPublic {
+  const settings = getCloudStorageSettings();
+  const { uploadReady, statusMessage } = cloudStatusMessage(settings);
+  return {
+    enabled: settings.enabled,
+    provider: settings.provider,
+    preferLinksOverAttachments: settings.preferLinksOverAttachments,
+    useSignedDownloadLinks: settings.useSignedDownloadLinks,
+    linkExpiryDays: settings.linkExpiryDays,
+    s3Endpoint: settings.s3Endpoint,
+    s3Region: settings.s3Region,
+    s3Bucket: settings.s3Bucket,
+    s3AccessKeyId: settings.s3AccessKeyId,
+    hasS3SecretAccessKey: Boolean(settings.s3SecretAccessKey),
+    s3PublicBaseUrl: settings.s3PublicBaseUrl,
+    s3Prefix: settings.s3Prefix,
+    accountEmail: settings.accountEmail,
+    hasAccountPassword: Boolean(settings.accountPassword),
+    hasApiKey: Boolean(settings.apiKey),
+    hasApiSecret: Boolean(settings.apiSecret),
+    notes: settings.notes,
+    uploadReady,
+    statusMessage,
+  };
+}
+
+export function isCloudStorageUploadReady(): boolean {
+  return getCloudStorageSettingsPublic().uploadReady;
+}
+
+export function saveCloudStorageSettings(input: CloudStorageSettingsInput): CloudStorageSettingsPublic {
+  const current = getCloudStorageSettings();
+  const next: CloudStorageSettings = {
+    enabled: Boolean(input.enabled),
+    provider: normalizeCloudProvider(input.provider),
+    preferLinksOverAttachments: Boolean(input.preferLinksOverAttachments),
+    useSignedDownloadLinks:
+      typeof input.useSignedDownloadLinks === 'boolean'
+        ? input.useSignedDownloadLinks
+        : current.useSignedDownloadLinks,
+    linkExpiryDays: clampLinkExpiryDays(
+      input.linkExpiryDays ?? current.linkExpiryDays,
+      DEFAULT_CLOUD_STORAGE.linkExpiryDays,
+    ),
+    s3Endpoint: (input.s3Endpoint ?? current.s3Endpoint).trim().replace(/\/$/, ''),
+    s3Region: (input.s3Region ?? current.s3Region).trim() || DEFAULT_CLOUD_STORAGE.s3Region,
+    s3Bucket: (input.s3Bucket ?? current.s3Bucket).trim(),
+    s3AccessKeyId: (input.s3AccessKeyId ?? current.s3AccessKeyId).trim(),
+    s3SecretAccessKey: input.s3SecretAccessKey?.trim() || current.s3SecretAccessKey,
+    s3PublicBaseUrl: (input.s3PublicBaseUrl ?? current.s3PublicBaseUrl).trim().replace(/\/$/, ''),
+    s3Prefix: (input.s3Prefix ?? current.s3Prefix).trim() || DEFAULT_CLOUD_STORAGE.s3Prefix,
+    accountEmail: (input.accountEmail ?? current.accountEmail).trim(),
+    accountPassword: input.accountPassword?.trim() || current.accountPassword,
+    apiKey: input.apiKey?.trim() || current.apiKey,
+    apiSecret: input.apiSecret?.trim() || current.apiSecret,
+    notes: (input.notes ?? current.notes).trim(),
+  };
+
+  if (!next.enabled) {
+    next.provider = next.provider === 'none' ? 'none' : next.provider;
+  }
+
+  const raw = loadRaw();
+  raw.cloudStorage = {
+    enabled: next.enabled,
+    provider: next.provider,
+    preferLinksOverAttachments: next.preferLinksOverAttachments,
+    useSignedDownloadLinks: next.useSignedDownloadLinks,
+    linkExpiryDays: next.linkExpiryDays,
+    s3Endpoint: next.s3Endpoint,
+    s3Region: next.s3Region,
+    s3Bucket: next.s3Bucket,
+    s3AccessKeyId: next.s3AccessKeyId,
+    encryptedS3SecretAccessKey: encryptSecret(next.s3SecretAccessKey),
+    s3PublicBaseUrl: next.s3PublicBaseUrl,
+    s3Prefix: next.s3Prefix,
+    accountEmail: next.accountEmail,
+    encryptedAccountPassword: encryptSecret(next.accountPassword),
+    encryptedApiKey: encryptSecret(next.apiKey),
+    encryptedApiSecret: encryptSecret(next.apiSecret),
+    notes: next.notes,
+  };
+  // Drop any temporary plaintext secret left by seed scripts.
+  delete (raw.cloudStorage as { s3SecretAccessKey?: string }).s3SecretAccessKey;
+  saveRaw(raw);
+  return getCloudStorageSettingsPublic();
 }
 
 export interface XeroSettings {

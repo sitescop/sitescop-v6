@@ -139,8 +139,9 @@ function parseSectionTimerKey(timerKey: string): { realm: InspectionFormRealm; s
 }
 
 function saveDebounceMs(partial: Record<string, unknown>): number {
-  if (Object.prototype.hasOwnProperty.call(partial, 'photos')) return 0;
-  if (Object.keys(partial).some((key) => key.endsWith('Photos'))) return 0;
+  // Keep the 30s roll for photos too — immediate saves on every photo tweak freeze the UI.
+  if (Object.prototype.hasOwnProperty.call(partial, 'photos')) return PHOTO_SAVE_DEBOUNCE_MS;
+  if (Object.keys(partial).some((key) => key.endsWith('Photos'))) return PHOTO_SAVE_DEBOUNCE_MS;
   // Quick-action Major / No Major must persist immediately so PDF matches the click.
   if (
     Object.prototype.hasOwnProperty.call(partial, 'noMajorDefectObserved') ||
@@ -605,7 +606,7 @@ export function useInspectionEditor(
       if (roomUpdateNeedsEnrich(partial)) {
         scheduleRoomFormEnrich();
       }
-      if (hasDefectQuickFlag(partial) || Object.prototype.hasOwnProperty.call(partial, 'photos')) {
+      if (hasDefectQuickFlag(partial)) {
         const existing = roomTimers.current.get(roomId);
         if (existing) clearTimeout(existing);
         roomTimers.current.delete(roomId);

@@ -1,4 +1,5 @@
 export * from './certification.js';
+export * from './accessibility-sync.js';
 export * from './property-profile.js';
 export * from './comment-suggestions.js';
 export * from './dictation-format.js';

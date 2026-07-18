@@ -35,11 +35,10 @@ export const BUILDING_PDF_PART_TITLES: Record<string, string> = {
   jobInformation: '1. Property & Engagement Information',
   inspectionSummary: '2. Results of Inspection (Summary)',
   accessibilityObstructions: '3. Site & Access Assessment',
-  external: '4. Exterior & Roof Inspection',
+  external: '4. Exterior, Subfloor & Roof Inspection',
   kitchen: '5. Internal Areas',
-  subfloor: '6. Other Building Elements',
-  minorDefects: '7. Defects & Specialist Testing',
-  conclusion: '8. Summary & Certification',
+  minorDefects: '6. Defects & Specialist Testing',
+  conclusion: '7. Summary & Certification',
 };
 
 import { renderPdfPartHeading } from './report-design.js';

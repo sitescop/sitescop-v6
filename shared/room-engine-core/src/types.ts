@@ -118,6 +118,11 @@ export interface AccessibilityObstructionsSection extends SectionBase {
   subfloorObstructionPhotos: InspectionPhotoRef[];
   inaccessibleAreas: CheckboxFieldState;
   inaccessibleCustomLines: string[];
+  /**
+   * Reasons chosen for Accessibility Areas that were auto-marked inaccessible
+   * because they were not ticked in Accessibility Areas. Keys are area names.
+   */
+  inaccessibleAreaReasons: Record<string, string>;
   undetectedStructuralRisk: string;
   riskExplanation: string;
 }

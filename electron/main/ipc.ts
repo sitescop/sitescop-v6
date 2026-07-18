@@ -21,6 +21,7 @@ import type {
   UpdateClientInput,
   UpdateClientAgentInput,
   RescheduleJobInput,
+  CloudStorageSettingsInput,
   GitHubSettingsInput,
   XeroSettingsInput,
 } from '../../shared/api-types.js';
@@ -45,6 +46,7 @@ import {
 import {
   getGitHubSettings,
   getGitHubSettingsPublic,
+  getCloudStorageSettingsPublic,
   getCompanySettings,
   getReportSettings,
   getBillingSettings,
@@ -61,10 +63,12 @@ import {
   saveCompanyLogoFromPath,
   saveCompanySettings,
   saveGitHubSettings,
+  saveCloudStorageSettings,
   saveReportSettings,
   getXeroSettingsPublic,
   saveXeroSettings,
 } from './settings.service.js';
+import { testCloudStorageConnection } from './cloud-storage.service.js';
 import { connectXero, disconnectXero, pushJobInvoiceToXero } from './xero.service.js';
 import { publishSigningPortalToGitHub, testGitHubConnection } from './github.service.js';
 import type { LocalDatabase } from './database.js';
@@ -1065,6 +1069,21 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:testGitHub', async () => {
     requireAuth();
     return testGitHubConnection(getGitHubSettings());
+  });
+
+  ipcMain.handle('settings:getCloudStorage', async () => {
+    requireAuth();
+    return getCloudStorageSettingsPublic();
+  });
+
+  ipcMain.handle('settings:saveCloudStorage', async (_event, input: CloudStorageSettingsInput) => {
+    requireAuth();
+    return saveCloudStorageSettings(input);
+  });
+
+  ipcMain.handle('settings:testCloudStorage', async () => {
+    requireAuth();
+    return testCloudStorageConnection();
   });
 
   ipcMain.handle('settings:getXero', async () => {

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { SectionQuickActions } from './SectionQuickActions';
+import { AreaInaccessibleBanner } from './AreaInaccessibleBanner';
 
 interface NoMajorDefectSectionWrapperProps {
   disabled?: boolean;
@@ -7,6 +8,9 @@ interface NoMajorDefectSectionWrapperProps {
   active?: boolean;
   noMajorActive?: boolean;
   majorActive?: boolean;
+  /** When set, section is locked from unticked Accessibility Areas. */
+  inaccessibleArea?: string | null;
+  inaccessibleReason?: string;
   onApply: () => void;
   onApplyMajor: () => void;
   onReportDefects: () => void;
@@ -18,6 +22,8 @@ export function NoMajorDefectSectionWrapper({
   active,
   noMajorActive: noMajorActiveProp,
   majorActive = false,
+  inaccessibleArea = null,
+  inaccessibleReason,
   onApply,
   onApplyMajor,
   onReportDefects,
@@ -25,6 +31,10 @@ export function NoMajorDefectSectionWrapper({
 }: NoMajorDefectSectionWrapperProps) {
   const noMajorActive = noMajorActiveProp ?? Boolean(active);
   const collapsed = noMajorActive || majorActive;
+
+  if (inaccessibleArea) {
+    return <AreaInaccessibleBanner area={inaccessibleArea} reason={inaccessibleReason} />;
+  }
 
   return (
     <div className="space-y-4">

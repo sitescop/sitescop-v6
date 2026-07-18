@@ -1,6 +1,6 @@
 import { BrowserWindow, clipboard, dialog, shell } from 'electron';
 import { basename } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import type { Database as SqlDatabase } from 'sql.js';
 import type { ComposeEmailResult, EmailMailClient, SessionUser } from '../../shared/api-types.js';
 import {
@@ -13,8 +13,20 @@ import { getActiveSigningUrl } from './github-agreements.service.js';
 import { assertJobPaidForReportDelivery } from './job-payment.service.js';
 import { getJobDetail } from './jobs.service.js';
 import { listReportsForJob } from './reports.service.js';
-import { getCompanySettings, getEmailSettings } from './settings.service.js';
+import {
+  formatReportLinks,
+  isCloudStorageUploadReady,
+  uploadReportPdfs,
+} from './cloud-storage.service.js';
+import {
+  getCloudStorageSettingsPublic,
+  getCompanySettings,
+  getEmailSettings,
+} from './settings.service.js';
 import { isSmtpSendReady, sendSmtpEmail } from './smtp.service.js';
+
+/** Zoho / most SMTP providers reject or reset around 20MB total. Stay under that. */
+const SMTP_SAFE_TOTAL_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 
 function firstValidClientEmail(...candidates: (string | undefined | null)[]): string | null {
   for (const candidate of candidates) {
@@ -72,6 +84,20 @@ function normalizePdfPaths(options: { pdfPath?: string; pdfPaths?: string[] }): 
   return [...new Set(paths.filter((p) => Boolean(p) && existsSync(p)))];
 }
 
+function totalAttachmentBytes(paths: string[]): number {
+  return paths.reduce((sum, path) => {
+    try {
+      return sum + statSync(path).size;
+    } catch {
+      return sum;
+    }
+  }, 0);
+}
+
+function formatMb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function openZohoCompose(to: string, subject: string, body: string): void {
   const mailtoLink = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   const zohoUrl = `https://mail.zoho.com.au/mail/compose.do?extsrc=mailto&mode=compose&tp=zb&ct=${encodeURIComponent(mailtoLink)}`;
@@ -110,9 +136,10 @@ async function sendViaSmtp(options: {
 }): Promise<ComposeEmailResult> {
   const pdfPaths = normalizePdfPaths(options);
   const parent = parentWindow();
+  const totalBytes = totalAttachmentBytes(pdfPaths);
   const attachNote =
     pdfPaths.length > 0
-      ? `\n\nAttachment${pdfPaths.length > 1 ? 's' : ''}: ${pdfPaths.map((p) => basename(p)).join(', ')}`
+      ? `\n\nAttachment${pdfPaths.length > 1 ? 's' : ''}: ${pdfPaths.map((p) => basename(p)).join(', ')} (${formatMb(totalBytes)})`
       : '';
   const messageOptions: Electron.MessageBoxOptions = {
     type: 'info',
@@ -142,12 +169,31 @@ async function sendViaSmtp(options: {
       ? pdfPaths.map((path) => ({ filename: basename(path), path }))
       : undefined;
 
-  await sendSmtpEmail({
-    to: options.clientEmail,
-    subject: options.subject,
-    text: options.body,
-    attachments,
-  });
+  try {
+    await sendSmtpEmail({
+      to: options.clientEmail,
+      subject: options.subject,
+      text: options.body,
+      attachments,
+    });
+  } catch (error) {
+    const raw = error instanceof Error ? error.message : String(error);
+    const lower = raw.toLowerCase();
+    if (
+      lower.includes('econnreset') ||
+      lower.includes('econnrefused') ||
+      lower.includes('etimedout') ||
+      lower.includes('socket') ||
+      lower.includes('connection')
+    ) {
+      const sizeHint =
+        totalBytes > SMTP_SAFE_TOTAL_ATTACHMENT_BYTES
+          ? ` The PDF attachment${pdfPaths.length > 1 ? 's are' : ' is'} ${formatMb(totalBytes)} — most email servers (including Zoho) only allow about 20 MB. Open your email app and attach the PDF manually, or send Building and Pest as two separate emails.`
+          : ' Check your internet connection and SMTP settings in Settings → Email, then try again.';
+      throw new Error(`Email server closed the connection.${sizeHint}`);
+    }
+    throw error instanceof Error ? error : new Error(raw);
+  }
 
   return {
     clientEmail: options.clientEmail,
@@ -158,25 +204,144 @@ async function sendViaSmtp(options: {
   };
 }
 
+async function maybeUploadCloudLinks(pdfPaths: string[]): Promise<{
+  reportLinks: string;
+  attachPaths: string[];
+  usedCloud: boolean;
+  cancelled?: boolean;
+}> {
+  if (pdfPaths.length === 0 || !isCloudStorageUploadReady()) {
+    return { reportLinks: '', attachPaths: pdfPaths, usedCloud: false };
+  }
+
+  const cloud = getCloudStorageSettingsPublic();
+  try {
+    const uploads = await uploadReportPdfs(pdfPaths);
+    const reportLinks = formatReportLinks(uploads);
+    if (cloud.preferLinksOverAttachments) {
+      return { reportLinks, attachPaths: [], usedCloud: true };
+    }
+    return { reportLinks, attachPaths: pdfPaths, usedCloud: true };
+  } catch (error) {
+    const parent = parentWindow();
+    const detail = error instanceof Error ? error.message : String(error);
+    const failOptions: Electron.MessageBoxOptions = {
+      type: 'warning',
+      title: 'Cloud upload failed',
+      message: 'Could not upload reports to cloud storage.',
+      detail: `${detail}\n\nContinue with local PDF attachment instead?`,
+      buttons: ['Continue with local PDF', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+    };
+    const { response } = parent
+      ? await dialog.showMessageBox(parent, failOptions)
+      : await dialog.showMessageBox(failOptions);
+    if (response !== 0) {
+      return { reportLinks: '', attachPaths: pdfPaths, usedCloud: false, cancelled: true };
+    }
+    return { reportLinks: '', attachPaths: pdfPaths, usedCloud: false };
+  }
+}
+
+function applyReportLinksToBody(body: string, reportLinks: string, templateHadPlaceholder: boolean): string {
+  if (!reportLinks) return body;
+  if (templateHadPlaceholder) return body;
+  return `${body}
+
+Download your report(s):
+${reportLinks}`;
+}
+
 async function promptAndOpenEmail(options: {
   clientEmail: string;
   subject: string;
   body: string;
   pdfPath?: string;
   pdfPaths?: string[];
+  /** When set, cloud upload was already attempted by the caller. */
+  cloudDelivery?: {
+    reportLinks: string;
+    attachPaths: string[];
+    usedCloud: boolean;
+    cancelled?: boolean;
+  };
+  /** When true, {{reportLinks}} was already applied in the template. */
+  reportLinksApplied?: boolean;
 }): Promise<ComposeEmailResult> {
+  const originalPdfPaths = normalizePdfPaths(options);
+  const cloudDelivery =
+    options.cloudDelivery ?? (await maybeUploadCloudLinks(originalPdfPaths));
+  if (cloudDelivery.cancelled) {
+    return {
+      clientEmail: options.clientEmail,
+      method: 'smtp',
+      message: '',
+      cancelled: true,
+    };
+  }
+  const pdfPaths = cloudDelivery.attachPaths;
+  const body = applyReportLinksToBody(
+    options.body,
+    cloudDelivery.reportLinks,
+    Boolean(options.reportLinksApplied),
+  );
+  const totalBytes = totalAttachmentBytes(pdfPaths);
+  const mailOptions = {
+    clientEmail: options.clientEmail,
+    subject: options.subject,
+    body,
+    pdfPaths,
+  };
+
   if (isSmtpSendReady()) {
-    return sendViaSmtp(options);
+    if (pdfPaths.length === 0) {
+      return sendViaSmtp(mailOptions);
+    }
+    if (totalBytes > SMTP_SAFE_TOTAL_ATTACHMENT_BYTES) {
+      const parent = parentWindow();
+      const fileList = pdfPaths.map((p) => `• ${basename(p)} (${formatMb(statSync(p).size)})`).join('\n');
+      const cloudHint = isCloudStorageUploadReady()
+        ? '\n\nTip: enable “Prefer share links” in Settings → Cloud storage so large PDFs are not attached.'
+        : '\n\nTip: set up Cloud storage in Settings to email download links instead of huge attachments.';
+      const oversizedOptions: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: 'PDFs too large for direct email',
+        message: `Attachments are ${formatMb(totalBytes)} — too large for SMTP (about 20 MB limit).`,
+        detail: `${fileList}\n\nPhoto-heavy building/pest reports often exceed the email server limit.${cloudHint}\n\nOpen your email app to attach the PDFs yourself?`,
+        buttons: ['Open email app', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1,
+      };
+      const { response } = parent
+        ? await dialog.showMessageBox(parent, oversizedOptions)
+        : await dialog.showMessageBox(oversizedOptions);
+      if (response !== 0) {
+        return {
+          clientEmail: options.clientEmail,
+          method: 'smtp',
+          message: '',
+          cancelled: true,
+        };
+      }
+      // Fall through to compose-with-attach-tip path below.
+    } else {
+      return sendViaSmtp(mailOptions);
+    }
   }
 
   const emailSettings = getEmailSettings();
   const mailClient = emailSettings.mailClient;
   const label = mailClientLabel(mailClient);
-  const pdfPaths = normalizePdfPaths(options);
 
   const pdfSteps =
     pdfPaths.length > 0 && emailSettings.includePdfAttachTip
       ? `\n3. Copy the PDF path${pdfPaths.length > 1 ? 's' : ''} at the bottom of the email → Attach in ${label} → paste → delete those lines before sending.`
+      : '';
+
+  const cloudNote =
+    cloudDelivery.usedCloud && cloudDelivery.reportLinks
+      ? '\n\nCloud share link(s) are included in the email body.'
       : '';
 
   const parent = parentWindow();
@@ -191,7 +356,7 @@ From / reply: ${emailSettings.fromEmail || SITESCOP_COMPANY_EMAIL}
 Steps:
 1. Click OK — ${label} opens.
 2. Check the To field has the client email; if not, press Ctrl+V (copied to clipboard).
-${pdfSteps}`,
+${pdfSteps}${cloudNote}`,
     buttons: [`OK — open ${mailClient === 'zoho' ? 'Zoho' : 'mail'}`, 'Cancel'],
     defaultId: 0,
     cancelId: 1,
@@ -212,12 +377,20 @@ ${pdfSteps}`,
 
   clipboard.writeText(options.clientEmail);
 
-  let emailBody = options.body;
+  let emailBody = body;
   if (pdfPaths.length > 0 && emailSettings.includePdfAttachTip) {
-    emailBody = appendPdfAttachmentNote(options.body, pdfPaths, mailClient);
+    emailBody = appendPdfAttachmentNote(body, pdfPaths, mailClient);
   }
 
   openCompose(mailClient, options.clientEmail, options.subject, emailBody);
+
+  if (cloudDelivery.usedCloud && pdfPaths.length === 0) {
+    return {
+      clientEmail: options.clientEmail,
+      method: mailClient,
+      message: `${label} opened with cloud download link(s) in the email body.`,
+    };
+  }
 
   if (pdfPaths.length > 0 && emailSettings.includePdfAttachTip) {
     return {
@@ -355,6 +528,11 @@ export async function composeReportEmailToClient(
   const reportLabel =
     reportType === 'PEST' ? 'pest inspection report' : 'building inspection report';
   const emailSettings = getEmailSettings();
+  const cloudDelivery = await maybeUploadCloudLinks([filePath]);
+  if (cloudDelivery.cancelled) {
+    return { clientEmail, method: 'smtp', message: '', cancelled: true };
+  }
+  const templateHadPlaceholder = emailSettings.reportBody.includes('{{reportLinks}}');
   const vars = brandVars({
     clientName: String(row.client_name),
     firstName: firstNameFrom(String(row.client_name)),
@@ -362,13 +540,16 @@ export async function composeReportEmailToClient(
     jobNumber: String(row.job_number),
     inspectionNumber: String(row.inspection_number),
     reportLabel,
+    reportLinks: cloudDelivery.reportLinks,
   });
 
   return promptAndOpenEmail({
     clientEmail,
     subject: applyTemplate(emailSettings.reportSubject, vars),
     body: applyTemplate(emailSettings.reportBody, vars),
-    pdfPath: filePath,
+    pdfPaths: cloudDelivery.attachPaths,
+    cloudDelivery,
+    reportLinksApplied: templateHadPlaceholder,
   });
 }
 
@@ -416,6 +597,11 @@ export async function composeJobReportsEmailToClient(
   insp.free();
 
   const emailSettings = getEmailSettings();
+  const cloudDelivery = await maybeUploadCloudLinks(pdfPaths);
+  if (cloudDelivery.cancelled) {
+    return { clientEmail, method: 'smtp', message: '', cancelled: true };
+  }
+  const templateHadPlaceholder = emailSettings.reportBody.includes('{{reportLinks}}');
   const vars = brandVars({
     clientName: job.clientName,
     firstName: firstNameFrom(job.clientName),
@@ -423,13 +609,16 @@ export async function composeJobReportsEmailToClient(
     jobNumber: job.jobNumber,
     inspectionNumber,
     reportLabel,
+    reportLinks: cloudDelivery.reportLinks,
   });
 
   return promptAndOpenEmail({
     clientEmail,
     subject: applyTemplate(emailSettings.reportSubject, vars),
     body: applyTemplate(emailSettings.reportBody, vars),
-    pdfPaths,
+    pdfPaths: cloudDelivery.attachPaths,
+    cloudDelivery,
+    reportLinksApplied: templateHadPlaceholder,
   });
 }
 

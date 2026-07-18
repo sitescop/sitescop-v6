@@ -561,6 +561,48 @@ function mergePhotoRefs(existing: InspectionPhotoRef[], incoming: InspectionPhot
   return merged;
 }
 
+function photoRefKey(photo: InspectionPhotoRef): string {
+  return photo.id ? photo.id : `anon:${(photo.dataUrl ?? '').length}`;
+}
+
+function stripPhotoRefs(
+  existing: InspectionPhotoRef[],
+  remove: InspectionPhotoRef[],
+): InspectionPhotoRef[] {
+  const removeKeys = new Set(remove.map(photoRefKey));
+  if (removeKeys.size === 0) return existing;
+  return existing.filter((photo) => !removeKeys.has(photoRefKey(photo)));
+}
+
+/** Service photos that may have been wrongly mirrored into D11 historically. */
+function collectD11MirrorableServicePhotos(services: ServicesSection): InspectionPhotoRef[] {
+  return [
+    ...(services.photos ?? []),
+    ...(services.waterSupplyPhotos ?? []),
+    ...(services.sewerPhotos ?? []),
+    ...(services.electricityPhotos ?? []),
+    ...(services.gasPhotos ?? []),
+    ...(services.hotWaterPhotos ?? []),
+    ...(services.airConPhotos ?? []),
+    ...(services.gasBottlePhotos ?? []),
+  ];
+}
+
+/** Only photos for bridging items auto-derived from Services (not water supply / sewer / etc.). */
+function collectD11RelevantServicePhotos(services: ServicesSection): InspectionPhotoRef[] {
+  const photos: InspectionPhotoRef[] = [];
+  if (services.airConPresent === 'Yes') {
+    photos.push(...(services.airConPhotos ?? []));
+  }
+  if (services.hotWaterPresent === 'Yes' && services.hotWaterLocation !== 'Internal') {
+    photos.push(...(services.hotWaterPhotos ?? []));
+  }
+  if (hasLpgGasSelected(services)) {
+    photos.push(...(services.gasBottlePhotos ?? []));
+  }
+  return photos;
+}
+
 function hasLpgGasSelected(services: ServicesSection): boolean {
   const gas = normalizeCheckboxField(services.gas);
   const selectedLpg = [...gas.selected, ...gas.custom].some(
@@ -597,16 +639,12 @@ function syncD11BarrierBridgingFromServices(
     custom: [...new Set(current.custom)],
   });
 
-  const shouldLinkPhotos =
-    services.airConPresent === 'Yes' ||
-    (services.hotWaterPresent === 'Yes' && services.hotWaterLocation !== 'Internal') ||
-    hasLpgGasSelected(services);
-  const linkedPhotos = shouldLinkPhotos
-    ? mergePhotoRefs(
-        pest.d11BarrierBridging.photos,
-        [...services.photos, ...(services.waterSupplyPhotos ?? []), ...(services.sewerPhotos ?? []), ...(services.electricityPhotos ?? []), ...(services.gasPhotos ?? []), ...services.hotWaterPhotos, ...(services.airConPhotos ?? []), ...services.gasBottlePhotos],
-      )
-    : pest.d11BarrierBridging.photos;
+  // Strip previously mirrored service photos, then re-link only relevant bridging photos.
+  // Water supply / sewer / electricity / gas-main photos must never appear in D11.
+  const linkedPhotos = mergePhotoRefs(
+    stripPhotoRefs(pest.d11BarrierBridging.photos, collectD11MirrorableServicePhotos(services)),
+    collectD11RelevantServicePhotos(services),
+  );
 
   const hasEvidenceItems =
     nextEvidence.selected.length > 0 || nextEvidence.custom.length > 0 || linkedPhotos.length > 0;

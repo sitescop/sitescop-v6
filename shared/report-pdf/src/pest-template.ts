@@ -18,6 +18,7 @@ import {
   renderPropertyReportDetailsBlock,
   resolvePestReportTitle,
 } from './property-report-details-block.js';
+import { pdfSectionInaccessibleOptions } from './inaccessible-pdf.js';
 import type { ReportRenderContext } from './types.js';
 
 const PEST_PDF_SECTION_TITLES: Record<string, string> = {
@@ -130,12 +131,14 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
       key === 'accessibilityObstructions'
         ? new Set<string>(['undetectedStructuralRisk', 'riskExplanation'])
         : new Set<string>();
+    const inaccessible = pdfSectionInaccessibleOptions(key, data, ctx);
     const block = renderSectionBlock(
       SHARED_SECTION_TITLES[key] ?? key,
-      data,
+      inaccessible.data,
       extraSkip,
       undefined,
       getSharedSectionFieldDefs(key),
+      { collapseFields: inaccessible.collapseFields },
     );
     if (block) sectionCBlocks.push(block);
   }
@@ -155,6 +158,7 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
     for (const key of PEST_INSPECTION_SECTION_KEYS) {
       if (key === 'pestConclusion') continue;
       const data = ctx.formData.pest[key] as unknown as Record<string, unknown>;
+      const inaccessible = pdfSectionInaccessibleOptions(key, data, ctx);
       const fieldDefs = getPestSectionFieldDefs(key).map((def) => {
         const override = PEST_SECTION_FIELD_LABELS[key]?.[def.key];
         return override ? { ...def, label: override } : def;
@@ -162,16 +166,17 @@ export function renderPestReportHtml(ctx: ReportRenderContext): string {
       const extraSkip = new Set<string>();
       if (
         key === 'd12UntreatedTimber' &&
-        !String(data.recommendation ?? '').trim()
+        !String(inaccessible.data.recommendation ?? '').trim()
       ) {
         extraSkip.add('recommendation');
       }
       const block = renderSectionBlock(
         pestPdfSectionTitle(key),
-        data,
+        inaccessible.data,
         extraSkip,
         PEST_SECTION_FIELD_LABELS[key],
         fieldDefs,
+        { collapseFields: inaccessible.collapseFields },
       );
       if (block) sectionDBlocks.push(block);
     }

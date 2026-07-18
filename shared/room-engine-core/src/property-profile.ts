@@ -106,6 +106,10 @@ export function isDefectQuickCollapsed(section: {
 const SUBFLOOR_INACCESSIBLE_PRESETS = new Set([
   'Unsafe subfloor access',
   'Subfloor access obstructed',
+  'Low height clearance — inspector unable to enter and inspect',
+  'Restricted or undersized access hatch',
+  'Low ground clearance',
+  'Standing water or flooding',
 ]);
 
 /** Subfloor inspection sections apply unless the property has no subfloor space. */

@@ -85,6 +85,7 @@ const FIELD_LABEL_OVERRIDES: Record<string, string> = {
   subfloorObstructionPhotos: 'D — Subfloor Obstruction Photos',
   inaccessibleAreas: 'Inaccessible Areas',
   inaccessibleCustomLines: 'Inaccessible Area Notes',
+  inaccessibleAreaReasons: 'Inaccessible Area Reasons',
   undetectedStructuralRisk: 'Undetected Structural Damage Risk',
   riskExplanation: 'Risk Explanation',
   landSlope: 'Land Slope',

@@ -1,4 +1,5 @@
 import {
+  applyInaccessibleReasonComment,
   isMajorDefectObserved,
   isNoMajorDefectObserved,
   majorDefectRoomPdfComments,
@@ -14,6 +15,11 @@ export function renderRoomSectionBlock(
   room: ReportRoomInfo,
   resolvedLabels: string[],
   labelIndex: number,
+  inaccessible?: {
+    collapseFields?: boolean;
+    inaccessibleArea?: string | null;
+    inaccessibleReason?: string;
+  },
 ): string {
   const data = room.data as {
     noMajorDefectObserved?: boolean;
@@ -25,7 +31,7 @@ export function renderRoomSectionBlock(
   // Always prefer resolved labels (Master Bedroom, Ensuite, Bedroom 1…) over the
   // static DB room.label ("Bedroom 1") so PDF matches the type selected in workspace.
   const title = resolvedLabels[labelIndex] || room.label;
-  const sectionData =
+  let sectionData: Record<string, unknown> =
     noMajorDefect
       ? {
           ...room.data,
@@ -36,7 +42,19 @@ export function renderRoomSectionBlock(
             ...room.data,
             comments: majorDefectRoomPdfComments(room.roomType, room.data),
           }
-        : room.data;
+        : { ...room.data };
+
+  const collapseFields = Boolean(inaccessible?.collapseFields);
+  if (collapseFields && inaccessible?.inaccessibleArea) {
+    sectionData = {
+      ...sectionData,
+      comments: applyInaccessibleReasonComment(
+        typeof sectionData.comments === 'string' ? sectionData.comments : '',
+        inaccessible.inaccessibleArea,
+        inaccessible.inaccessibleReason ?? '',
+      ),
+    };
+  }
 
   return renderSectionBlock(
     title,
@@ -44,6 +62,7 @@ export function renderRoomSectionBlock(
     new Set(),
     undefined,
     getRoomFieldDefs(room.roomType, room.roomIndex),
+    { collapseFields },
   );
 }
 

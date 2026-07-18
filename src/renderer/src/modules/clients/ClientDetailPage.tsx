@@ -29,6 +29,7 @@ import type {
   UpdateClientInput,
 } from '@shared/api-types';
 import { getClientsApi, getSitescopApi } from '@/lib/sitescop-api';
+import { getClientNameStyle } from '@/lib/client-name-style';
 import { formatDisplayDate } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { Button, Card, Input } from '@/design-system/components';
@@ -182,6 +183,7 @@ function ClientPurchaserPanel({
   const [propertyAddressInput, setPropertyAddressInput] = useState(primaryPropertyAddress ?? '');
 
   const fullName = `${firstName} ${lastName}`.trim();
+  const nameStyle = getClientNameStyle(firstName, lastName);
 
   useEffect(() => {
     if (!editing) {
@@ -325,7 +327,20 @@ function ClientPurchaserPanel({
       ) : (
         <dl className="space-y-3">
           <DetailField label="Name" icon={User}>
-            {fullName}
+            <span className="inline-flex items-center gap-2.5">
+              <span
+                className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-2',
+                  nameStyle.bg,
+                  nameStyle.text,
+                  nameStyle.ring,
+                )}
+                aria-hidden
+              >
+                {nameStyle.initials}
+              </span>
+              <span className={cn('text-base font-bold', nameStyle.text)}>{fullName}</span>
+            </span>
           </DetailField>
           <DetailField label="Mobile" icon={Phone}>
             {mobile ? (
